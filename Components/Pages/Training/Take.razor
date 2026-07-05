@@ -39,22 +39,16 @@ else
         </div>
     }
 
-    @* Format-specific viewer host. Picking the right mount is the only
-       formatting responsibility the page has — the JS bridge handles
-       engagement tracking regardless of format.
+    @* Format-specific viewer host.
 
-       Round-AJ (this): round-AH conditionally dropped the
-       `ratio ratio-16x9` wrapper for the local-PDF branch (hypothesis:
-       portrait letter-sized canvases were being CSS-squished into a
-       16:9 box → bilinear blur on retina). After round-AH shipped,
-       the user reported the PDF.js canvas was entirely missing from
-       the page (not blurry, MISSING). Reverting the wrapper class to
-       the round-AG shape ("ratio ratio-16x9 mb-3" for both local-PDF
-       and external-PDF/video branches) restores at-least-visible
-       behavior. The "blurry" complaint stays in the round-AH-2 / AK
-       backlog as a known HiDPI-quality limitation — we accept the
-       trade until we have an in-browser repro to design against. *@
-    <div class="ratio ratio-16x9 mb-3" id="training-host">
+       Round-AO: conditional `ratio ratio-16x9` wrapper (dropped for
+       local PDFs). Without it, Bootstrap 5's `.ratio > *` rule
+       (`position: absolute; inset: 0`) collides on the local-PDF
+       branch: it applies to BOTH `#pdf-canvas-host` and `.btn-group`,
+       so the Prev/Next button group fills the entire 16:9 box and
+       visually covers the PDF.js canvas (user reported "PDF isn't
+       loading" on /Training/3). See STATUS.md round-AO. *@
+    <div class="@(_content.Format == TrainingFormat.Pdf && !_content.FilePathOrUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase) ? "mb-3" : "ratio ratio-16x9 mb-3")" id="training-host">
         @switch (_content.Format)
         {
             case TrainingFormat.Pdf:
@@ -66,10 +60,24 @@ else
                 }
                 else
                 {
-                    <div id="pdf-canvas-host" @ref="_pdfHostEl" class="w-100" style="overflow:auto; max-height:70vh;"></div>
+                    @* Round-AP: defensive visible-state for the local-PDF
+                       canvas host. After round-AO dropped the `ratio-16x9`
+                       wrapper for local PDFs, the canvas is in normal block
+                       flow with display:block (round-AP CSS). The host gets
+                       a subtle gray bg + min-height so the canvas's extent
+                       is VISIBLE (not white-on-white-invisible) even when
+                       page-1's top region is whitespace; the direct-download
+                       link gives the volunteer a guaranteed-readable surface
+                       if PDF.js ever fails to paint (e.g., browser without ES
+                       modules, encryption mismatch, etc.). *@
+                    <div id="pdf-canvas-host" @ref="_pdfHostEl" class="pdf-canvas-host border rounded p-1" style="overflow:auto; min-height: 60vh; background: #f8f9fa; width: 100%;"></div>
                     <div class="btn-group btn-group-sm mt-2" role="group" aria-label="PDF navigation">
                         <button type="button" class="btn btn-outline-secondary" data-pdf-action="prev" data-pdf-target="pdf-canvas-host">◀ Prev</button>
                         <button type="button" class="btn btn-outline-secondary" data-pdf-action="next" data-pdf-target="pdf-canvas-host">Next ▶</button>
+                    </div>
+                    <div class="small text-muted mt-1">
+                        <a href="@_content.FilePathOrUrl" target="_blank" rel="noopener">Open PDF directly</a>
+                        <span class="ms-2">(always available, even if PDF.js can't render)</span>
                     </div>
                 }
                 break;
@@ -121,6 +129,23 @@ else
     {
         <div class="alert alert-warning py-2 small mt-2 mb-2">
             Engagement tracking unavailable in this browser — using native rendering. Mark-completed gating is still enforced.
+            @if (!string.IsNullOrEmpty(_lastError))
+            {
+                @* Round-AR: surface the actual C# exception text
+                   inside the structural fallback panel. Before this
+                   fix, _lastError ("Viewer tracking unavailable: {ex.Message}")
+                   was set but only rendered deep in the markup near
+                   the Mark Completed button — easy to miss if the
+                   user was focused on the gray canvas-host area.
+                   With the round-AR trainingview.js paintErr helper,
+                   the gray box ALSO paints the JS-side message
+                   inline; this change covers the (rarer) case
+                   where the throw happens OUTSIDE the JS catch
+                   (e.g., a Blazor SignalR circuit drop surfaces a
+                   JSException that bubbles up before mountPdf runs)
+                   so the user can still read the cause here. *@
+                <div class="mt-1 mb-0 small text-danger font-monospace">@_lastError</div>
+            }
         </div>
         <iframe class="w-100" style="height: 70vh;" src="@path"></iframe>
     }
@@ -257,8 +282,22 @@ else
             // still requires InsufficientEngagement to clear before a
             // Mark-as-completed can succeed, so the trust boundary
             // remains intact.
+            //
+            // Round-AQ: explicitly re-render after set. Before this fix,
+            // the catch flipped `_trackingFailed = true` mid-render and
+            // went silent — Blazor Server does not auto-rerender after
+            // a state mutation from inside an awaited task, so the
+            // structural fallback warning + <iframe> below stayed
+            // un-rendered even though the flag flipped. Symptom: empty
+            // gray box forever, volunteer has no idea why. The JS-side
+            // half of round-AQ also paints the actual JS error text
+            // directly into #pdf-canvas-host — see trainingview.js
+            // mountPdf catch block. Together these convert the
+            // silent-failure UX into a self-diagnosing one. See
+            // STATUS.md round-AQ.
             _trackingFailed = true;
             _lastError = $"Viewer tracking unavailable: {ex.Message}";
+            await InvokeAsync(StateHasChanged);
         }
     }
 
