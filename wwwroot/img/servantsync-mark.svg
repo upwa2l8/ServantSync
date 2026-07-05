@@ -74,7 +74,8 @@
        Replaces a literal cross (the brand book explicitly bans
        religious symbols — see BRANDING.md "Why no cross") with a
        secular "spark" that crowns the heart without committing to
-       any single tradition. Color is the existing `--ss-glint` token. -->
+       any single tradition. Color matches the brand glint token
+       documented in BRANDING.md. -->
   <circle cx="256" cy="90" r="14" fill="#fbbf24"/>
 
   <!-- Decorative connector dots just outside each figure's outer edge.
