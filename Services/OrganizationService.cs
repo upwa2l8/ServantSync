@@ -15,6 +15,15 @@ public interface IOrganizationService
     /// or null on failure (caller-not-admin, invalid input, or DB error
     /// surfaces as an exception, but permission denial is in-band via
     /// null + log so the page handler can surface a friendly message).
+    ///
+    /// Round-AV: <paramref name="timeZoneId"/> is the per-org IANA zone the
+    /// creator picked on the new-org form. Null/empty means "use browser
+    /// default" (no org-TZ override); the new row's TimeZoneId column
+    /// stores NULL in that case. The value should be either null or a
+    /// <c>TimeZoneInfo.FindSystemTimeZoneById</c>-resolvable IANA id —
+    /// the Edit.razor picker constrains writes to the curated
+    /// <see cref="TimeZoneOptions"/> list and the IanaTimeZone validator
+    /// catches bad ids at the form layer before they reach this service.
     /// </summary>
     Task<int?> CreateOrgAsync(
         string? callerUserId,
@@ -23,6 +32,7 @@ public interface IOrganizationService
         string? address,
         string? contactEmail,
         string? contactPhone,
+        string? timeZoneId,
         CancellationToken ct = default);
 
     /// <summary>
@@ -61,6 +71,7 @@ public class OrganizationService : IOrganizationService
         string? address,
         string? contactEmail,
         string? contactPhone,
+        string? timeZoneId,
         CancellationToken ct = default)
     {
         // Reject obviously invalid input in-band: empty caller or empty name
@@ -89,6 +100,13 @@ public class OrganizationService : IOrganizationService
         // transaction by default; we need an explicit one to bind them.
         await using var tx = await db.Database.BeginTransactionAsync(ct);
 
+        // Round-AV: coerce empty/whitespace to NULL on the new row so the
+        // user-intent ("no override, use browser default") survives the
+        // service round-trip. The form layer's IanaTimeZone validator has
+        // already gated the value to null or a recognized IANA id, so
+        // here we only need the empty/whitespace -> null coercion.
+        var tzForNewRow = string.IsNullOrWhiteSpace(timeZoneId) ? null : timeZoneId.Trim();
+
         // Seed a registration token at Create-time so a freshly-spawned
         // tenancy can immediately share a self-signup URL without an
         // extra "rotate token" round-trip. Guid.NewGuid().ToString("N")
@@ -101,6 +119,7 @@ public class OrganizationService : IOrganizationService
             Address = address,
             ContactEmail = contactEmail,
             ContactPhone = contactPhone,
+            TimeZoneId = tzForNewRow,
             RegistrationToken = Guid.NewGuid().ToString("N"),
         };
         db.Organizations.Add(org);

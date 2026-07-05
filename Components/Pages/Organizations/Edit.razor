@@ -32,6 +32,30 @@
         <InputText id="phone" class="form-control" @bind-Value="_model.ContactPhone" />
         <label for="phone">Contact phone</label>
     </div>
+    <div class="form-floating mb-3">
+        @* Round-AV: per-org IANA timezone picker. The empty default option
+           maps to Organization.TimeZoneId = null on save, which preserves
+           the round-N behavior (fall back to the user's browser zone).
+           IanaTimeZoneAttribute catches any id that isn't a known IANA on
+           the form's DataAnnotationsValidator pass; the curated
+           TimeZoneOptions list ensures the dropdown never offers an id
+           the server can't resolve. Group labels partition the option
+           list so an admin in a non-US locale (e.g. Auckland, São Paulo)
+           can find their zone without scrolling a flat 30-item list. *@
+        <InputSelect id="tz" class="form-select" @bind-Value="_model.TimeZoneId">
+            <option value="">Use browser default (recommended)</option>
+            @foreach (var group in TimeZoneOptions.ByRegion())
+            {
+                <optgroup label="@group.Key">
+                    @foreach (var opt in group)
+                    {
+                        <option value="@opt.IanaId">@opt.DisplayName</option>
+                    }
+                </optgroup>
+            }
+        </InputSelect>
+        <label for="tz">Timezone</label>
+    </div>
 
     <button type="submit" class="btn btn-primary" disabled="@(!_canSubmit)">Save</button>
     <a class="btn btn-outline-secondary ms-2" href="Organizations">Cancel</a>
@@ -99,6 +123,7 @@
             Address = org.Address,
             ContactEmail = org.ContactEmail,
             ContactPhone = org.ContactPhone,
+            TimeZoneId = org.TimeZoneId,
         };
     }
 
@@ -124,7 +149,8 @@
                 description: _model.Description,
                 address: _model.Address,
                 contactEmail: _model.ContactEmail,
-                contactPhone: _model.ContactPhone);
+                contactPhone: _model.ContactPhone,
+                timeZoneId: _model.TimeZoneId);
             if (newId is null)
             {
                 _isError = true;
@@ -148,6 +174,15 @@
         existing.Address = _model.Address;
         existing.ContactEmail = _model.ContactEmail;
         existing.ContactPhone = _model.ContactPhone;
+        // Coerce the form's empty/whitespace string (the "Use browser
+        // default" option, or whitespace from a hand-edited fixture)
+        // to a NULL Organization.TimeZoneId. Blazor's <InputSelect>
+        // binds "" verbatim, and the IanaTimeZone validator treats
+        // whitespace as a valid "browser default" path — so the Save()
+        // coercion must match the validator's pass-set to keep
+        // round-trip semantics consistent. A NULL means "no org-TZ
+        // override, defer to the user's browser zone".
+        existing.TimeZoneId = string.IsNullOrWhiteSpace(_model.TimeZoneId) ? null : _model.TimeZoneId.Trim();
         await db.SaveChangesAsync();
         Nav.NavigateTo($"Organizations/{Id}");
     }
@@ -159,5 +194,10 @@
         [StringLength(300)] public string? Address { get; set; }
         [StringLength(120), EmailAddress] public string? ContactEmail { get; set; }
         [StringLength(40)] public string? ContactPhone { get; set; }
+        // Round-AV: per-org IANA timezone. Null (or empty in the form
+        // layer) means "no override \u2014 defer to the user's browser
+        // zone". The IanaTimeZone attribute catches invalid ids at the
+        // DataAnnotationsValidator pass before they hit Save().
+        [StringLength(64), IanaTimeZone] public string? TimeZoneId { get; set; }
     }
 }

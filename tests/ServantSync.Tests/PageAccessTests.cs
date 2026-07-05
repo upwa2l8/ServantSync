@@ -224,10 +224,12 @@ public class PageAccessTests : SqliteTestBase
 
         var coordResult = await NewOrgs().CreateOrgAsync(
             coordinatorId, "Should Not Exist",
-            description: null, address: null, contactEmail: null, contactPhone: null);
+            description: null, address: null, contactEmail: null, contactPhone: null,
+                timeZoneId: null);
         var volResult = await NewOrgs().CreateOrgAsync(
             volunteerId, "Should Not Exist 2",
-            description: null, address: null, contactEmail: null, contactPhone: null);
+            description: null, address: null, contactEmail: null, contactPhone: null,
+                timeZoneId: null);
 
         Assert.Null(coordResult);
         Assert.Null(volResult);

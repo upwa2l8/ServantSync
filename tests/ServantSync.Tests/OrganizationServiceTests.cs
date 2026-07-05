@@ -34,7 +34,8 @@ public class OrganizationServiceTests : SqliteTestBase
             description: "Created in test",
             address: null,
             contactEmail: null,
-            contactPhone: null);
+            contactPhone: null,
+                timeZoneId: null);
 
         Assert.NotNull(newId);
 
@@ -58,7 +59,8 @@ public class OrganizationServiceTests : SqliteTestBase
         var newId = await NewSvc().CreateOrgAsync(
             callerUserId: admin.UserId,
             name: "  Spaced Out  ",
-            description: null, address: null, contactEmail: null, contactPhone: null);
+            description: null, address: null, contactEmail: null, contactPhone: null,
+                timeZoneId: null);
 
         Assert.NotNull(newId);
         await using var db = await Factory.CreateDbContextAsync();
@@ -77,7 +79,8 @@ public class OrganizationServiceTests : SqliteTestBase
         var newId = await NewSvc().CreateOrgAsync(
             callerUserId: coordinator.UserId,
             name: "Should Not Exist",
-            description: null, address: null, contactEmail: null, contactPhone: null);
+            description: null, address: null, contactEmail: null, contactPhone: null,
+                timeZoneId: null);
 
         Assert.Null(newId);
 
@@ -95,7 +98,8 @@ public class OrganizationServiceTests : SqliteTestBase
         var newId = await NewSvc().CreateOrgAsync(
             callerUserId: volunteer.UserId,
             name: "Should Not Exist",
-            description: null, address: null, contactEmail: null, contactPhone: null);
+            description: null, address: null, contactEmail: null, contactPhone: null,
+                timeZoneId: null);
 
         Assert.Null(newId);
     }
@@ -109,7 +113,8 @@ public class OrganizationServiceTests : SqliteTestBase
         var newId = await NewSvc().CreateOrgAsync(
             callerUserId: nobody.UserId,
             name: "Should Not Exist",
-            description: null, address: null, contactEmail: null, contactPhone: null);
+            description: null, address: null, contactEmail: null, contactPhone: null,
+                timeZoneId: null);
 
         Assert.Null(newId);
     }
@@ -120,7 +125,8 @@ public class OrganizationServiceTests : SqliteTestBase
         var newId = await NewSvc().CreateOrgAsync(
             callerUserId: "",
             name: "Should Not Exist",
-            description: null, address: null, contactEmail: null, contactPhone: null);
+            description: null, address: null, contactEmail: null, contactPhone: null,
+                timeZoneId: null);
 
         Assert.Null(newId);
     }
@@ -135,7 +141,8 @@ public class OrganizationServiceTests : SqliteTestBase
         var newId = await NewSvc().CreateOrgAsync(
             callerUserId: admin.UserId,
             name: "",
-            description: null, address: null, contactEmail: null, contactPhone: null);
+            description: null, address: null, contactEmail: null, contactPhone: null,
+                timeZoneId: null);
 
         Assert.Null(newId);
     }
@@ -150,7 +157,8 @@ public class OrganizationServiceTests : SqliteTestBase
         var newId = await NewSvc().CreateOrgAsync(
             callerUserId: admin.UserId,
             name: "   ",
-            description: null, address: null, contactEmail: null, contactPhone: null);
+            description: null, address: null, contactEmail: null, contactPhone: null,
+                timeZoneId: null);
 
         Assert.Null(newId);
     }
@@ -168,7 +176,8 @@ public class OrganizationServiceTests : SqliteTestBase
         var newId = await NewSvc().CreateOrgAsync(
             callerUserId: admin.UserId,
             name: "X",
-            description: null, address: null, contactEmail: null, contactPhone: null);
+            description: null, address: null, contactEmail: null, contactPhone: null,
+                timeZoneId: null);
 
         await using var db = await Factory.CreateDbContextAsync();
         var row = await db.OrganizationMemberships.SingleAsync(m =>
@@ -191,7 +200,8 @@ public class OrganizationServiceTests : SqliteTestBase
         var newId = await NewSvc().CreateOrgAsync(
             callerUserId: admin.UserId,
             name: "Atomic Org",
-            description: null, address: null, contactEmail: null, contactPhone: null);
+            description: null, address: null, contactEmail: null, contactPhone: null,
+                timeZoneId: null);
 
         await using var db = await Factory.CreateDbContextAsync();
 
@@ -216,7 +226,8 @@ public class OrganizationServiceTests : SqliteTestBase
         var newId = await NewSvc().CreateOrgAsync(
             callerUserId: admin.UserId,
             name: "Link-Ready Org",
-            description: null, address: null, contactEmail: null, contactPhone: null);
+            description: null, address: null, contactEmail: null, contactPhone: null,
+                timeZoneId: null);
 
         await using var db = await Factory.CreateDbContextAsync();
         var org = await db.Organizations.SingleAsync(o => o.Id == newId);
@@ -239,10 +250,12 @@ public class OrganizationServiceTests : SqliteTestBase
 
         var idA = await NewSvc().CreateOrgAsync(
             callerUserId: admin.UserId, name: "Org A",
-            description: null, address: null, contactEmail: null, contactPhone: null);
+            description: null, address: null, contactEmail: null, contactPhone: null,
+                timeZoneId: null);
         var idB = await NewSvc().CreateOrgAsync(
             callerUserId: admin.UserId, name: "Org B",
-            description: null, address: null, contactEmail: null, contactPhone: null);
+            description: null, address: null, contactEmail: null, contactPhone: null,
+                timeZoneId: null);
 
         await using var db = await Factory.CreateDbContextAsync();
         var tokA = (await db.Organizations.FindAsync(idA))!.RegistrationToken;
