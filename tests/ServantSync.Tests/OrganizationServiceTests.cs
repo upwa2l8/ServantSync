@@ -368,4 +368,85 @@ public class OrganizationServiceTests : SqliteTestBase
         var result = await NewSvc().GenerateRegistrationTokenAsync(admin.UserId, organizationId: 9_999_999);
         Assert.Null(result);
     }
+
+    // ─── Round-AV: CreateOrgAsync timeZoneId round-trip ──────────────────
+
+    [Fact]
+    public async Task CreateOrg_WithValidIanaTimeZoneId_PersistsColumn()
+    {
+        var seedOrg = TestData.Org(Factory);
+        var admin = TestData.Person(Factory);
+        TestData.Membership(Factory, admin.UserId, seedOrg.Id, OrganizationRole.Admin);
+
+        var newId = await NewSvc().CreateOrgAsync(
+            callerUserId: admin.UserId,
+            name: "TZ Org",
+            description: null, address: null, contactEmail: null, contactPhone: null,
+                timeZoneId: "America/New_York");
+
+        Assert.NotNull(newId);
+        await using var db = await Factory.CreateDbContextAsync();
+        var org = await db.Organizations.SingleAsync(o => o.Id == newId);
+        Assert.Equal("America/New_York", org.TimeZoneId);
+    }
+
+    [Fact]
+    public async Task CreateOrg_WithNullTimeZoneId_StoresNullColumn()
+    {
+        var seedOrg = TestData.Org(Factory);
+        var admin = TestData.Person(Factory);
+        TestData.Membership(Factory, admin.UserId, seedOrg.Id, OrganizationRole.Admin);
+
+        var newId = await NewSvc().CreateOrgAsync(
+            callerUserId: admin.UserId,
+            name: "Browser TZ Org",
+            description: null, address: null, contactEmail: null, contactPhone: null,
+                timeZoneId: null);
+
+        Assert.NotNull(newId);
+        await using var db = await Factory.CreateDbContextAsync();
+        var org = await db.Organizations.SingleAsync(o => o.Id == newId);
+        Assert.Null(org.TimeZoneId); // "use browser default" survives round-trip
+    }
+
+    [Fact]
+    public async Task CreateOrg_WithWhitespaceTimeZoneId_StoresNullColumn()
+    {
+        // Same path as null: empty <option value=""> + IanaTimeZone validator
+        // pass-through means whitespace reaches the service. Coerce here so
+        // the user-intent ("no override") is honored on the column too.
+        var seedOrg = TestData.Org(Factory);
+        var admin = TestData.Person(Factory);
+        TestData.Membership(Factory, admin.UserId, seedOrg.Id, OrganizationRole.Admin);
+
+        var newId = await NewSvc().CreateOrgAsync(
+            callerUserId: admin.UserId,
+            name: "Whitespace TZ Org",
+            description: null, address: null, contactEmail: null, contactPhone: null,
+                timeZoneId: "   ");
+
+        Assert.NotNull(newId);
+        await using var db = await Factory.CreateDbContextAsync();
+        var org = await db.Organizations.SingleAsync(o => o.Id == newId);
+        Assert.Null(org.TimeZoneId);
+    }
+
+    [Fact]
+    public async Task CreateOrg_WithTimeZoneId_TrimsTrailingWhitespace()
+    {
+        var seedOrg = TestData.Org(Factory);
+        var admin = TestData.Person(Factory);
+        TestData.Membership(Factory, admin.UserId, seedOrg.Id, OrganizationRole.Admin);
+
+        var newId = await NewSvc().CreateOrgAsync(
+            callerUserId: admin.UserId,
+            name: "Trimmed TZ Org",
+            description: null, address: null, contactEmail: null, contactPhone: null,
+                timeZoneId: "  Europe/London  ");
+
+        Assert.NotNull(newId);
+        await using var db = await Factory.CreateDbContextAsync();
+        var org = await db.Organizations.SingleAsync(o => o.Id == newId);
+        Assert.Equal("Europe/London", org.TimeZoneId);
+    }
 }
