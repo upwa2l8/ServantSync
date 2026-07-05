@@ -96,7 +96,16 @@ else
                             <a href="Organizations/@s.OrganizationId">@s.MinistryName</a>
                         </div>
                         <p class="mb-2">
-                            <strong><LocalTime Utc="@s.StartUtc" Format="ddd, MMM d \u2022 h:mm tt" /></strong>
+                            @* Format is wrapped in @("…") so Razor evaluates the C#
+                               string literal and resolves the \u2022 Unicode escape
+                               into an actual bullet ( • ) character. Without the
+                               @(...) wrapper, Razor treats the attribute as a plain
+                               HTML value and the literal six characters "\u2022"
+                               pass through to DateTime.ToString, which renders them
+                               as plain text "u2022" instead of the bullet. The wrap
+                               preserves the user's design intent (keep the bullet)
+                               per the round-AV design decision. *@
+                            <strong><LocalTime Utc="@s.StartUtc" Format="@("ddd, MMM d \u2022 h:mm tt")" /></strong>
                             &ndash; <LocalTime Utc="@s.EndUtc" Format="h:mm tt" />
                             @if (!string.IsNullOrEmpty(s.Location))
                             {
