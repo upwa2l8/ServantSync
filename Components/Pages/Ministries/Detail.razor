@@ -129,7 +129,7 @@ else
                     }
                     <div class="mt-2">
                         <a class="btn btn-sm btn-outline-primary"
-                           href="@($"Organizations/{OrgId}/Ministries/{Id}/Roles/{s.Id}/Schedule")">Schedule</a>
+                           href="@ScheduleHref(s.Id)">Schedule</a>
                         <a class="btn btn-sm btn-outline-secondary"
                            href="@($"Organizations/{OrgId}/Ministries/{Id}/Roles/{s.Id}/Edit")">Edit</a>
                     </div>
@@ -153,6 +153,13 @@ else
     // ServiceSlots/Edit.razor. Default false (deny) until OnInitialized
     // resolves the user id.
     private bool _canManageOrg;
+    // Coordinator-or-admin gate for this ministry. Wider than
+    // _canManageOrg (Admin only) so Coordinators can also drive the
+    // Schedule action on the slot list. Same gate is re-checked
+    // server-side by ServiceSlots/Schedule.razor via
+    // CanManageSlotAsync. Default false (deny) until OnInitialized
+    // resolves the user id.
+    private bool _canManageMinistry;
     // True iff the signed-in user is a member of the parent org. Drives
     // the Join/Leave button visibility AND gates the page itself (a
     // signed-in user not in the org gets the Not Found panel rather than
@@ -197,6 +204,7 @@ else
         if (!string.IsNullOrEmpty(_userId))
         {
             _canManageOrg = await OrgAuth.IsOrgAdminAsync(_userId, OrgId);
+            _canManageMinistry = await OrgAuth.CanManageMinistryAsync(_userId, Id);
             _isInOrg = await db.OrganizationMemberships
                 .AnyAsync(m => m.OrganizationId == OrgId && m.PersonUserId == _userId);
             _isInterested = _isInOrg && await db.MinistryInterests
@@ -238,6 +246,16 @@ else
             _busyToggle = false;
         }
     }
+
+    // Schedule-button href: managers (Admin or Coordinator) go to the
+    // scheduling editor so they can create assignments / open shifts;
+    // everyone else (volunteer, in-org member, out-of-org visitor)
+    // follows the slot name to the read-only published schedule view
+    // (ServiceSlots/Detail.razor) — the "actual published schedule"
+    // the slot-list affordance is meant to surface for non-managers.
+    private string ScheduleHref(int slotId) => _canManageMinistry
+        ? $"Organizations/{OrgId}/Ministries/{Id}/Roles/{slotId}/Schedule"
+        : $"Organizations/{OrgId}/Ministries/{Id}/Roles/{slotId}";
 
     private async Task LeaveThisMinistryAsync()
     {

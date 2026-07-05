@@ -361,8 +361,20 @@ else
     else
     {
         <div class="mt-3">
-            <h6>Org-wide training required for every volunteer</h6>
-            <OrgTrainingEditor OrganizationId="Id" />
+            @* Manager-only: the OrgTrainingEditor is the affordance for
+               adding or removing TrainingRequirement rows scoped to this
+               organization. A volunteer (or any non-manager) must not be
+               able to mark training mandatory — only an Admin or
+               Coordinator of this org can drive the EditForm. _isOrgManager
+               is computed in OnInitializedAsync via
+               OrgAuth.CanManageOrgAsync (which accepts both Admins and
+               Coordinators); the gate matches what the user explicitly
+               asked for ("coordinator or administrator"). *@
+            @if (_isOrgManager)
+            {
+                <h6>Org-wide training required for every volunteer</h6>
+                <OrgTrainingEditor OrganizationId="Id" />
+            }
         </div>
     }
 }
@@ -391,6 +403,14 @@ else
     // enforce the server-side check; this flag hides the form affordance
     // for non-Admins so they don't 403 on submit.
     private bool _canAddMember;
+    // Manager-of-this-org gate, used by the Org-training tab. Wider than
+    // _canAddMember (Admin only) so Coordinators can also drive the
+    // OrgTrainingEditor. Distinct name from the Admin-only flag so a
+    // future contributor doesn't accidentally cross-wire the two
+    // (semantics: "can this user manage the org at all" vs "is this
+    // user the org's Admin"). Default false (deny) until OnInitialized
+    // resolves the user id.
+    private bool _isOrgManager;
     // True after OnInitializedAsync has finished fetching the org so the
     // renderer can distinguish "still loading" from "loaded but no
     // Organization matched the route Id" (the latter renders a Not Found
@@ -438,6 +458,13 @@ else
         var state = await Auth.GetAuthenticationStateAsync();
         _userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
         _canAddMember = !string.IsNullOrEmpty(_userId) && await OrgAuth.IsOrgAdminAsync(_userId, Id);
+        // CanManageOrgAsync = Admin OR Coordinator of THIS org. The per-org
+        // variant is the right gate for the Org-training tab (which is
+        // scoped to the whole org, not a specific ministry). Single source
+        // of truth = the OrganizationMemberships table; the same gate is
+        // re-checked server-side by ITrainingService.
+        _isOrgManager = !string.IsNullOrEmpty(_userId)
+            && await OrgAuth.CanManageOrgAsync(_userId, Id);
         await Reload();
         // Refresh the registration-link string from the org's token. After
         // Reload, _org is either fully populated or still null (no match);

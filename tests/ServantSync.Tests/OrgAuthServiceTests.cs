@@ -290,4 +290,84 @@ public class OrgAuthServiceTests : SqliteTestBase
         var caller = TestData.Person(Factory);
         Assert.False(await NewSvc().CanManageSlotAsync(caller.UserId, slotId: 99_999));
     }
+
+    // ─── CanManageOrgAsync (per-org Admin OR Coordinator) ──────────────
+    // Per-org counterpart to IsAnyOrgManagerAsync. Drives the
+    // Organizations/Detail.razor Org-training tab gate: a Coordinator
+    // of THIS org should be able to manage org-wide training, even
+    // though they can't add members. Pin the per-org semantics so a
+    // future refactor that conflates "any org" with "this org" can't
+    // silently open the gate to foreign-org Coordinators.
+
+    [Fact]
+    public async Task CanManageOrgAsync_AdminOfThisOrg_True()
+    {
+        var org = TestData.Org(Factory);
+        var admin = TestData.Person(Factory);
+        TestData.Membership(Factory, admin.UserId, org.Id, OrganizationRole.Admin);
+
+        Assert.True(await NewSvc().CanManageOrgAsync(admin.UserId, org.Id));
+    }
+
+    [Fact]
+    public async Task CanManageOrgAsync_CoordinatorOfThisOrg_True()
+    {
+        // Coordinator role is intentionally considered a manager at the
+        // per-org level (the user requirement was that the manager
+        // surfaces are visible to anyone with Admin OR Coordinator). This
+        // is the test that locks down the Organizations/Detail.razor
+        // Org-training-tab gate for a Coordinator caller.
+        var org = TestData.Org(Factory);
+        var coordinator = TestData.Person(Factory);
+        TestData.Membership(Factory, coordinator.UserId, org.Id, OrganizationRole.Coordinator);
+
+        Assert.True(await NewSvc().CanManageOrgAsync(coordinator.UserId, org.Id));
+    }
+
+    [Fact]
+    public async Task CanManageOrgAsync_OnlyVolunteerOfThisOrg_False()
+    {
+        // The user's "I can make training mandatory" bug: a Volunteer
+        // member of the org must NOT be able to manage org training.
+        var org = TestData.Org(Factory);
+        var volunteer = TestData.Person(Factory);
+        TestData.Membership(Factory, volunteer.UserId, org.Id, OrganizationRole.Volunteer);
+
+        Assert.False(await NewSvc().CanManageOrgAsync(volunteer.UserId, org.Id));
+    }
+
+    [Fact]
+    public async Task CanManageOrgAsync_AdminOfDifferentOrg_False()
+    {
+        // Admin of Org B should NOT pass the per-org check for Org A.
+        // A regression that ignores the orgId parameter would expose
+        // org training to foreign-org Admins.
+        var orgA = TestData.Org(Factory, "Org A");
+        var orgB = TestData.Org(Factory, "Org B");
+        var orgBAdmin = TestData.Person(Factory);
+        TestData.Membership(Factory, orgBAdmin.UserId, orgB.Id, OrganizationRole.Admin);
+
+        Assert.False(await NewSvc().CanManageOrgAsync(orgBAdmin.UserId, orgA.Id));
+    }
+
+    [Fact]
+    public async Task CanManageOrgAsync_NotAMemberAtAll_False()
+    {
+        // Empty-set branch: caller exists in the system but has no
+        // OrganizationMembership rows. Should return false (not throw).
+        var org = TestData.Org(Factory);
+        var stranger = TestData.Person(Factory);
+
+        Assert.False(await NewSvc().CanManageOrgAsync(stranger.UserId, org.Id));
+    }
+
+    [Fact]
+    public async Task CanManageOrgAsync_EmptyUserId_False()
+    {
+        // Plumb the empty-userId sentinel that Blazor pages pass before
+        // auth state resolves. Default false rather than throw so the
+        // OnInitialized gate doesn't crash on first SSR frame.
+        var org = TestData.Org(Factory);
+        Assert.False(await NewSvc().CanManageOrgAsync("", org.Id));
+    }
 }

@@ -64,8 +64,20 @@ else
         </div>
     </div>
 
-    <h5>Slot-specific training</h5>
-    <SlotTrainingEditor ServiceSlotId="Id" />
+    @* Manager-only: the SlotTrainingEditor is the affordance for adding
+       or removing TrainingRequirement rows scoped to this slot. A
+       volunteer (or any non-manager) must not be able to mark training
+       mandatory — only an Admin or Coordinator of the slot's ministry
+       can drive the EditForm. _canManage is already computed in
+       OnInitializedAsync via SlotDocs.CanManageSlotAsync, which is the
+       same gate ServiceSlots/Schedule.razor applies server-side. The
+       <h5> heading is inside the gate so non-managers don't see an
+       orphan section header. *@
+    @if (_canManage)
+    {
+        <h5>Slot-specific training</h5>
+        <SlotTrainingEditor ServiceSlotId="Id" />
+    }
 
     <h5 class="mt-4">Upcoming assignments</h5>
     @if (!_slot.Assignments.Any())
