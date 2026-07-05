@@ -82,6 +82,24 @@ public class OrganizationMinistryService : IOrganizationMinistryService
             return MinistryUpsertResult.PermissionDenied;
         }
 
+        // Normalize the FK-write input at the chokepoint so EVERY caller
+        // survives the "no coordinator" affordance on Ministries/Edit.razor
+        // line 28. The dropdown posts the literal string "" (empty), NOT
+        // null, because <option value=""> is a stringly-typed HTML contract;
+        // writing "" through to EF would normally succeed BUT the
+        // FK_Ministries_People_CoordinatorPersonUserId constraint then
+        // fails because no Person has UserId = "" (verified bug — SQLite
+        // Error 19 on UPDATE Ministries SET CoordinatorPersonUserId = ""
+        // triggered EF's DbUpdateException before any save). Same pattern
+        // used in ICoordinatorAssignmentsService.AssignAsync line 182 for
+        // the slot's parallel column; centralizing it here keeps the page
+        // markup simple and protects future API/MVC callers from the same
+        // mistake. Trim() isn't applied — the input is a 36-char GUID, the
+        // only realistic whitespace shape is "" or " ".
+        coordinatorPersonUserId = string.IsNullOrWhiteSpace(coordinatorPersonUserId)
+            ? null
+            : coordinatorPersonUserId;
+
         await using var db = await _factory.CreateDbContextAsync(ct);
 
         if (ministryId is int editId)

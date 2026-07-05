@@ -251,4 +251,100 @@ public class OrganizationMinistryServiceTests : SqliteTestBase
 
         Assert.Equal(MinistryUpsertResult.NotFound, result);
     }
+
+    // ----- R12 — coordinator = "" must persist as NULL -----
+    //
+    // Ministries/Edit.razor line 28 binds the coordinator dropdown to a
+    // `string?` property via <option value="">— none —</option>. The
+    // browser posts the literal empty string (never null) so writing
+    // "" through to EF would otherwise trip the
+    // FK_Ministries_People_CoordinatorPersonUserId constraint (SQLite
+    // Error 19 observed in production). These tests pin the service's
+    // normalize-at-the-chokepoint behavior.
+    [Fact]
+    public async Task UpsertNew_EmptyCoordinatorUserId_NullStored()
+    {
+        var org = TestData.Org(Factory);
+        var admin = TestData.Person(Factory);
+        TestData.Membership(Factory, admin.UserId, org.Id, OrganizationRole.Admin);
+
+        var result = await NewSvc().UpsertAsync(
+            callerUserId: admin.UserId,
+            organizationId: org.Id,
+            ministryId: null,
+            name: "Empty Coord",
+            description: null,
+            coordinatorPersonUserId: "", // <-- the form's "none" affordance
+            coordinatorEmail: null,
+            coordinatorPhone: null);
+
+        Assert.Equal(MinistryUpsertResult.Saved, result);
+
+        await using var db = await Factory.CreateDbContextAsync();
+        var min = await db.Ministries.SingleAsync(m => m.Name == "Empty Coord");
+        Assert.Null(min.CoordinatorPersonUserId);
+    }
+
+    [Fact]
+    public async Task UpsertEdit_HadCoordinator_SetToEmpty_NullStored()
+    {
+        var org = TestData.Org(Factory);
+        var admin = TestData.Person(Factory);
+        var coordinator = TestData.Person(Factory);
+        var ministry = TestData.Ministry(Factory, org.Id, "Already Set");
+        TestData.Membership(Factory, admin.UserId, org.Id, OrganizationRole.Admin);
+        // Seed an existing coordinator assignment so the edit path
+        // has a known pre-existing value to overwrite in the act step.
+        await using (var db = await Factory.CreateDbContextAsync())
+        {
+            ministry.CoordinatorPersonUserId = coordinator.UserId;
+            db.Ministries.Update(ministry);
+            await db.SaveChangesAsync();
+        }
+
+        var result = await NewSvc().UpsertAsync(
+            callerUserId: admin.UserId,
+            organizationId: org.Id,
+            ministryId: ministry.Id,
+            name: ministry.Name,
+            description: null,
+            coordinatorPersonUserId: "",  // <-- clearing via "none"
+            coordinatorEmail: null,
+            coordinatorPhone: null);
+
+        Assert.Equal(MinistryUpsertResult.Saved, result);
+
+        await using var verifyDb = await Factory.CreateDbContextAsync();
+        var after = await verifyDb.Ministries.FindAsync(ministry.Id);
+        Assert.Null(after!.CoordinatorPersonUserId);
+    }
+
+    [Fact]
+    public async Task UpsertEdit_WhitespaceCoordinatorUserId_NullStored()
+    {
+        // Defensive: IsNullOrWhiteSpace covers a hand-crafted caller
+        // sending "   " rather than "". The page wouldn't produce this
+        // but the service is the chokepoint for ALL callers, so the
+        // contract has to be wider than the page's exact posts.
+        var org = TestData.Org(Factory);
+        var admin = TestData.Person(Factory);
+        var ministry = TestData.Ministry(Factory, org.Id, "WS test");
+        TestData.Membership(Factory, admin.UserId, org.Id, OrganizationRole.Admin);
+
+        var result = await NewSvc().UpsertAsync(
+            callerUserId: admin.UserId,
+            organizationId: org.Id,
+            ministryId: ministry.Id,
+            name: ministry.Name,
+            description: null,
+            coordinatorPersonUserId: "   ",
+            coordinatorEmail: null,
+            coordinatorPhone: null);
+
+        Assert.Equal(MinistryUpsertResult.Saved, result);
+
+        await using var db = await Factory.CreateDbContextAsync();
+        var after = await db.Ministries.FindAsync(ministry.Id);
+        Assert.Null(after!.CoordinatorPersonUserId);
+    }
 }
