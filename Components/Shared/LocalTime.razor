@@ -1,7 +1,6 @@
 @implements IDisposable
 
-@*
-    Renders a UTC value as the user's browser-detected local time.
+@* Renders a UTC value as the user's browser-detected local time.
 
     The browser timezone is set once per Blazor circuit by
     `Components.TimeZoneInitializer` (via the scoped
@@ -26,6 +25,14 @@
     Pass `Class` to add a Bootstrap class on the `<time>` element — used
     by the calendar pill to preserve the original `calendar-pill-time`
     spacing/styling.
+
+    Pass `FallbackTimeZoneId` (round-AV) to provide an org-level IANA
+    timezone id used when the browser-detected zone isn't available.
+    Resolution precedence: provider (browser) → FallbackTimeZoneId (org)
+    → server local. Typical caller is a page that resolves the parent
+    org and passes its `Organization.TimeZoneId` here. An invalid IANA
+    id on the fallback tier falls through silently — it must not break
+    a page render if an admin typed a typo into the database.
 *@
 
 <time datetime="@Utc.ToString("o")" class="@Class">@DisplayLocal</time>
@@ -35,8 +42,25 @@
     [Parameter] public string Format { get; set; } = "MMM d, h:mm tt";
     [Parameter] public string? Class { get; set; }
 
+    /// <summary>
+    /// Optional fallback IANA timezone id used when the browser-detected
+    /// provider zone is missing. Round-AV: callers resolve the parent org
+    /// of the rendered event (or the user's picked override for /Open,
+    /// which lists shifts across multiple orgs) and pipe the org's
+    /// <c>Organization.TimeZoneId</c> here. Resolution precedence
+    /// (implemented by the private <c>ResolveZone</c> helper just below):
+    ///   1. <c>TzProvider.TimeZoneId</c> (browser-detected) —
+    ///      strict; reflects what the JS layer reported.
+    ///   2. This <c>FallbackTimeZoneId</c> (org-TZ from the database) —
+    ///      defensive; a typo'd IANA id silently falls through.
+    ///   3. <c>TimeZoneInfo.Local</c> (server-Local during the prerender
+    ///      window before either of the above is known).
+    /// </summary>
+    [Parameter] public string? FallbackTimeZoneId { get; set; }
+
     // Optional — tests or contexts that don't register UserTimeZoneProvider
-    // fall through to the server's TimeZoneInfo.Local.
+    // fall through to the next tier below (org-TZ fallback, then server
+    // local).
     [Inject] private UserTimeZoneProvider? TzProvider { get; set; }
 
     private string DisplayLocal => Convert(Utc).ToString(Format);
@@ -49,10 +73,53 @@
         // they were server-local (the bug IcsCalendarGenerator already
         // guards against for the same reason).
         utc = DateTime.SpecifyKind(utc, DateTimeKind.Utc);
-        var zone = !string.IsNullOrEmpty(TzProvider?.TimeZoneId)
-            ? TimeZoneInfo.FindSystemTimeZoneById(TzProvider.TimeZoneId)
-            : TimeZoneInfo.Local;
-        return TimeZoneInfo.ConvertTimeFromUtc(utc, zone);
+        return TimeZoneInfo.ConvertTimeFromUtc(utc, ResolveZone());
+    }
+
+    /// <summary>
+    /// Walk the 3-tier resolution chain. The returned
+    /// <see cref="TimeZoneInfo"/> is always non-null.
+    ///
+    /// Tier 1 is strict: <see cref="TzProvider"/>.TimeZoneId comes from
+    /// <c>Intl.DateTimeFormat().resolvedOptions().timeZone</c> via the
+    /// browser, which always returns a valid IANA id on a supported
+    /// runtime. Throwing here surfaces a real JS-layer bug.
+    ///
+    /// Tier 2 is defensive: <see cref="FallbackTimeZoneId"/> comes from
+    /// the database; an admin's hand-typed or migrated typo can't break
+    /// a page render — we step down to tier 3 instead.
+    /// </summary>
+    private TimeZoneInfo ResolveZone()
+    {
+        // Tier 1 — strict: provider id comes from the browser JS layer,
+        // which always returns a valid IANA id on a supported runtime.
+        // A throw here surfaces a real JS-layer / DI bug rather than silent
+        // mislocalization.
+        var providerId = TzProvider?.TimeZoneId;
+        if (!string.IsNullOrEmpty(providerId))
+            return TimeZoneInfo.FindSystemTimeZoneById(providerId);
+
+        // Tier 2 — defensive: the fallback id comes from the database, so
+        // a hand-typed or migrated typo'd IANA id must not break a page
+        // render. We catch broadly (TimeZoneNotFoundException +
+        // InvalidTimeZoneException together) so any failure mode in the
+        // lookup chain steps down to tier 3 instead of crashing.
+        var fallbackId = FallbackTimeZoneId;
+        if (!string.IsNullOrEmpty(fallbackId))
+        {
+            try
+            {
+                return TimeZoneInfo.FindSystemTimeZoneById(fallbackId);
+            }
+            catch (Exception)
+            {
+                // Fall through to tier 3 (server local).
+            }
+        }
+
+        // Tier 3 — last-resort: server local during the prerender window
+        // before either tier above is known.
+        return TimeZoneInfo.Local;
     }
 
     protected override void OnInitialized()
