@@ -105,8 +105,8 @@ else
                                as plain text "u2022" instead of the bullet. The wrap
                                preserves the user's design intent (keep the bullet)
                                per the round-AV design decision. *@
-                            <strong><LocalTime Utc="@s.StartUtc" Format="@("ddd, MMM d \u2022 h:mm tt")" /></strong>
-                            &ndash; <LocalTime Utc="@s.EndUtc" Format="h:mm tt" />
+                            <strong><LocalTime Utc="@s.StartUtc" Format="@("ddd, MMM d \u2022 h:mm tt")" FallbackTimeZoneId="@s.OrganizationTimeZoneId" /></strong>
+                            &ndash; <LocalTime Utc="@s.EndUtc" Format="h:mm tt" FallbackTimeZoneId="@s.OrganizationTimeZoneId" />
                             @if (!string.IsNullOrEmpty(s.Location))
                             {
                                 <span class="text-muted small ms-2">@s.Location</span>
