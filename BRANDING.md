@@ -12,12 +12,14 @@ documented below, **update the assets**.
 
 ## TL;DR
 
-Two interlocking C-arcs (cool indigo→violet on the left, warm
-amber→rose on the right) form a soft heart-shape void in the negative
-space. Four open-end dots and a central bridge dot are the "sync
-endpoints / people / handoffs" motif. The brand reads as universal
-"care-of-others" — works equally well for a Methodist church
-coordinator, a Christian youth sports league, and a secular
+Two stylized figures (cool indigo→violet on the left, warm amber→rose
+on the right) with raised arms form a soft heart-shape void in the
+negative space. A small warm-amber glint floats above the heart apex
+in place of any religious symbol, and two opposing sync arrows sit at
+the bottom. Four decorative connector dots punctuate the outer edges
+of the figures as the "people / sync endpoints" motif. The brand reads
+as universal "care-of-others" — works equally well for a Methodist
+church coordinator, a Christian youth sports league, and a secular
 neighborhood-watch co-op.
 
 The mark is intentionally **non-overtly-Christian**: no cross, no fish,
@@ -43,10 +45,20 @@ A literal cross would have been the obvious answer, but it would have:
   (corporate volunteer programs, college clubs, neighbourhood
   doesn't-care-what-you-believe mutual-aid groups).
 
-The heart-shape void in the negative space gives the "care-of-others"
-energy without committing to a single tradition. The cool/warm color
-tension gives a sense of "two parties meeting across difference"
-without being preachy about it.
+The new mark replaces the cross with a small warm-amber glint dot
+(`#fbbf24`, the existing `--ss-glint` token). The glint preserves the
+vertical hierarchy a cross would have given the layout without
+committing to any single tradition. The two-figures + heart shape
+still carries the "care-of-others" energy through the negative space
+alone, and the cool/warm color tension still reads as "two parties
+meeting across difference" without being preachy about it.
+
+A round-AS-style user submitted a reference logo with a literal
+cross on top of the heart, and the cross was the load-bearing
+non-starter that drove this round-AU redraw. The rest of the
+reference (the two figures, the heart-via-negative-space, the
+sync-arrow motif) is exactly the brand language we want — only the
+cross was rejected.
 
 ---
 
@@ -55,27 +67,37 @@ without being preachy about it.
 ```
         ┌─────────────────┐
         │                 │
-        │   ╭───●───╮     │     ● = end-dot (4 of them)
-        │   │       │     │
-        │   ◯ ↶   ↷ ◯     │     ◯ = the two C-arcs (opposing bezier curves)
-        │   │       │     │
-        │   ╰───●───╯     │     ● = end-dot
-        │      ⊙          │     ⊙ = central bridge dot (cool fill + warm glint)
+        │       ✦         │     ✦ = bridge glint (replaces cross)
+        │                 │
+        │   ╭─♥─╮  ←── figures raising arms to form heart
+        │   ◀     ▶        │
+        │   │  ▼  │        │     ▼ = heart-shape void in negative space
+        │   ╰──●──╯        │
+        │  ●       ●       │     ● = decorative connector dots
+        │                 │
+        │   ↶       ↷     │     ↶/↷ = opposing sync arrows
         │                 │
         └─────────────────┘
 ```
 
-| Layer | Geometry | Notes |
-|-------|----------|-------|
-| Left C-arc | Cubic Bezier `(184,152) → (80,152) → (80,360) → (184,360)`, stroke `42px` `round` | Cool gradient fill — `#3730a3 → #a855f7` (45°). Anchors the brand in calm, service-oriented gravitas. |
-| Right C-arc | Cubic Bezier `(328,152) → (432,152) → (432,360) → (328,360)`, stroke `42px` `round` (mirrored) | Warm gradient fill — `#f59e0b → #e11d48` (vertical). Picks amber-not-red so it reads as "warm" rather than "liturgical". |
-| 4 end-dots | `circle r=22` at the four arc termini | Cool dots on left half, warm dots on right half. Read as "people at sync endpoints". |
-| Center bridge dot | `circle r=26` (cool) + `r=12` (warm glint) inside, concentric | The cool/warm concentric dot bridges the two halves. The warm glint reads as "in sync" without a literal clock-hand or cross. |
-| Outer "field" (optional) | `circle r=200 opacity=0.04` | Currently off by default. Used in dark-mode contexts where the mark needs to "carry" against a tinted background. |
+| Layer | Geometry (round-AU viewBox 512×512) | Notes |
+|-------|------------------------------------|-------|
+| Left figure | Cubic Bezier closed path; inner side `M 230 100 → 195 135 → 256 340`; outer top peaks at y=100, base at lower-left `(180,390)` → `(80,350)` | Cool gradient fill — `#3730a3 → #a855f7` (45°). The closed path traces head + body + reaching arm as a single teardrop silhouette. |
+| Right figure | Mirrored cubic Bezier closed path; inner side `M 282 100 → 317 135 → 256 340`; outer top peaks at y=100, base at lower-right `(332,390)` → `(432,350)` | Warm gradient fill — `#f59e0b → #e11d48` (vertical). Same teardrop structure as the left, mirrored across `x=256`. |
+| Bridge glint | `circle r=14 cx=256 cy=90` | Replaces the cross with a secular warm-amber spark (`#fbbf24`). Preserves vertical hierarchy without committing to any single tradition. |
+| 4 connector dots | `circle r=12` upper + `circle r=10` lower on the outer edge of each figure, at `(50,200)` / `(40,320)` (cool) and `(462,200)` / `(472,320)` (warm) | All sit clearly outside the figure body (which extends to x≈60 / x≈452). Echo the prior mark's "people at sync endpoints" motif. |
+| Top sync arc | `path d="M 220 420 A 40 40 0 0 0 292 420"` (sweep=0, curves UP) + `polygon` arrowhead at `(292, 420)` pointing down | Cool stroke — top half of a clockwise rotation, arriving at 3-o'clock. |
+| Bottom sync arc | `path d="M 292 460 A 40 40 0 0 0 220 460"` (sweep=0, curves DOWN) + `polygon` arrowhead at `(220, 460)` pointing up | Warm stroke — bottom half of the same clockwise rotation, arriving at 9-o'clock. |
 
-The two C-arcs are **deliberately** not a closed ring — leaving the
-top-middle and bottom-middle gaps emphasizes that the brand is
-"two parties meeting", not "one closed circle".
+The two figures' inner edges form the heart-shape void in the negative
+space: **52 px cleft** at `y=100` (from `x=230` to `x=282`),
+**122 px lobes** at `y=135` (only 35 px below the cleft, keeping
+the heart shape compact), narrowing to a **point** at `y=340` on
+the centerline. Outer top peaks are aligned with the cleft at
+`y=100` (no "towers" above the heart). The two sync arrows are
+**deliberately** not a closed ring — leaving the left + right gap
+emphasizes that the brand is "two parties meeting across the
+centerline", not "one closed circle".
 
 ---
 
@@ -184,7 +206,10 @@ holds across themes.
   silhouette. Catching a future reviewer thinking "should we add a
   chapel outline / stained-glass window / baptism font?" — no. The
   brand is for organizations, religious or otherwise, that coordinate
-  volunteers. The mark should not pre-commit to one tradition.
+  volunteers. The mark should not pre-commit to one tradition. The
+  current round-AU mark uses a secular warm-amber glint dot at the
+  top of the heart in place of a cross for exactly this reason — see
+  "Why no cross" above for the full rationale.
 - **Not a corporate logo.** No monogram, no logotype glyph, no flat
   cool-tone-only treatment. The mark has personality; that's
   intentional. Future contributors tempted to "tidy up" the

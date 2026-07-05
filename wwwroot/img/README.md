@@ -9,6 +9,8 @@ files are:
 | `servantsync-mark.svg`        | Favicon + navbar brand image              | SVG    |
 | `servantsync-logo.svg`        | Full lockup with wordmark + tagline       | SVG    |
 | `apple-touch-icon.png`        | iOS home-screen pinned-tab icon (180×180) | PNG    |
+| `servantsync-mark.png`        | Email-embed inline mark (400×400)         | PNG    |
+| `servantsync-logo.png`        | README + docs lockup preview (720×280)    | PNG    |
 
 There's also a third public-facing asset: the same brand mark is
 embedded as a `cid:`-attached inline image in **every branded email**
@@ -78,8 +80,8 @@ preserve transparency correctly on the first try.
 - **README + docs**: `servantsync-logo.svg` (the full lockup with the
   wordmark). README bitmap previews are taken from the SVG via
   headless-Chrome `--screenshot` at the same 720×280 viewBox.
-- **Emails**: `servantsync-mark.png` (or any other rasterized brand
-  asset) is attached as a `cid:` inline image under
+- **Emails**: `servantsync-mark.png` is the rasterized (400×400) inline
+  email brand mark, attached as a `cid:` inline image under
   `cid:servantsync-mark` by `ServantSync.Services.MailKitEmailSender`.
   See `BRANDING.md` for the design tokens; see
   `Services/EmailBrandAssets.cs` for the configuration / override
@@ -87,9 +89,9 @@ preserve transparency correctly on the first try.
 
 ## Do not
 
-- Don't replace the C-arcs with a literal cross or any other overtly
-  religious symbol. The mark is intentionally readable across both
-  Christian-organization and secular contexts.
+- Don't replace the bridge glint with a literal cross, fish, dove, or
+  any other overtly religious symbol. The mark is intentionally
+  readable across both Christian-organization and secular contexts.
 - Don't re-export the SVG with anti-aliasing turned off — the gradient
   arcs need the browser default AA to read as smooth on retina.
 - Don't ship a JPEG version of the apple-touch-icon — JPEG has no
