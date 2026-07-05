@@ -269,6 +269,7 @@ public class AssignmentService : IAssignmentService
             from o in db.SlotOccurrences
             join s in db.ServiceSlots on o.ServiceSlotId equals s.Id
             join m in db.Ministries on s.MinistryId equals m.Id
+            join org in db.Organizations on m.OrganizationId equals org.Id
             where s.IsActive
                 && myOrgIds.Contains(m.OrganizationId)
                 && o.StartUtc >= fromUtc
@@ -289,6 +290,10 @@ public class AssignmentService : IAssignmentService
                 CapacityOverride = o.CapacityOverride,
                 SlotCapacity = s.Capacity,
                 Notes = o.Notes,
+                // Round-AV: org TZ flows into LocalTime's FallbackTimeZoneId
+                // on the /Open render path. Null when the admin hasn't set
+                // one — LocalTime falls through to the next tier.
+                OrganizationTimeZoneId = org.TimeZoneId,
             }).AsNoTracking().ToListAsync(ct);
 
         if (rawRows.Count == 0) return new();
@@ -376,7 +381,8 @@ public class AssignmentService : IAssignmentService
                 SignedUpCount: count,
                 AlreadySignedUp: false,
                 TrainingCompliant: missing.Count == 0,
-                MissingTrainings: missing));
+                MissingTrainings: missing,
+                OrganizationTimeZoneId: r.OrganizationTimeZoneId));
         }
         return result;
     }

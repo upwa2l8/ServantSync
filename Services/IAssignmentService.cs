@@ -149,7 +149,14 @@ public record OpenSlotOccurrenceView(
     int SignedUpCount,
     bool AlreadySignedUp,
     bool TrainingCompliant,
-    IReadOnlyList<string> MissingTrainings);
+    IReadOnlyList<string> MissingTrainings,
+    /// <summary>
+    /// Round-AV: the parent org's <c>Organization.TimeZoneId</c>. Null means
+    /// the admin hasn't picked one — <c>LocalTime</c>'s 3-tier chain steps
+    /// down. An invalid id present here is handled defensively by
+    /// <c>LocalTime</c>'s tier-2 catch.
+    /// </summary>
+    string? OrganizationTimeZoneId);
 
 /// <summary>
 /// Outcome of a recurring open-shift series expansion. Parallel to
