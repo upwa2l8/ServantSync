@@ -1,0 +1,44 @@
+@*
+    Bootstrap-flavored skeleton placeholder. Use in place of a "0" or
+    empty value while async data is loading so the page doesn't flash
+    zeros before the real data arrives.
+
+    Defaults to a Medium (~1em) shimmer spanning 6 of 12 grid columns.
+    Pass `Size` to size up (matches `display-6` etc.) or down, and
+    `Columns` (`col-1`…`col-12`) to control the visual width within
+    its container.
+
+    Renders as `aria-hidden="true"` because it's purely visual chrome
+    — the surrounding label conveys what's loading for screen readers.
+
+    Note: Bootstrap's `placeholder-lg` only bumps min-height to 2.5em,
+    which is too small for `display-6` (~4rem). For `Size="Display"` we
+    set an explicit inline `min-height` so the shimmer's row height
+    matches what the real number will occupy — otherwise the layout
+    shifts visibly when data arrives.
+*@
+
+<span class="placeholder-glow" aria-hidden="true">
+    <span class="placeholder @SizeClass @ColClass" style="@StyleAttr"></span>
+</span>
+
+@code {
+    [Parameter] public SkeletonSize Size { get; set; } = SkeletonSize.Medium;
+    [Parameter] public int Columns { get; set; } = 6;
+
+    public enum SkeletonSize { Small, Medium, Large, Display }
+
+    private string SizeClass => Size switch
+    {
+        SkeletonSize.Small   => "placeholder-sm",
+        SkeletonSize.Medium  => "",
+        SkeletonSize.Large   => "placeholder-lg",
+        SkeletonSize.Display => "display-6",
+        _ => "",
+    };
+    private string ColClass => $"col-{Math.Clamp(Columns, 1, 12)}";
+
+    // Display-6 is 4rem; placeholder-lg (2.5em) is too small. Other sizes
+    // inherit their natural placeholder default which we don't override.
+    private string StyleAttr => Size == SkeletonSize.Display ? "min-height: 4rem;" : "";
+}

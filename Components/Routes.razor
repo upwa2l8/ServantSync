@@ -1,0 +1,79 @@
+<CascadingAuthenticationState>
+    <Router AppAssembly="typeof(Program).Assembly">
+        <Found Context="routeData">
+            @* The render-mode cascade is intentionally PER-PAGE in this
+               app. There is no layout-level or router-level cascade
+               because every legal placement has the same shape of bug:
+
+               (a) `@rendermode` on `<AuthorizeRouteView>` — its
+                   templated `<NotAuthorized>` child is a
+                   `RenderFragment<T>` that can't be serialized across
+                   a render-mode boundary. Verbatim exception:
+
+                       System.InvalidOperationException:
+                           Cannot pass RenderFragment<T> parameter
+                           'NotAuthorized' to component
+                           'AuthorizeRouteView' with rendermode
+                           'InteractiveServerRenderMode'.
+                           Templated content can't be passed across a
+                           rendermode boundary, because it is arbitrary
+                           code and cannot be serialized.
+
+               (b) `@rendermode` on the LAYOUT (any
+                   `LayoutComponentBase` such as MainLayout,
+                   AccountLayout) — the framework tries to serialize
+                   the layout's `@Body` parameter for streaming SSR and
+                   a `Body`-shaped `RenderFragment` is also arbitrary
+                   code. Verbatim exception (the symptom that shipped
+                   in round-AC-2):
+
+                       System.InvalidOperationException:
+                           Cannot pass the parameter 'Body' to
+                           component 'MainLayout' with rendermode
+                           'InteractiveServerRenderMode'. This is
+                           because the parameter is of the delegate
+                           type 'RenderFragment', which is arbitrary
+                           code and cannot be serialized.
+
+               So every interactive page MUST carry its own
+               `@rendermode InteractiveServer` directive at the top of
+               the .razor file (after `@page`/`@attribute`/`@layout`).
+               Pages without the directive render as static SSR once
+               and never wire up an interactive SignalR circuit — fine
+               for `Weather.razor` (with `[StreamRendering]` for
+               streaming server output) and `Error.razor`, but wrong
+               for any page that takes user input or fires
+               `OnInitializedAsync` callbacks against ApplicationDbContext.
+
+               Per-page opt-out: in .NET 9 the `@rendermode` directive
+               only accepts `InteractiveServer` /
+               `InteractiveWebAssembly` / `InteractiveAuto`; there is
+               no "Static" value, and static rendering is the implicit
+               default when no interactive ancestor provides the
+               mode. So a page that wants true static SSR simply omits
+               the directive.
+
+               Account pages (Login, Register, ForgotPassword,
+               ResetPassword, Manage, ChangePassword) flow through
+               this AuthorizeRouteView: they're matched by the
+               Router's Found template, AuthorizeRouteView's
+               Authorized default branch passes through (no
+               `[Authorize]` attribute on some of them), and they're
+               wrapped by AccountLayout. Each of them now carries an
+               explicit `@rendermode InteractiveServer` directive so
+               they wire up interactive SignalR even without a layout
+               cascade. Form submissions now happen via Blazor
+               enhanced navigation rather than a hard form POST; the
+               `?ReturnUrl=` round-trip's `forceLoad: true` (Login /
+               Register) still hard-reloads so the auth cookie is
+               honored by the next page render. *@
+            <AuthorizeRouteView RouteData="routeData"
+                                DefaultLayout="typeof(Layout.MainLayout)">
+                <NotAuthorized>
+                    <RedirectToLogin />
+                </NotAuthorized>
+            </AuthorizeRouteView>
+            <FocusOnNavigate RouteData="routeData" Selector="h1" />
+        </Found>
+    </Router>
+</CascadingAuthenticationState>

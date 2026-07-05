@@ -1,0 +1,122 @@
+@*
+    Generic confirmation modal. The parent owns the show/hide state and
+    passes a confirm callback; the `Busy` flag disables both buttons
+    during the parent's async work (e.g. the actual delete call) so
+    the user can't double-click. Render body via the `ChildContent`
+    fragment.
+
+    Bootstrap-modal a11y parity:
+      • Esc closes the dialog
+      • Clicking the backdrop closes it
+      • Cancel autofocuses on show — so an accidental Enter does NOT
+        trigger a destructive confirm
+      • aria-labelledby points at the dialog title for screen readers
+      • aria-modal marks it as the active dialog
+
+    Focus trap (Tab cycling inside the modal) is NOT implemented here —
+    it would need either JS interop or a switch to a native <dialog>
+    element to do cleanly. Tracked as a follow-up; the rest of the
+    a11y surface is enough to make keyboard + screen-reader use work.
+
+    Usage:
+        <ConfirmDialog Visible="_confirmingDelete"
+                       Title="Delete document?"
+                       ConfirmText="Delete"
+                       ConfirmButtonClass="btn-danger"
+                       Busy="@_busy"
+                       OnConfirm="PerformDeleteAsync"
+                       OnCancel="() => _confirmingDelete = false">
+            <p>The file will be removed from disk. This cannot be undone.</p>
+            @if (!string.IsNullOrEmpty(_targetTitle))
+            {
+                <p class="mb-0"><strong>@_targetTitle</strong></p>
+            }
+        </ConfirmDialog>
+*@
+@if (Visible)
+{
+    <div class="modal fade show d-block" tabindex="0"
+         style="background-color: rgba(0,0,0,0.5);"
+         role="dialog"
+         aria-modal="true"
+         aria-labelledby="@($"{InstanceId}-title")"
+         @onkeydown="HandleKeyDown"
+         @onclick="HandleBackdropClick">
+        <div class="modal-dialog modal-dialog-centered" @onclick:stopPropagation="true">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="@($"{InstanceId}-title")">@Title</h5>
+                    <button type="button" class="btn-close" @onclick="HandleCancel"
+                            aria-label="Close" disabled="@Busy"></button>
+                </div>
+                <div class="modal-body">
+                    @ChildContent
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="HandleCancel"
+                            disabled="@Busy" @ref="_cancelBtnRef">@CancelText</button>
+                    <button type="button" class="btn @ConfirmButtonClass" @onclick="HandleConfirm"
+                            disabled="@Busy">
+                        @if (Busy)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                        }
+                        @ConfirmText
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool Visible { get; set; }
+    [Parameter] public string Title { get; set; } = "Confirm";
+    [Parameter] public string ConfirmText { get; set; } = "OK";
+    [Parameter] public string CancelText { get; set; } = "Cancel";
+    /// <summary>Bootstrap button class for the confirm action — usually <c>btn-primary</c> or <c>btn-danger</c>.</summary>
+    [Parameter] public string ConfirmButtonClass { get; set; } = "btn-primary";
+    /// <summary>Set while the parent's async work is in flight. Disables both buttons and shows a spinner on confirm.</summary>
+    [Parameter] public bool Busy { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public EventCallback OnConfirm { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+    /// <summary>Per-instance id used for aria-labelledby — pick distinct ids
+    /// if more than one ConfirmDialog can be in the DOM at once (rare).</summary>
+    [Parameter] public string InstanceId { get; set; } = "confirm-dialog";
+
+    private ElementReference _cancelBtnRef;
+    private bool _wasVisible;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (Visible && !_wasVisible)
+        {
+            _wasVisible = true;
+            // Land focus on Cancel, not Confirm — accidentally pressing Enter
+            // should never trigger a destructive action. Component disposal
+            // races are swallowed (non-fatal — focus is cosmetic).
+            try { await _cancelBtnRef.FocusAsync(); }
+            catch { /* prerender / unmount races — non-fatal */ }
+        }
+        else if (!Visible && _wasVisible)
+        {
+            _wasVisible = false;
+        }
+    }
+
+    private Task HandleConfirm() => OnConfirm.InvokeAsync();
+    private Task HandleCancel() => OnCancel.InvokeAsync();
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (!Visible || Busy) return;
+        if (e.Key == "Escape" || e.Code == "Escape") await HandleCancel();
+    }
+
+    private async Task HandleBackdropClick()
+    {
+        if (!Visible || Busy) return;
+        await HandleCancel();
+    }
+}

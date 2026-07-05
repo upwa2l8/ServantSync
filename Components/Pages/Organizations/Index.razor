@@ -1,0 +1,145 @@
+@page "/Organizations"
+@attribute [Authorize]
+@rendermode InteractiveServer
+
+<PageTitle>Organizations</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h1>Organizations</h1>
+    @* Admin-only. Creating a new organization requires Admin in some existing org
+       (bootstrap-Admin pattern in OrganizationService.CreateOrgAsync), so hiding
+       the affordance here avoids a 403 on submit for non-admins. *@
+    @if (_isAnyAdmin)
+    {
+        <a class="btn btn-primary" href="Organizations/New">+ New organization</a>
+    }
+</div>
+
+@if (_orgs is null)
+{
+    <p><em>Loading...</em></p>
+}
+else if (!_orgs.Any())
+{
+    @* Empty-state copy. Each branch's prose lives inside an HTML tag so the
+       Razor parser stays in markup mode; bare prose inside an @if-else block
+       goes back into C# mode and gets tokenized as code (a real bug we hit
+       on the first pass). *@
+    <div class="alert alert-info">
+        @if (string.IsNullOrEmpty(_userId))
+        {
+            <p class="mb-0">No organizations yet - create the first one.</p>
+        }
+        else
+        {
+            <p class="mb-0">
+                You are not yet a member of any organization. Ask an admin for an invite,
+                or use the
+                <a href="Account/Register">Register</a>
+                link from your organization to join.
+            </p>
+        }
+    </div>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table table-striped">
+            <thead>
+                <tr><th>Name</th><th>Ministries</th><th>Members</th><th></th></tr>
+            </thead>
+            <tbody>
+                @foreach (var o in _orgs)
+                {
+                    <tr>
+                        <td><a href="@($"Organizations/{o.Id}")">@o.Name</a></td>
+                        <td>@o.MinistryCount</td>
+                        <td>@o.MemberCount</td>
+                        <td class="text-end">
+                            @* Per-row Edit button: Admin-only (single source of truth
+                               via OrgAuth per-org). Server-side gate on Organizations/Edit
+                               also enforces this; hiding here avoids 403-on-submit UX. *@
+                            @if (o.CanEdit)
+                            {
+                                <a class="btn btn-sm btn-outline-secondary" href="@($"Organizations/{o.Id}/Edit")">Edit</a>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject AuthenticationStateProvider Auth
+@inject IOrgAuthService OrgAuth
+@code {
+    private List<OrgRow>? _orgs;
+    // The signed-in user's id. Empty string (never null) for safe null-checks.
+    private string _userId = "";
+    // True iff the user is Admin of at least one org (drives the "+ New"
+    // affordance and the per-row Edit columns).
+    private bool _isAnyAdmin;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await Auth.GetAuthenticationStateAsync();
+        _userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
+        _isAnyAdmin = !string.IsNullOrEmpty(_userId) && await OrgAuth.IsAnyOrgAdminAsync(_userId);
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+
+        // Per-org Admins: list ONLY orgs the user has a membership in. This
+        // is the strict-isolation model - a volunteer in Org A doesn't see
+        // Org B's existence. Admins of multiple orgs see all of their orgs.
+        // Admins-of-any-org (rare case where a user is Admin in Org B but
+        // not yet a member of Org A) still only see their memberships, since
+        // there's no admin "view all" affordance on this page.
+        var myOrgIds = string.IsNullOrEmpty(_userId)
+            ? new List<int>()
+            : await db.OrganizationMemberships
+                .Where(m => m.PersonUserId == _userId)
+                .Select(m => m.OrganizationId)
+                .ToListAsync();
+
+        // Admin flag per row, computed in one trip so the markup can show /
+        // hide the per-row Edit button without a second DB roundtrip. The
+        // membership-table OrganizationId column is non-nullable, so no
+        // null guard is needed (a fix from the original draft which had a
+        // dead `m.OrganizationId != 0` filter).
+        var adminOrgIds = myOrgIds.Count == 0
+            ? new HashSet<int>()
+            : (await db.OrganizationMemberships
+                .Where(m => m.PersonUserId == _userId
+                    && myOrgIds.Contains(m.OrganizationId)
+                    && m.Role == OrganizationRole.Admin)
+                .Select(m => m.OrganizationId)
+                .ToListAsync())
+                .ToHashSet();
+
+        _orgs = await db.Organizations
+            .Where(o => myOrgIds.Contains(o.Id))
+            .OrderBy(o => o.Name)
+            .Select(o => new OrgRow
+            {
+                Id = o.Id,
+                Name = o.Name,
+                MinistryCount = o.Ministries.Count,
+                MemberCount = o.Memberships.Count,
+                CanEdit = adminOrgIds.Contains(o.Id),
+            })
+            .ToListAsync();
+    }
+
+    private class OrgRow
+    {
+        public int Id { get; set; }
+        public string Name { get; set; } = "";
+        public int MinistryCount { get; set; }
+        public int MemberCount { get; set; }
+        // Client-side flag set after the admin-org-id lookup; drives the
+        // per-row Edit button visibility.
+        public bool CanEdit { get; set; }
+    }
+}

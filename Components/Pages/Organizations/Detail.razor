@@ -1,0 +1,680 @@
+@page "/Organizations/{Id:int}"
+@attribute [Authorize]
+@* Per-page @rendermode InteractiveServer (re-added).
+   The MainLayout-level cascade from Round 1 verified clean on a
+   `dotnet publish -c Release` smoke-test session, but the dev
+   runtime on this page has regressed in interactive coverage
+   (browser-test: 0 Blazor circuits, hasOnclick=false on every
+   tab button). Restoring the per-page directive guarantees the
+   circuit this page mounts in, regardless of how the layout
+   cascade behaves in the current dev session. *@
+@rendermode InteractiveServer
+
+<PageTitle>@(_org?.Name ?? "Organization")</PageTitle>
+
+@if (!_hasLoaded)
+{
+    <p><em>Loading…</em></p>
+}
+else if (_org is null)
+{
+    <div class="alert alert-warning mt-3">
+        <h4>Organization not found</h4>
+        <p>No organization matches id <code>@Id</code>. Try the
+        <a href="Organizations">organization list</a>.</p>
+    </div>
+}
+else
+{
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+            <h1 class="mb-0">@_org.Name</h1>
+            <div class="text-muted">@_org.Description</div>
+        </div>
+        <div>
+            <a class="btn btn-outline-secondary" href="@($"Organizations/{Id}/Edit")">Edit</a>
+            <a class="btn btn-outline-secondary ms-2" href="@($"Organizations/{Id}/Coordinators")"
+               title="Manage slot coordinators: see which volunteer opportunities have a coordinator assigned and which need one.">
+                Manage coordinators
+            </a>
+        </div>
+    </div>
+
+    @* Admin-only registration-link section. Sits ABOVE the tab strip so the
+       "Share this link" affordance is visible across all tabs (Ministries,
+       Members, Arenas, Org training). Burying this inside one tab is
+       confusing — the action has nothing to do with ministries specifically.
+       For non-admins, the entire card is hidden: the token is admin-only
+       and never leaks outside this panel. *@
+    @if (_canAddMember)
+    {
+        <div class="card border-primary-subtle mb-3">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h6 class="mb-0">Share this link to invite new volunteers</h6>
+                @if (_lastMessage is not null)
+                {
+                    <span class="badge @(_lastIsError ? "text-bg-danger" : "text-bg-success")">@_lastMessage</span>
+                }
+            </div>
+            <div class="card-body">
+                @if (_org is { RegistrationToken: not null })
+                {
+                    var token = _org.RegistrationToken!;
+                    <p class="small text-muted mb-2">
+                        Anyone who registers with this link is automatically joined to <strong>@_org.Name</strong> as a volunteer. Rotate to immediately invalidate any previously-shared copy.
+                    </p>
+                    <div class="input-group mb-2">
+                        <input id="register-link" class="form-control font-monospace small"
+                               readonly value="@_registerUrl" />
+                        <button class="btn btn-outline-primary" type="button"
+                                @onclick="CopyRegisterLink"
+                                title="Copy the registration link to your clipboard">
+                            @(_copied ? "Copied" : "Copy")
+                        </button>
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                        @if (!_confirmingRotate)
+                        {
+                            <button class="btn btn-sm btn-outline-warning" type="button"
+                                    @onclick="() => _confirmingRotate = true"
+                                    title="Generate a new registration token; any previously-shared invite links stop working">
+                                Rotate link
+                            </button>
+                        }
+                        else
+                        {
+                            <span class="text-muted small">Existing links will stop working. Rotate?</span>
+                            <button class="btn btn-sm btn-warning" type="button"
+                                    @onclick="RotateRegisterLinkAsync"
+                                    disabled="@_busyRotate">
+                                @(_busyRotate ? "Rotating..." : "Yes, rotate")
+                            </button>
+                            <button class="btn btn-sm btn-outline-secondary" type="button"
+                                    @onclick="() => _confirmingRotate = false">
+                                Cancel
+                            </button>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <p class="small text-muted mb-2">
+                        A registration link hasn't been generated yet.
+                    </p>
+                    <button class="btn btn-sm btn-primary" type="button"
+                            @onclick="RotateRegisterLinkAsync"
+                            disabled="@_busyRotate">
+                        @(_busyRotate ? "Generating..." : "Generate registration link")
+                    </button>
+                }
+            </div>
+        </div>
+    }
+
+    <ul class="nav nav-tabs" role="tablist">
+        <li class="nav-item"><button class="nav-link @(Tab == "ministries" ? "active" : "")" @onclick='() => Tab = "ministries"'>Ministries</button></li>
+        <li class="nav-item"><button class="nav-link @(Tab == "members" ? "active" : "")" @onclick='() => Tab = "members"'>Members</button></li>
+        <li class="nav-item"><button class="nav-link @(Tab == "arenas" ? "active" : "")" @onclick='() => Tab = "arenas"'>Arenas</button></li>
+        <li class="nav-item"><button class="nav-link @(Tab == "training" ? "active" : "")" @onclick='() => Tab = "training"'>Org training</button></li>
+    </ul>
+
+    @if (Tab == "ministries")
+    {
+        <div class="mt-3">
+            @* Add-ministry: Admin-only. Coordinators used to be allowed
+               (CanManageOrgAsync) but the new RBAC tightens this to
+               IsOrgAdminAsync; non-admins see the existing list but no
+               create affordance. *@
+            @if (_canAddMember)
+            {
+                <a class="btn btn-sm btn-primary mb-2" href="@($"Organizations/{Id}/Ministries/New")">+ Add ministry</a>
+            }
+            @if (!_org.Ministries.Any())
+            {
+                <div class="alert alert-info">No ministries yet.</div>
+            }
+            else
+            {
+                <ul class="list-group">
+                    @foreach (var m in _org.Ministries.OrderBy(m => m.Name))
+                    {
+                        <li class="list-group-item d-flex justify-content-between">
+                            <a href="@($"Organizations/{Id}/Ministries/{m.Id}")">@m.Name</a>
+                            <span class="badge bg-secondary">@m.ServiceSlots.Count slots</span>
+                        </li>
+                    }
+                </ul>
+            }
+        </div>
+    }
+    else if (Tab == "members")
+    {
+        <div class="mt-3">
+            <h6>Add a member</h6>
+            @if (!_canAddMember)
+            {
+                // Read-only view for non-Admins. The server gate inside
+                // MemberManagementService.AddAsync / UpdateRoleAsync /
+                // RemoveAsync would also deny the request, but showing the
+                // form 403-on-submit is a worse UX than just not offering
+                // the form at all.
+                <div class="alert alert-secondary py-2 small mb-3">
+                    You don't have access to manage this organization's membership.
+                    Only organization <strong>Admins</strong> can add members, change roles, or remove members.
+                </div>
+            }
+            else
+            {
+                @* No FormName on purpose: an <EditForm FormName="X">
+                   mounted inside an @if branch of an @rendermode
+                   InteractiveServer page triggers enhanced-form
+                   handling that drops the SignalR circuit when the
+                   branch becomes visible, leaving subsequent tab
+                   clicks inert (Members + Arenas regress). See
+                   STATUS.md → Known quirks for the verified regression.
+                   Keep this comment if/when adding FormName back: the
+                   fix is to migrate the form's submission to a
+                   separate page route, not to re-introduce FormName. *@
+                <EditForm Model="_joinModel" OnValidSubmit="Join">
+                    <div class="row g-2 align-items-end">
+                        <div class="col">
+                            <select class="form-select" @bind="_joinModel.PersonUserId">
+                                <option value="">— pick a person —</option>
+                                @foreach (var p in _allPeople)
+                                {
+                                    <option value="@p.UserId">@p.DisplayName</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col">
+                            <select class="form-select" @bind="_joinModel.Role">
+                                @foreach (var r in Enum.GetValues<OrganizationRole>())
+                                {
+                                    <option value="@r">@r</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-auto">
+                            <button class="btn btn-primary">Add</button>
+                        </div>
+                    </div>
+                </EditForm>
+            }
+
+            <h6 class="mt-4">@_org.Memberships.Count member@(_org.Memberships.Count == 1 ? "" : "s")</h6>
+            @if (!_org.Memberships.Any())
+            {
+                <div class="alert alert-info mt-2">No members yet.</div>
+            }
+            else
+            {
+                <ul class="list-group mt-2">
+                    @foreach (var mm in _org.Memberships.OrderBy(m => m.Person.LastName))
+                    {
+                        var isSelfRow = mm.PersonUserId == _userId;
+                        var isConfirmingRemove = _removeConfirmUserId == mm.PersonUserId;
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            <div>
+                                <a href="@($"People/{mm.PersonUserId}")">@mm.Person.DisplayName</a>
+                                @if (isSelfRow)
+                                {
+                                    <span class="text-muted small ms-2">(you)</span>
+                                }
+                            </div>
+                            @if (isSelfRow || !_canAddMember)
+                            {
+                                // Self-row OR non-admin viewer: static badge
+                                // (Self-row: no role selector because
+                                // self-demotion is forbidden by the service;
+                                // non-admin viewer: read-only).
+                                <span class="badge bg-info text-dark">@mm.Role</span>
+                            }
+                            else
+                            {
+                                <div class="d-flex align-items-center gap-2">
+                                    <select class="form-select form-select-sm" style="width: auto"
+                                            @bind="mm.Role"
+                                            @bind:after="async () => await UpdateRole(mm)">
+                                        @foreach (var r in Enum.GetValues<OrganizationRole>())
+                                        {
+                                            <option value="@r">@r</option>
+                                        }
+                                    </select>
+                                    @* Remove button. Hidden for self-row
+                                       (you can't remove yourself without at
+                                       least one other Admin to keep the org
+                                       staffed — a self-removal that would
+                                       orphan the org is refused by the
+                                       service). Inline confirm avoids a
+                                       modal for the most common flow. *@
+                                    @if (!isConfirmingRemove)
+                                    {
+                                        <button class="btn btn-sm btn-outline-danger" type="button"
+                                                @onclick="() => RequestRemove(mm.PersonUserId)">
+                                            Remove
+                                        </button>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted small">Remove?</span>
+                                        <button class="btn btn-sm btn-danger" type="button"
+                                                @onclick="() => ConfirmRemove(mm.PersonUserId)">
+                                            Yes
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-secondary" type="button"
+                                                @onclick="() => CancelRemove()">
+                                            No
+                                        </button>
+                                    }
+                                </div>
+                            }
+                        </li>
+                    }
+                </ul>
+            }
+
+            @if (_lastMessage is not null)
+            {
+                <div class="alert @(_lastIsError ? "alert-danger" : "alert-success") py-2 small mt-2 mb-0">
+                    @_lastMessage
+                </div>
+            }
+        </div>
+    }
+    else if (Tab == "arenas")
+    {
+        <div class="mt-3">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <h6 class="mb-0">Playing arenas (shared by all leagues in this org)</h6>
+                @* Tightened from _canManage to _canAddMember for arena
+                   management: only Admins can add arenas now. Coordinators
+                   see the existing arenas but no Add affordance. *@
+                @if (_canAddMember)
+                {
+                    <button class="btn btn-sm btn-primary" @onclick="() => _showAddArena = !(_showAddArena)">
+                        @(_showAddArena ? "Cancel" : "+ Add arena")
+                    </button>
+                }
+            </div>
+
+            @if (_showAddArena && _canAddMember)
+            {
+                @* No FormName on purpose: same regression as the
+                   Members branch above. An <EditForm FormName="X">
+                   mounted inside a conditional of an @rendermode
+                   InteractiveServer page breaks the SignalR circuit
+                   on mount. See STATUS.md → Known quirks. *@
+                <EditForm Model="_arenaModel" OnValidSubmit="AddArena">
+                    <div class="row g-2 align-items-end">
+                        <div class="col-md-4">
+                            <div class="form-floating mb-2">
+                                <InputText id="aname" class="form-control" @bind-Value="_arenaModel.Name" />
+                                <label for="aname">Name (e.g. "Field 1")</label>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="form-floating mb-2">
+                                <InputText id="asurf" class="form-control" @bind-Value="_arenaModel.SurfaceType" />
+                                <label for="asurf">Surface (Grass / Turf / Hardwood)</label>
+                            </div>
+                        </div>
+                        <div class="col-md-2">
+                            <div class="form-floating mb-2">
+                                <InputNumber id="acap" class="form-control" @bind-Value="_arenaModel.Capacity" />
+                                <label for="acap">Capacity</label>
+                            </div>
+                        </div>
+                        <div class="col-md-2 form-check mb-2">
+                            <input type="checkbox" class="form-check-input" id="aactive" @bind="_arenaModel.IsActive" />
+                            <label class="form-check-label" for="aactive">Active</label>
+                        </div>
+                        <div class="col-md-1">
+                            <button class="btn btn-primary w-100" type="submit">Add</button>
+                        </div>
+                    </div>
+                </EditForm>
+            }
+
+            @if (!_orgArenas.Any())
+            {
+                <div class="alert alert-info mt-2">No arenas yet.</div>
+            }
+            else
+            {
+                <ul class="list-group mt-2">
+                    @foreach (var a in _orgArenas)
+                    {
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            <div>
+                                <strong>@a.Name</strong>
+                                <span class="text-muted small ms-2">
+                                    @(a.SurfaceType ?? "—") @(a.Capacity.HasValue ? $"· cap {a.Capacity}" : "")
+                                </span>
+                            </div>
+                            <span class="badge @(a.IsActive ? "bg-success" : "bg-secondary")">@(a.IsActive ? "active" : "inactive")</span>
+                        </li>
+                    }
+                </ul>
+            }
+        </div>
+    }
+    else
+    {
+        <div class="mt-3">
+            <h6>Org-wide training required for every volunteer</h6>
+            <OrgTrainingEditor OrganizationId="Id" />
+        </div>
+    }
+}
+
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject AuthenticationStateProvider Auth
+@inject IOrgAuthService OrgAuth
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@inject IMemberManagementService Members
+@inject IArenaService Arenas
+@inject IOrganizationService Orgs
+@code {
+    [Parameter] public int Id { get; set; }
+    private Organization? _org;
+    private List<Person> _allPeople = new();
+    private List<Arena> _orgArenas = new();
+    // [SupplyParameterFromForm] — see Organizations/Edit.razor for rationale.
+    [SupplyParameterFromForm] private JoinModel _joinModel { get; set; } = new();
+    // [SupplyParameterFromForm] — see Organizations/Edit.razor for rationale.
+    [SupplyParameterFromForm] private ArenaModel _arenaModel { get; set; } = new();
+    private bool _showAddArena;
+    // Admin-only. ALL membership writes (add/promote/demote/remove) and
+    // administrative actions (add arena, add ministry) are gated on this.
+    // MemberManagementService / ArenaService / OrganizationMinistryService
+    // enforce the server-side check; this flag hides the form affordance
+    // for non-Admins so they don't 403 on submit.
+    private bool _canAddMember;
+    // True after OnInitializedAsync has finished fetching the org so the
+    // renderer can distinguish "still loading" from "loaded but no
+    // Organization matched the route Id" (the latter renders a Not Found
+    // panel instead of an indefinite Loading… spinner). Before this flag
+    // existed, navigating to a missing org id (e.g. /Organizations/2 with
+    // only Demo Church id=1 in the seed) showed "Loading…" forever and
+    // made the page look broken — reported in Round 8.
+    private bool _hasLoaded;
+    // The signed-in user's id, cached at OnInitializedAsync so per-row
+    // self-or-not checks don't need a fresh Auth call. Empty string (never
+    // null) makes comparisons safer; the gate checks treat empty as non-admin.
+    private string _userId = "";
+    // Shared alert state for Add-member / Update-role / Remove-member /
+    // Add-arena / Rotate-token outcomes (the handlers on this page that
+    // surface a result message inline). Replaces the inline alert that used
+    // to live inside the EditForm (which made UpdateRole messages invisible
+    // because they triggered on an event that didn't pass through the
+    // form). Name says "last" because each handler clears it on entry then
+    // sets it on the way out — only the most recent outcome shows.
+    private string? _lastMessage;
+    private bool _lastIsError;
+    // Inline remove-confirm: when non-empty, holds the PersonUserId of
+    // the member whose row is showing the "Are you sure?" UI. Empty
+    // string (not null) keeps the per-row comparison safe. Set by
+    // RequestRemove, cleared by CancelRemove or ConfirmRemove.
+    private string _removeConfirmUserId = "";
+    // Registration-link section state. The URL is computed from the org's
+    // registration token concatenated onto the configured base URL; the
+    // exact base comes from NavigationManager.BaseUri so HTTPS reverse-
+    // proxied deployments show the right host. Copy uses a tiny JS
+    // interop call — fails silently in older browsers where
+    // navigator.clipboard isn't available; the user can still select &
+    // copy the readonly input manually.
+    private string _registerUrl = "";
+    private bool _copied;
+    // Two-stage rotate: first click sets _confirmingRotate, the second
+    // click (after the inline confirm) actually calls the service. Reset
+    // on success and on Cancel.
+    private bool _confirmingRotate;
+    private bool _busyRotate;
+    private string Tab { get; set; } = "ministries";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await Auth.GetAuthenticationStateAsync();
+        _userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
+        _canAddMember = !string.IsNullOrEmpty(_userId) && await OrgAuth.IsOrgAdminAsync(_userId, Id);
+        await Reload();
+        // Refresh the registration-link string from the org's token. After
+        // Reload, _org is either fully populated or still null (no match);
+        // the pattern-match assigns the token into a local so the null
+        // analyzer doesn't complain about passing _org.RegistrationToken
+        // into BuildRegisterUrl (the original draft tripped CS8602 here).
+        if (_org is { RegistrationToken: { } token })
+        {
+            _registerUrl = BuildRegisterUrl(token);
+        }
+        _hasLoaded = true;
+    }
+
+    // Builds the canonical /Account/Register?token=<guid> URL from the
+    // current base URI. Uses NavigationManager.BaseUri so HTTPS reverse-
+    // proxied deployments don't accidentally emit http:// links.
+    private string BuildRegisterUrl(string token)
+    {
+        var baseUri = Nav.BaseUri.TrimEnd('/');
+        return $"{baseUri}/Account/Register?token={Uri.EscapeDataString(token)}";
+    }
+
+    // Copies the registration link to the clipboard via JS interop. Falls
+    // back gracefully if the browser doesn't expose navigator.clipboard —
+    // the readonly input is still select-and-copyable manually.
+    private async Task CopyRegisterLink()
+    {
+        _copied = false;
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", _registerUrl);
+            _copied = true;
+        }
+        catch
+        {
+            // Older browsers / non-secure contexts reject the Clipboard
+            // API. The readonly <input> remains select-and-copyable.
+        }
+    }
+
+    // Two-stage rotate: confirm prompt → service call. On success, refresh
+    // the page-local _registerUrl from the new token. On any failure, show
+    // the error inline in the badge and leave the previous link in place.
+    private async Task RotateRegisterLinkAsync()
+    {
+        _busyRotate = true;
+        _lastMessage = null;
+        try
+        {
+            var newToken = await Orgs.GenerateRegistrationTokenAsync(_userId, Id);
+            if (newToken is null)
+            {
+                _lastIsError = true;
+                _lastMessage = "You don't have permission to rotate this link.";
+            }
+            else
+            {
+                _registerUrl = BuildRegisterUrl(newToken);
+                _confirmingRotate = false;
+                _lastIsError = false;
+                _lastMessage = "Link rotated. The previous link no longer works.";
+                await Reload(); // refresh _org.RegistrationToken for state consistency
+            }
+        }
+        finally
+        {
+            _busyRotate = false;
+        }
+    }
+
+    private async Task Reload()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _org = await db.Organizations
+            .Include(o => o.Ministries).ThenInclude(m => m.ServiceSlots)
+            .Include(o => o.Memberships).ThenInclude(m => m.Person)
+            .Include(o => o.TrainingRequirements).ThenInclude(r => r.TrainingContent)
+            .FirstOrDefaultAsync(o => o.Id == Id);
+
+        _allPeople = await db.People.OrderBy(p => p.LastName).ToListAsync();
+        _orgArenas = await db.Arenas.Where(a => a.OrganizationId == Id).OrderBy(a => a.Name).AsNoTracking().ToListAsync();
+    }
+
+    private async Task AddArena()
+    {
+        if (!_canAddMember) return;
+        _lastMessage = null;
+
+        var result = await Arenas.CreateAsync(
+            callerUserId: _userId,
+            organizationId: Id,
+            name: _arenaModel.Name,
+            surfaceType: _arenaModel.SurfaceType,
+            capacity: _arenaModel.Capacity,
+            isActive: _arenaModel.IsActive);
+
+        switch (result)
+        {
+            case ArenaAddResult.Added:
+                _lastIsError = false;
+                _lastMessage = $"Arena '{_arenaModel.Name}' added.";
+                _arenaModel = new();
+                _showAddArena = false;
+                await Reload();
+                break;
+            case ArenaAddResult.PermissionDenied:
+                _lastIsError = true;
+                _lastMessage = "You don't have administrator rights for this organization.";
+                break;
+        }
+    }
+
+    private async Task Join()
+    {
+        _lastMessage = null;
+        var result = await Members.AddAsync(
+            callerUserId: _userId,
+            organizationId: Id,
+            personUserId: _joinModel.PersonUserId,
+            role: _joinModel.Role);
+
+        switch (result)
+        {
+            case MemberAddResult.Added:
+                _lastIsError = false;
+                _lastMessage = "Member added.";
+                _joinModel = new();
+                await Reload();
+                break;
+            case MemberAddResult.AlreadyExists:
+                _lastIsError = true;
+                _lastMessage = "That person is already a member of this organization.";
+                break;
+            case MemberAddResult.PermissionDenied:
+                _lastIsError = true;
+                _lastMessage = "You don't have administrator rights for this organization.";
+                break;
+        }
+    }
+
+    // Promote/Demote in-place. The mm.Role dropdown fires this on change.
+    // Server gate (UpdateRoleAsync) handles admin check + self-demotion
+    // refusal; we just route the result to the shared alert state.
+    private async Task UpdateRole(OrganizationMembership row)
+    {
+        _lastMessage = null;
+        var result = await Members.UpdateRoleAsync(
+            callerUserId: _userId,
+            organizationId: Id,
+            personUserId: row.PersonUserId,
+            newRole: row.Role);
+
+        switch (result)
+        {
+            case MemberMutationResult.Updated:
+                _lastIsError = false;
+                _lastMessage = $"Updated {row.Person.DisplayName} to {row.Role}.";
+                break;
+            case MemberMutationResult.NotFound:
+                _lastIsError = true;
+                _lastMessage = "That person isn't a member of this organization anymore.";
+                await Reload();
+                break;
+            case MemberMutationResult.PermissionDenied:
+                _lastIsError = true;
+                _lastMessage = "You don't have administrator rights for this organization.";
+                await Reload();
+                break;
+            case MemberMutationResult.SelfDemotionRefused:
+                _lastIsError = true;
+                _lastMessage = "You can't demote yourself out of Admin. Another Admin must do it.";
+                await Reload();
+                break;
+        }
+    }
+
+    // Remove: stage → confirm → call service. The stage (RequestRemove)
+    // just sets `_removeConfirmUserId`; ConfirmRemove does the actual
+    // Members.RemoveAsync call and routes the result to the shared
+    // _lastMessage alert. CancelRemove dismisses the prompt without
+    // touching the service.
+    private void RequestRemove(string personUserId)
+    {
+        _removeConfirmUserId = personUserId;
+        _lastMessage = null;
+    }
+
+    private void CancelRemove()
+    {
+        _removeConfirmUserId = "";
+    }
+
+    private async Task ConfirmRemove(string personUserId)
+    {
+        _lastMessage = null;
+        _removeConfirmUserId = "";
+
+        var result = await Members.RemoveAsync(
+            callerUserId: _userId,
+            organizationId: Id,
+            personUserId: personUserId);
+
+        switch (result)
+        {
+            case MemberRemoveResult.Removed:
+                _lastIsError = false;
+                _lastMessage = "Member removed.";
+                await Reload();
+                break;
+            case MemberRemoveResult.NotFound:
+                _lastIsError = true;
+                _lastMessage = "That person isn't a member of this organization anymore.";
+                await Reload();
+                break;
+            case MemberRemoveResult.PermissionDenied:
+                _lastIsError = true;
+                _lastMessage = "You don't have administrator rights for this organization.";
+                break;
+            case MemberRemoveResult.LastAdminRefused:
+                _lastIsError = true;
+                _lastMessage = "You can't remove the last Admin of this organization. Add another Admin first.";
+                await Reload();
+                break;
+        }
+    }
+
+    private class JoinModel
+    {
+        public string? PersonUserId { get; set; }
+        public OrganizationRole Role { get; set; } = OrganizationRole.Volunteer;
+    }
+
+    private class ArenaModel
+    {
+        [Required, StringLength(120)] public string Name { get; set; } = "";
+        [StringLength(40)] public string? SurfaceType { get; set; }
+        public int? Capacity { get; set; }
+        public bool IsActive { get; set; } = true;
+    }
+}

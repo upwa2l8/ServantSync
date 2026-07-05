@@ -1,0 +1,116 @@
+@page "/People"
+@attribute [Authorize]
+@rendermode InteractiveServer
+
+<PageTitle>Volunteers</PageTitle>
+
+<h1>Volunteers</h1>
+
+@* Privacy model: the global /People listing is gated to Org Admins (single
+   source of truth via OrgAuthService.IsAnyOrgAdminAsync). Non-admins see a
+   "no access" panel and use the org's Members tab (Organizations/Detail)
+   for org-scoped views. Matches the user requirement that volunteers
+   shouldn't see other volunteers' information — the org-scoped Members
+   tab is where intra-org visibility belongs. *@
+
+@if (_loaded == false)
+{
+    <p><em>Loading…</em></p>
+}
+else if (!_isAdmin)
+{
+    <div class="alert alert-secondary">
+        <h6 class="mb-2">No access</h6>
+        <p class="mb-0 small">
+            The global volunteer list is only visible to organization administrators.
+            You can find your co-volunteers on the
+            <a href="Organizations">Organizations</a> page &mdash; open any
+            organization you're a member of, then the <strong>Members</strong> tab.
+        </p>
+    </div>
+}
+else
+{
+    <input class="form-control mb-3" placeholder="Search by name…" @bind="_filter" @bind:event="oninput" />
+
+    @if (_people is null)
+    {
+        <p><em>Loading…</em></p>
+    }
+    else if (!_people.Any())
+    {
+        <div class="alert alert-info">No volunteers registered.</div>
+    }
+    else
+    {
+        <div class="list-group">
+            @foreach (var p in Filtered)
+            {
+                <a class="list-group-item list-group-item-action" href="@($"People/{p.UserId}")">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <strong>@p.DisplayName</strong>
+                            <div class="text-muted small">@p.Email</div>
+                        </div>
+                        <span class="badge bg-secondary">@p.MembershipCount memberships</span>
+                    </div>
+                </a>
+            }
+        </div>
+    }
+}
+
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject AuthenticationStateProvider Auth
+@inject IOrgAuthService OrgAuth
+@code {
+    private List<PersonRow>? _people;
+    private string _filter = "";
+    private bool _isAdmin;
+    private bool? _loaded;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await Auth.GetAuthenticationStateAsync();
+        var userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userId))
+        {
+            _loaded = true;
+            return;
+        }
+        _isAdmin = await OrgAuth.IsAnyOrgAdminAsync(userId);
+
+        // Only fetch the listing when the gate passes; otherwise leave _people
+        // null so the "no access" panel renders without an unneeded DB call.
+        if (_isAdmin)
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            _people = await db.People
+                .OrderBy(p => p.LastName).ThenBy(p => p.FirstName)
+                .Select(p => new PersonRow
+                {
+                    UserId = p.UserId,
+                    DisplayName = p.DisplayName,
+                    Email = p.User.Email ?? "",
+                    MembershipCount = p.Memberships.Count,
+                })
+                .ToListAsync();
+        }
+        _loaded = true;
+    }
+
+    private IEnumerable<PersonRow> Filtered =>
+        _people?
+            .Where(p => string.IsNullOrEmpty(_filter)
+                || p.DisplayName.Contains(_filter, StringComparison.OrdinalIgnoreCase)
+                || p.Email.Contains(_filter, StringComparison.OrdinalIgnoreCase))
+        ?? Enumerable.Empty<PersonRow>();
+
+    private class PersonRow
+    {
+        public string UserId { get; set; } = "";
+        public string DisplayName { get; set; } = "";
+        public string Email { get; set; } = "";
+        public int MembershipCount { get; set; }
+    }
+}

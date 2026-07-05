@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="ServantSync mark">
+  <title>ServantSync logo mark</title>
+  <defs>
+    <!-- Cool side: deep indigo → violet. Anchors the brand in calm,
+         service-oriented gravitas without leaning on any single
+         Christian symbol. -->
+    <linearGradient id="coolSide" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#3730a3"/>
+      <stop offset="60%" stop-color="#7c3aed"/>
+      <stop offset="100%" stop-color="#a855f7"/>
+    </linearGradient>
+    <!-- Warm side: amber → rose. The cool/warm tension reads as
+         "two parties in sync" (one serving, one receiving — or two
+         people meeting). Picking amber on the warm side instead of
+         red keeps it from feeling liturgical; rose brings warmth
+         without claiming a denomination. -->
+    <linearGradient id="warmSide" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f59e0b"/>
+      <stop offset="55%" stop-color="#f97316"/>
+      <stop offset="100%" stop-color="#e11d48"/>
+    </linearGradient>
+    <!-- Soft inset shadow under the arcs to give a faint floating feel
+         without breaking the flat-design contract used elsewhere. -->
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="6"/>
+      <feOffset dx="0" dy="6" result="offsetBlur"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.18"/></feComponentTransfer>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Invisible canvas pad so the SVG crops cleanly at any aspect ratio. -->
+  <rect width="512" height="512" fill="none"/>
+
+  <!-- The mark itself, centered on (256, 256). The two C-arcs interlock
+       horizontally; their negative space (the cleft in the middle)
+       reads as a soft heart at this size without overt symbolism. -->
+
+  <!-- Left C-arc: opens to the right, indigo gradient. Cubic bezier with
+       control points pulled to x=96 produces the rounded "(" shape. -->
+  <path d="M 184 152 C 80 152, 80 360, 184 360"
+        fill="none" stroke="url(#coolSide)" stroke-width="42"
+        stroke-linecap="round" filter="url(#softShadow)"/>
+
+  <!-- Right C-arc: opens to the left, warm gradient, mirrored bezier. -->
+  <path d="M 328 152 C 432 152, 432 360, 328 360"
+        fill="none" stroke="url(#warmSide)" stroke-width="42"
+        stroke-linecap="round" filter="url(#softShadow)"/>
+
+  <!-- Open-end dots at each of the four arc endpoints. Reads as four
+       "people" / sync endpoints / prayer-hands meetings. -->
+  <circle cx="184" cy="152" r="22" fill="url(#coolSide)"/>
+  <circle cx="184" cy="360" r="22" fill="url(#coolSide)"/>
+  <circle cx="328" cy="152" r="22" fill="url(#warmSide)"/>
+  <circle cx="328" cy="360" r="22" fill="url(#warmSide)"/>
+
+  <!-- Center bridge: a small dual-tone dot that ties the two halves
+       together. The inner amber core reads as a small, warm glint
+       that says "in sync" without being a literal clock or cross. -->
+  <circle cx="256" cy="256" r="26" fill="url(#coolSide)"/>
+  <circle cx="256" cy="256" r="12" fill="#fbbf24"/>
+</svg>

@@ -1,0 +1,216 @@
+@page "/Games/{GameId:int}/Edit"
+@page "/Leagues/{MinistryId:int}/Games/New"
+@attribute [Authorize]
+@rendermode InteractiveServer
+
+<PageTitle>@(_isNew ? "New game" : "Edit game")</PageTitle>
+
+<h1>@(_isNew ? "Schedule a new game" : "Edit game")</h1>
+<StatusMessage Message="@_message" IsError="@_isError" />
+
+@if (_ministry is null && _game is null)
+{
+    <p><em>Loading…</em></p>
+}
+else
+{
+    <EditForm Model="_model" OnValidSubmit="Save" FormName="game">
+        <div class="row g-2">
+            <div class="col-md-6">
+                <label class="form-label">Home team</label>
+                <select class="form-select" @bind="_model.HomeTeamId">
+                    <option value="0">— pick a team —</option>
+                    @foreach (var t in _teams)
+                    {
+                        <option value="@t.Id">@t.Name (@t.AgeBracket)</option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Away team</label>
+                <select class="form-select" @bind="_model.AwayTeamId">
+                    <option value="0">— pick a team —</option>
+                    @foreach (var t in _teams)
+                    {
+                        <option value="@t.Id">@t.Name (@t.AgeBracket)</option>
+                    }
+                </select>
+            </div>
+        </div>
+
+        <div class="form-floating mt-2 mb-3">
+            <select id="arena" class="form-select" @bind="_model.ArenaId">
+                <option value="0">— pick an arena —</option>
+                @foreach (var a in _arenas)
+                {
+                    <option value="@a.Id">@a.Name@(a.SurfaceType is null ? "" : $" · {a.SurfaceType}")</option>
+                }
+            </select>
+            <label for="arena">Arena</label>
+        </div>
+
+        <div class="row g-2 align-items-end">
+            <div class="col-md-4">
+                <label class="form-label">Date</label>
+                <InputDate class="form-control" @bind-Value="_model.Date" />
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Start (HH:mm)</label>
+                <InputText type="time" class="form-control" @bind-Value="_model.StartLocal" />
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Duration (min)</label>
+                <input class="form-control" type="number" min="0" step="15" @bind="_model.DurationMinutes" />
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Time zone</label>
+                <select class="form-select" @bind="_model.TimeZoneId">
+                    @foreach (var tz in _timeZones)
+                    {
+                        <option value="@tz.Id">@tz.DisplayName</option>
+                    }
+                </select>
+            </div>
+        </div>
+
+        <div class="form-floating mt-2 mb-3">
+            <InputTextArea id="notes" class="form-control" style="height: 5rem" @bind-Value="_model.Notes" />
+            <label for="notes">Notes (optional)</label>
+        </div>
+
+        <button class="btn btn-primary" type="submit" disabled="@(!_canSubmit)">Save</button>
+        <a class="btn btn-outline-secondary ms-2" href="@CancelHref">Cancel</a>
+    </EditForm>
+}
+
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject IGameService GameService
+@inject UserTimeZoneProvider TzProvider
+@inject AuthenticationStateProvider Auth
+@inject IOrgAuthService OrgAuth
+@inject NavigationManager Nav
+@code {
+    [Parameter] public int? GameId { get; set; }
+    [Parameter] public int? MinistryId { get; set; }
+    private bool _isNew => GameId is null;
+
+    private Ministry? _ministry;
+    private Game? _game;
+    private List<Team> _teams = new();
+    private List<Arena> _arenas = new();
+    private List<TimeZoneInfo> _timeZones = TimeZoneInfo.GetSystemTimeZones()
+        .OrderBy(tz => tz.BaseUtcOffset).ThenBy(tz => tz.Id).ToList();
+    // [SupplyParameterFromForm] — see Organizations/Edit.razor for rationale.
+    [SupplyParameterFromForm] private GameModel _model { get; set; } = new();
+    private string? _message;
+    private bool _isError;
+    private bool _canSubmit;
+    private int _resolvedMinistryId;
+
+    private string CancelHref => _isNew ? $"Leagues/{MinistryId}" : $"Games/{GameId}";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await Auth.GetAuthenticationStateAsync();
+        var userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+
+        if (_isNew)
+        {
+            if (MinistryId is null) { _isError = true; _message = "Missing league."; return; }
+            _resolvedMinistryId = MinistryId.Value;
+            _ministry = await db.Ministries.Include(m => m.Organization).AsNoTracking().FirstOrDefaultAsync(m => m.Id == _resolvedMinistryId);
+            if (_ministry is null) { _isError = true; _message = "League not found."; return; }
+            _canSubmit = !string.IsNullOrEmpty(userId) && await OrgAuth.CanManageMinistryAsync(userId, _resolvedMinistryId);
+            if (!_canSubmit) { _isError = true; _message = "You don't have permission to schedule games for this league."; return; }
+            _teams = await db.Teams.Where(t => t.MinistryId == _resolvedMinistryId).OrderBy(t => t.Name).AsNoTracking().ToListAsync();
+            _arenas = await db.Arenas.Where(a => a.OrganizationId == _ministry.OrganizationId && a.IsActive).OrderBy(a => a.Name).AsNoTracking().ToListAsync();
+            _model = new GameModel
+            {
+                Date = DateTime.Today.AddDays(7),
+                StartLocal = "09:00",
+                DurationMinutes = 90,
+                TimeZoneId = TzProvider.TimeZoneId ?? TimeZoneInfo.Local.Id,
+            };
+        }
+        else
+        {
+            _game = await GameService.GetGameAsync(GameId!.Value);
+            if (_game is null) { _isError = true; _message = "Game not found."; return; }
+            _resolvedMinistryId = _game.MinistryId;
+            _ministry = await db.Ministries.Include(m => m.Organization).AsNoTracking().FirstOrDefaultAsync(m => m.Id == _resolvedMinistryId);
+            _canSubmit = !string.IsNullOrEmpty(userId) && await OrgAuth.CanManageMinistryAsync(userId, _resolvedMinistryId);
+            if (!_canSubmit) { _isError = true; _message = "You don't have permission to edit games for this league."; return; }
+            _teams = await db.Teams.Where(t => t.MinistryId == _resolvedMinistryId).OrderBy(t => t.Name).AsNoTracking().ToListAsync();
+            _arenas = await db.Arenas.Where(a => a.OrganizationId == _ministry!.OrganizationId && a.IsActive).OrderBy(a => a.Name).AsNoTracking().ToListAsync();
+            _model = new GameModel
+            {
+                HomeTeamId = _game.HomeTeamId,
+                AwayTeamId = _game.AwayTeamId,
+                ArenaId = _game.ArenaId,
+                // Convert UTC → user-local before reading .Date, otherwise a
+                // late-evening UTC start (e.g. 2025-01-12 03:00Z) would show
+                // as the *next* day to an EST viewer (date 2025-01-12 instead
+                // of 2025-01-11), and saving unchanged would silently shift
+                // the game by 24 hours.
+                Date = TzProvider.ToLocal(_game.StartUtc).Date,
+                StartLocal = TzProvider.ToLocal(_game.StartUtc).ToString("HH:mm"),
+                DurationMinutes = (int)(_game.EndUtc - _game.StartUtc).TotalMinutes,
+                // Match the displayed StartLocal timezone to the dropdown,
+                // otherwise saving without changes would re-interpret the
+                // user-local time string as UTC (silent 4-9 h data shift).
+                TimeZoneId = TzProvider.TimeZoneId ?? TimeZoneInfo.Local.Id,
+                Notes = _game.Notes,
+            };
+        }
+    }
+
+    private async Task Save()
+    {
+        if (!_canSubmit) return;
+        if (!TimeSpan.TryParse(_model.StartLocal, out var stime))
+        {
+            _isError = true; _message = "Start time must be HH:mm."; return;
+        }
+        var tz = TimeZoneInfo.FindSystemTimeZoneById(_model.TimeZoneId);
+        var startLocal = DateTime.SpecifyKind(_model.Date.Date + stime, DateTimeKind.Unspecified);
+        var startUtc = TimeZoneInfo.ConvertTimeToUtc(startLocal, tz);
+        var endUtc = startUtc.AddMinutes(_model.DurationMinutes <= 0 ? 90 : _model.DurationMinutes);
+
+        if (_isNew)
+        {
+            var v = await GameService.ScheduleGameAsync(
+                _resolvedMinistryId, _model.HomeTeamId, _model.AwayTeamId, _model.ArenaId,
+                startUtc, endUtc, _model.Notes);
+            if (!v.Succeeded)
+            {
+                _isError = true; _message = string.Join(" ", v.Errors); return;
+            }
+            Nav.NavigateTo($"Games/{v.Game!.Id}");
+        }
+        else
+        {
+            var v = await GameService.UpdateGameAsync(
+                GameId!.Value, _model.HomeTeamId, _model.AwayTeamId, _model.ArenaId,
+                startUtc, endUtc, _model.Notes);
+            if (!v.Succeeded)
+            {
+                _isError = true; _message = string.Join(" ", v.Errors); return;
+            }
+            Nav.NavigateTo($"Games/{GameId}");
+        }
+    }
+
+    private class GameModel
+    {
+        public int HomeTeamId { get; set; }
+        public int AwayTeamId { get; set; }
+        public int ArenaId { get; set; }
+        public DateTime Date { get; set; } = DateTime.Today;
+        public string StartLocal { get; set; } = "09:00";
+        public int DurationMinutes { get; set; } = 90;
+        public string TimeZoneId { get; set; } = TimeZoneInfo.Utc.Id;
+        public string? Notes { get; set; }
+    }
+}

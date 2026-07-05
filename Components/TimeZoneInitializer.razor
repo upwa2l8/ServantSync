@@ -1,0 +1,44 @@
+@inject IJSRuntime JS
+@inject UserTimeZoneProvider Provider
+@implements IDisposable
+
+@* Renders nothing. After first render, asks JavaScript for the browser's
+   IANA timezone and stores it in the scoped UserTimeZoneProvider so any
+   consumer (Schedule, ScheduleSeries) can use it as the default. *@
+
+@code {
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || Provider.Initialized) return;
+
+        try
+        {
+            var module = await JS.InvokeAsync<IJSObjectReference>("import", "/js/timezone.js");
+            try
+            {
+                var tz = await module.InvokeAsync<string>("getTimeZone");
+                Provider.TimeZoneId = string.IsNullOrWhiteSpace(tz) ? null : tz;
+            }
+            finally
+            {
+                await module.DisposeAsync();
+            }
+        }
+        catch (Exception)
+        {
+            // JS unavailable (server-prerender path, error). Fallback to Local.
+            Provider.TimeZoneId = null;
+        }
+        finally
+        {
+            Provider.Initialized = true;
+            // Fire after both the success path (TimeZoneId set) and the
+            // catch path (TimeZoneId = null) so subscribers like LocalTime
+            // can re-render from the server-local fallback to the user's
+            // actual zone without polling.
+            Provider.RaiseChanged();
+        }
+    }
+
+    public void Dispose() { /* nothing to clean up */ }
+}

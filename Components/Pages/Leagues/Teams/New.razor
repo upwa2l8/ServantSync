@@ -1,0 +1,147 @@
+@page "/Leagues/{MinistryId:int}/Teams/New"
+@attribute [Authorize]
+@rendermode InteractiveServer
+
+<PageTitle>New team · @(_ministry?.Name ?? "League")</PageTitle>
+
+<h1>New team</h1>
+<p class="text-muted small">
+    On <strong>@(_ministry?.Name ?? "league")</strong> ·
+    <a href="@($"/Leagues/{MinistryId}")">Back to league</a>
+</p>
+<StatusMessage Message="@_message" IsError="@_isError" />
+
+@if (_canSubmit)
+{
+    <EditForm Model="_model" OnValidSubmit="Save" FormName="team">
+        <DataAnnotationsValidator />
+        <ValidationSummary />
+
+        <div class="row g-2">
+            <div class="col-md-6">
+                <div class="form-floating mb-3">
+                    <InputText id="name" class="form-control" @bind-Value="_model.Name" />
+                    <label for="name">Team name</label>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Age bracket</label>
+                <select class="form-select" @bind="_model.AgeBracket">
+                    @foreach (var b in Enum.GetValues<TeamAgeBracket>())
+                    {
+                        <option value="@b">@b</option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Gender</label>
+                <InputText id="gender" class="form-control" @bind-Value="_model.Gender"
+                           placeholder="Boys / Girls / Coed" />
+            </div>
+        </div>
+
+        <div class="form-floating mb-3">
+            <InputTextArea id="desc" class="form-control" style="height: 5rem"
+                           @bind-Value="_model.Description" />
+            <label for="desc">Description (optional)</label>
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">Coach (optional)</label>
+            <select class="form-select" @bind="_model.CoachPersonUserId">
+                <option value="">— none —</option>
+                @foreach (var p in _members)
+                {
+                    <option value="@p.UserId">@p.DisplayName</option>
+                }
+            </select>
+            <div class="form-text">Coach gets edit rights on this team's roster via
+                <c>OrgAuthService.CanManageTeamAsync</c>.</div>
+        </div>
+
+        <button class="btn btn-primary" type="submit" disabled="@(!_canSubmit)">Save</button>
+        <a class="btn btn-outline-secondary ms-2" href="@($"/Leagues/{MinistryId}")">Cancel</a>
+    </EditForm>
+}
+
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject ITeamService TeamService
+@inject AuthenticationStateProvider Auth
+@inject IOrgAuthService OrgAuth
+@inject NavigationManager Nav
+@code {
+    [Parameter] public int MinistryId { get; set; }
+    // EditForm needs the bound model to be a PROPERTY marked with
+    // [SupplyParameterFromForm] — see ServiceSlots/Edit.razor for the
+    // same defect-rationale note. A plain field is silently ignored by
+    // the form-binding pipeline.
+    [SupplyParameterFromForm] private TeamModel _model { get; set; } = new();
+    private string? _message;
+    private bool _isError;
+    private bool _canSubmit;
+    private string _userId = "";
+    private Ministry? _ministry;
+    private List<Person> _members = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await Auth.GetAuthenticationStateAsync();
+        _userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
+        _canSubmit = !string.IsNullOrEmpty(_userId) && await OrgAuth.CanManageMinistryAsync(_userId, MinistryId);
+        if (!_canSubmit)
+        {
+            _isError = true;
+            _message = "Only org Admins / Coordinators / the ministry coordinator can add a team to this ministry.";
+            return;
+        }
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _ministry = await db.Ministries
+            .AsNoTracking()
+            .FirstOrDefaultAsync(m => m.Id == MinistryId);
+
+        // Coach picker is scoped to the ministry's OWNING ORG, mirroring
+        // the ServiceSlot / Ministry Edit gates that pick from the same
+        // pool. A coach outside the org still works as a Person reference
+        // (no FK constraint enforces org membership on Person rows).
+        var orgId = _ministry?.OrganizationId ?? 0;
+        if (orgId > 0)
+        {
+            _members = await db.OrganizationMemberships
+                .Where(m => m.OrganizationId == orgId)
+                .Select(m => m.Person)
+                .OrderBy(p => p.LastName).ThenBy(p => p.FirstName)
+                .ToListAsync();
+        }
+    }
+
+    private async Task Save()
+    {
+        if (!_canSubmit) return;
+        try
+        {
+            await TeamService.CreateTeamAsync(
+                MinistryId,
+                _model.Name,
+                _model.AgeBracket,
+                string.IsNullOrWhiteSpace(_model.Gender) ? null : _model.Gender,
+                string.IsNullOrWhiteSpace(_model.Description) ? null : _model.Description,
+                string.IsNullOrEmpty(_model.CoachPersonUserId) ? null : _model.CoachPersonUserId);
+            Nav.NavigateTo($"/Leagues/{MinistryId}");
+        }
+        catch (Exception ex)
+        {
+            _isError = true;
+            _message = "Save failed: " + ex.Message;
+        }
+    }
+
+    private class TeamModel
+    {
+        [Required, StringLength(120)] public string Name { get; set; } = "";
+        public TeamAgeBracket AgeBracket { get; set; } = TeamAgeBracket.U10;
+        [StringLength(20)] public string? Gender { get; set; }
+        [StringLength(2000)] public string? Description { get; set; }
+        public string? CoachPersonUserId { get; set; }
+    }
+}

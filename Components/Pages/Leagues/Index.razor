@@ -1,0 +1,110 @@
+@page "/Leagues"
+@attribute [Authorize]
+@rendermode InteractiveServer
+
+<PageTitle>Leagues</PageTitle>
+
+<h1>Leagues</h1>
+<p class="text-muted">Ministries you can view. A "league" is any ministry that has sports teams; the term is interchangeable here.</p>
+
+@if (_rows is null)
+{
+    <p><em>Loading…</em></p>
+}
+else if (!_rows.Any())
+{
+    <div class="alert alert-secondary">
+        You're not a member of any ministry yet. Browse
+        <a href="Organizations">organizations</a> to find one.
+    </div>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table table-striped">
+            <thead>
+                <tr><th>League</th><th>Organization</th><th>Teams</th><th>Upcoming games</th></tr>
+            </thead>
+            <tbody>
+                @foreach (var r in _rows)
+                {
+                    <tr>
+                        <td><a href="@($"Leagues/{r.MinistryId}")">@r.MinistryName</a>
+                            @if (r.SubMinistryCount > 0)
+                            {
+                                <span class="text-muted small ms-1">· @r.SubMinistryCount sub-ministries</span>
+                            }
+                        </td>
+                        <td>@r.OrgName</td>
+                        <td>@r.TeamCount</td>
+                        <td>@r.UpcomingGameCount</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject AuthenticationStateProvider Auth
+@code {
+    private List<LeagueRow>? _rows;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await Auth.GetAuthenticationStateAsync();
+        var userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userId)) { _rows = new(); return; }
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+
+        // Ministries the user can VIEW: every ministry in every org they're a member of.
+        var orgIds = await db.OrganizationMemberships
+            .Where(m => m.PersonUserId == userId)
+            .Select(m => m.OrganizationId)
+            .Distinct()
+            .ToListAsync();
+        if (orgIds.Count == 0) { _rows = new(); return; }
+
+        // "League" = a ministry that has at least one team. Ministries
+        // without teams (e.g. Worship Team, Children's Ministry) are still
+        // reachable via the Organizations page; the Leagues nav is for the
+        // sports surface specifically.
+        var ministries = await db.Ministries
+            .Where(m => orgIds.Contains(m.OrganizationId))
+            .Where(m => m.Teams.Any())
+            .Include(m => m.Organization)
+            .Include(m => m.Teams)
+            .Include(m => m.SubMinistries)
+            .AsNoTracking()
+            .ToListAsync();
+        var fromUtc = DateTime.UtcNow;
+        var gameCounts = await db.Games
+            .Where(g => g.StartUtc >= fromUtc && g.Status == GameStatus.Scheduled)
+            .GroupBy(g => g.MinistryId)
+            .Select(g => new { MinistryId = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.MinistryId, x => x.Count);
+
+        _rows = ministries.Select(m => new LeagueRow
+        {
+            MinistryId = m.Id,
+            MinistryName = m.Name,
+            OrgName = m.Organization.Name,
+            TeamCount = m.Teams.Count,
+            SubMinistryCount = m.SubMinistries.Count,
+            UpcomingGameCount = gameCounts.TryGetValue(m.Id, out var c) ? c : 0,
+        })
+        .OrderBy(r => r.OrgName).ThenBy(r => r.MinistryName)
+        .ToList();
+    }
+
+    private class LeagueRow
+    {
+        public int MinistryId { get; set; }
+        public string MinistryName { get; set; } = "";
+        public string OrgName { get; set; } = "";
+        public int TeamCount { get; set; }
+        public int SubMinistryCount { get; set; }
+        public int UpcomingGameCount { get; set; }
+    }
+}

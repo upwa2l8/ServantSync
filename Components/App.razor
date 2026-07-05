@@ -1,0 +1,36 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/" />
+    <link rel="stylesheet" href="@Assets["lib/bootstrap/dist/css/bootstrap.min.css"]" />
+    <link rel="stylesheet" href="@Assets["app.css"]" />
+    <link rel="stylesheet" href="@Assets["ServantSync.styles.css"]" />
+    <link rel="stylesheet" href="@Assets["css/snake.css"]" />
+    <ImportMap />
+    @* Branding assets — see BRANDING.md for the design rationale and
+       color tokens. The SVG mark is the favicon (modern browsers all
+       render SVG favicons natively via type="image/svg+xml"). The
+       apple-touch-icon links the 180×180 PNG rasterization for iOS
+       home-screen pinning (iOS Safari ignores SVG apple-touch-icons).
+       The PNG was rendered from the SVG via headless Chrome at
+       --window-size=180,180 --default-background-color=00000000 so the
+       alpha channel survives; see wwwroot/img/README.md for the
+       regeneration steps. The theme-color is the navbar's actual
+       rendered tint, not the brand indigo, so the address bar doesn't
+       seam against the dark navbar on first paint. *@
+    <link rel="icon" type="image/svg+xml" href="@Assets["img/servantsync-mark.svg"]" />
+    <link rel="apple-touch-icon" sizes="180x180" href="@Assets["img/apple-touch-icon.png"]" />
+    <meta name="theme-color" content="#1f1f2e" />
+    <script src="js/snake.js" defer></script>
+    <HeadOutlet />
+</head>
+
+<body>
+    <Routes />
+    <script src="_framework/blazor.web.js"></script>
+</body>
+
+</html>

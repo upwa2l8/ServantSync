@@ -1,0 +1,376 @@
+@page "/Dashboard"
+@attribute [Authorize]
+@rendermode InteractiveServer
+
+<PageTitle>Coordinator dashboard</PageTitle>
+
+<h1>Coordinator dashboard</h1>
+<p class="text-muted">@_windowDescription</p>
+
+@if (_loading)
+{
+    <p><em>Loading…</em></p>
+}
+else if (_manageableOrgs.Count == 0)
+{
+    <div class="alert alert-secondary">
+        You're not a coordinator or admin in any organization yet. Ask an admin to add you,
+        or browse <a href="Organizations">available organizations</a>.
+    </div>
+}
+else
+{
+    @* ---- Org picker + window ---- *@
+    <div class="row g-2 mb-2">
+        <div class="col-md-4">
+            <label class="form-label small text-muted">Filter by organization</label>
+            <select class="form-select" @bind="_selectedOrgId" @bind:after="async () => await Reload()">
+                <option value="0">All organizations (@_manageableOrgs.Count)</option>
+                @foreach (var o in _manageableOrgs)
+                {
+                    <option value="@o.Id">@o.Name</option>
+                }
+            </select>
+        </div>
+        <div class="col-md-8">
+            <DateRangeChips InitialMode="DateRangeChips.RangeMode.Next14"
+                            FromUtc="_fromUtc" ToUtc="_toUtc"
+                            OnRangeChanged="OnRangeChanged" />
+        </div>
+    </div>
+
+    @* ---- View toggle ---- *@
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <div class="btn-group btn-group-sm" role="group" aria-label="View">
+            <button type="button" class="btn @(_view == ViewMode.List ? "btn-primary" : "btn-outline-primary")"
+                    @onclick="() => _view = ViewMode.List">List</button>
+            <button type="button" class="btn @(_view == ViewMode.Calendar ? "btn-primary" : "btn-outline-primary")"
+                    @onclick="() => _view = ViewMode.Calendar">Calendar</button>
+        </div>
+        <span class="text-muted small">@_kpis.TotalAssignments assignment@(_kpis.TotalAssignments == 1 ? "" : "s")</span>
+    </div>
+
+    @* ---- KPI strip (always visible) ---- *@
+    <div class="row g-3 mb-3">
+        <div class="col-md-3"><div class="card"><div class="card-body"><div class="text-muted small">Assignments</div><div class="display-6">@_kpis.TotalAssignments</div></div></div></div>
+        <div class="col-md-3"><div class="card"><div class="card-body"><div class="text-muted small">Unique volunteers</div><div class="display-6">@_kpis.UniquePeople</div></div></div></div>
+        <div class="col-md-3"><div class="card @( _kpis.PersonOverlaps > 0 ? "border-danger" : "" )"><div class="card-body"><div class="text-muted small">Person overlaps</div><div class="display-6 @( _kpis.PersonOverlaps > 0 ? "text-danger" : "" )">@_kpis.PersonOverlaps</div></div></div></div>
+        <div class="col-md-3"><div class="card @( _kpis.OutstandingTrainings > 0 ? "border-warning" : "" )"><div class="card-body"><div class="text-muted small">Outstanding trainings</div><div class="display-6 @( _kpis.OutstandingTrainings > 0 ? "text-warning" : "" )">@_kpis.OutstandingTrainings</div></div></div></div>
+    </div>
+
+    @if (_view == ViewMode.Calendar)
+    {
+        <AssignmentCalendar Events="_calendarEvents" AnchorDate="_anchorDate"
+                            AnchorDateChanged="d => _anchorDate = d" />
+    }
+    else
+    {
+        @* ---- Daily feed ---- *@
+        @if (!_groupedByDay.Any())
+        {
+            <div class="alert alert-info">No upcoming scheduled assignments in the selected window.</div>
+        }
+        else
+        {
+            @foreach (var day in _groupedByDay)
+            {
+                <div class="card mb-2">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <strong>@day.Date.ToString("ddd, MMM d")</strong>
+                        <span class="badge bg-secondary">@day.Assignments.Count assignment@(day.Assignments.Count == 1 ? "" : "s")</span>
+                    </div>
+                    <ul class="list-group list-group-flush">
+                        @foreach (var a in day.Assignments)
+                        {
+                            var overlap = a.ConflictsWithSelf;
+                            <li class="list-group-item d-flex justify-content-between align-items-center @(!string.IsNullOrEmpty(overlap) ? "list-group-item-danger" : "")">
+                                <div>
+                                    <strong>
+                                        <a href="@($"People/{a.PersonUserId}")">@a.PersonName</a>
+                                    </strong>
+                                    @(" — ")
+                                    <a href="@($"Organizations/{a.OrgId}/Ministries/{a.MinistryId}/Roles/{a.ServiceSlotId}")">
+                                        @a.OrgName › @a.MinistryName › @a.ServiceSlotName
+                                    </a>
+                                    <div class="text-muted small">
+                                        <LocalTime Utc="@a.StartUtc" Format="HH:mm" />–<LocalTime Utc="@a.EndUtc" Format="HH:mm" /> ·
+                                        @a.Location · status: @a.Status
+                                    </div>
+                                    @if (!string.IsNullOrEmpty(overlap))
+                                    {
+                                        <div class="text-danger small mt-1">
+                                            ⚠ @overlap
+                                        </div>
+                                    }
+                                </div>
+                                <a class="btn btn-sm btn-outline-secondary"
+                                   href="@($"Organizations/{a.OrgId}/Ministries/{a.MinistryId}/Roles/{a.ServiceSlotId}/Schedule")">
+                                    Open
+                                </a>
+                            </li>
+                        }
+                    </ul>
+                </div>
+            }
+        }
+    }
+}
+
+@implements IDisposable
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject AuthenticationStateProvider Auth
+@inject IOrgAuthService OrgAuth
+@inject ITrainingService Training
+@inject UserTimeZoneProvider TzProvider
+@code {
+    private enum ViewMode { List, Calendar }
+
+    private bool _loading = true;
+    private List<OrgMini> _manageableOrgs = new();
+    private int _selectedOrgId;
+    private DateTime _fromUtc = DateTime.UtcNow;
+    private DateTime _toUtc = DateTime.UtcNow.AddDays(14);
+    private DateTime _anchorDate = new(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1);
+    private ViewMode _view = ViewMode.List;
+
+    private List<DayBucket> _groupedByDay = new();
+    private List<CalendarEvent> _calendarEvents = new();
+    private List<AssignmentRow> _rawRows = new();
+    private Kpis _kpis = new();
+
+    private string _windowDescription => $"Across ministries you can manage. Window: {RangeLabel(_fromUtc, _toUtc)}.";
+
+    private static string RangeLabel(DateTime from, DateTime to)
+    {
+        if (from <= DateTime.MinValue.AddDays(1) || to >= DateTime.MaxValue.AddDays(-1)) return "All upcoming";
+        var days = (int)Math.Round((to - from).TotalDays);
+        if (days == 0) return "Today";
+        if (days == 1) return "Today";
+        return $"Next {days} days";
+    }
+
+    protected override void OnInitialized()
+    {
+        // TzProvider arrives asynchronously from the JS interop roundtrip.
+        // First render bucketed by server-local TimeZoneInfo.Local — once
+        // the round-trip completes, re-bucket in-memory without hitting the
+        // DB and force a re-render.
+        TzProvider.TimeZoneChanged += OnTimeZoneChanged;
+    }
+
+    public void Dispose()
+    {
+        TzProvider.TimeZoneChanged -= OnTimeZoneChanged;
+    }
+
+    private void OnTimeZoneChanged()
+    {
+        RebuildBuckets();
+        InvokeAsync(StateHasChanged);
+    }
+
+    protected override async Task OnParametersSetAsync() => await Reload();
+
+    private async Task OnRangeChanged((DateTime From, DateTime To) range)
+    {
+        _fromUtc = range.From;
+        _toUtc = range.To;
+        // Snap the calendar anchor to the start of the window so the user lands
+        // on a month with data.
+        _anchorDate = _fromUtc.Year < 1900
+            ? new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1)
+            : new DateTime(_fromUtc.Year, _fromUtc.Month, 1);
+        await Reload();
+    }
+
+    private async Task Reload()
+    {
+        _loading = true;
+        try
+        {
+            var state = await Auth.GetAuthenticationStateAsync();
+            var userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            if (string.IsNullOrEmpty(userId))
+            {
+                _manageableOrgs = new();
+                _groupedByDay = new();
+                _calendarEvents = new();
+                _kpis = new();
+                return;
+            }
+
+            await using var db = await DbFactory.CreateDbContextAsync();
+
+            _manageableOrgs = await db.OrganizationMemberships
+                .Where(m => m.PersonUserId == userId
+                    && (m.Role == OrganizationRole.Admin || m.Role == OrganizationRole.Coordinator))
+                .Select(m => new OrgMini { Id = m.OrganizationId, Name = m.Organization.Name })
+                .OrderBy(o => o.Name)
+                .ToListAsync();
+
+            var orgIds = _manageableOrgs.Select(o => o.Id).ToList();
+            if (orgIds.Count == 0)
+            {
+                _groupedByDay = new();
+                _calendarEvents = new();
+                _kpis = new();
+                return;
+            }
+
+            var scoped = _selectedOrgId == 0
+                ? orgIds
+                : (orgIds.Contains(_selectedOrgId) ? new List<int> { _selectedOrgId } : new List<int>());
+
+            if (scoped.Count == 0)
+            {
+                _groupedByDay = new();
+                _calendarEvents = new();
+                _kpis = new();
+                return;
+            }
+
+            var raw = await db.Assignments
+                .Where(a => scoped.Contains(a.ServiceSlot.Ministry.OrganizationId)
+                    && a.StartUtc >= _fromUtc
+                    && a.StartUtc < _toUtc
+                    && a.Status != AssignmentStatus.Cancelled
+                    && a.Status != AssignmentStatus.NoShow)
+                .OrderBy(a => a.StartUtc)
+                .Select(a => new AssignmentRow
+                {
+                    Id = a.Id,
+                    ServiceSlotId = a.ServiceSlotId,
+                    MinistryId = a.ServiceSlot.MinistryId,
+                    OrgId = a.ServiceSlot.Ministry.OrganizationId,
+                    OrgName = a.ServiceSlot.Ministry.Organization.Name,
+                    MinistryName = a.ServiceSlot.Ministry.Name,
+                    ServiceSlotName = a.ServiceSlot.Name,
+                    Location = a.ServiceSlot.Location ?? "",
+                    Status = a.Status,
+                    StartUtc = a.StartUtc,
+                    EndUtc = a.EndUtc,
+                    PersonUserId = a.PersonUserId,
+                    PersonName = a.Person.DisplayName,
+                })
+                .AsNoTracking()
+                .ToListAsync();
+
+            // Per-person overlap detection.
+            foreach (var a in raw)
+            {
+                var overlap = raw.FirstOrDefault(o =>
+                    o.Id != a.Id &&
+                    o.PersonUserId == a.PersonUserId &&
+                    o.StartUtc < a.EndUtc &&
+                    o.EndUtc > a.StartUtc);
+                a.ConflictsWithSelf = overlap is null
+                    ? null
+                    : $"Overlaps with {overlap.PersonName}'s \"{overlap.ServiceSlotName}\" ({overlap.StartUtc:HH:mm}–{overlap.EndUtc:HH:mm}).";
+            }
+
+            _rawRows = raw;
+            RebuildBuckets();
+
+            _calendarEvents = raw.Select(a => new CalendarEvent
+            {
+                Id = a.Id,
+                StartUtc = a.StartUtc,
+                EndUtc = a.EndUtc,
+                Title = $"{a.PersonName} · {a.ServiceSlotName}",
+                Subtitle = $"{a.OrgName} › {a.MinistryName}",
+                Location = a.Location,
+                Status = a.Status.ToString(),
+                StatusColor = AssignmentStatusUi.ColorFor(a.Status),
+                Href = $"Organizations/{a.OrgId}/Ministries/{a.MinistryId}/Roles/{a.ServiceSlotId}/Schedule",
+            }).ToList();
+
+            _kpis = new Kpis
+            {
+                TotalAssignments = raw.Count,
+                UniquePeople = raw.Select(a => a.PersonUserId).Distinct().Count(),
+                PersonOverlaps = raw.Count(a => a.ConflictsWithSelf is not null),
+                OutstandingTrainings = await CountOutstandingTrainingsAsync(db, userId, scoped),
+            };
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    /// <summary>Re-derives the day buckets from the cached raw rows using
+    /// the *current* user-local TZ. Called from <c>Reload</c> after the DB
+    /// roundtrip and from <c>OnTimeZoneChanged</c> when the browser zone
+    /// arrives after prerender, so we don't re-query the DB just to
+    /// recompute bucket keys.</summary>
+    private void RebuildBuckets()
+    {
+        _groupedByDay = _rawRows
+            .GroupBy(a => TzProvider.ToLocal(a.StartUtc).Date)
+            .OrderBy(g => g.Key)
+            .Select(g => new DayBucket
+            {
+                Date = g.Key,
+                Assignments = g.OrderBy(a => a.StartUtc).ToList(),
+            })
+            .ToList();
+    }
+
+    private async Task<int> CountOutstandingTrainingsAsync(ApplicationDbContext db, string userId, List<int> orgIds)
+    {
+        var distinctPeople = await db.Assignments
+            .Where(a => orgIds.Contains(a.ServiceSlot.Ministry.OrganizationId)
+                && a.StartUtc >= _fromUtc
+                && a.StartUtc < _toUtc
+                && a.Status != AssignmentStatus.Cancelled)
+            .Select(a => new { a.PersonUserId, OrgId = a.ServiceSlot.Ministry.OrganizationId })
+            .Distinct()
+            .ToListAsync();
+
+        var total = 0;
+        foreach (var row in distinctPeople)
+        {
+            var outstanding = await Training.FindOutstandingRequirementsAsync(row.PersonUserId, row.OrgId);
+            total += outstanding.Count;
+        }
+        return total;
+    }
+
+    private class OrgMini
+    {
+        public int Id { get; set; }
+        public string Name { get; set; } = "";
+    }
+
+    private class AssignmentRow
+    {
+        public int Id { get; set; }
+        public int ServiceSlotId { get; set; }
+        public int MinistryId { get; set; }
+        public int OrgId { get; set; }
+        public string OrgName { get; set; } = "";
+        public string MinistryName { get; set; } = "";
+        public string ServiceSlotName { get; set; } = "";
+        public string Location { get; set; } = "";
+        public AssignmentStatus Status { get; set; }
+        public DateTime StartUtc { get; set; }
+        public DateTime EndUtc { get; set; }
+        public string PersonUserId { get; set; } = "";
+        public string PersonName { get; set; } = "";
+        public string? ConflictsWithSelf { get; set; }
+    }
+
+    private class DayBucket
+    {
+        public DateTime Date { get; set; }
+        public List<AssignmentRow> Assignments { get; set; } = new();
+    }
+
+    private class Kpis
+    {
+        public int TotalAssignments { get; set; }
+        public int UniquePeople { get; set; }
+        public int PersonOverlaps { get; set; }
+        public int OutstandingTrainings { get; set; }
+    }
+}

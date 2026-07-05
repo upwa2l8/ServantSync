@@ -1,0 +1,409 @@
+@page "/Training/New"
+@page "/Training/{Id:int}/Edit"
+@attribute [Authorize]
+@rendermode InteractiveServer
+
+<PageTitle>@(_isNew ? "New training" : $"Edit · {_model.Title}")</PageTitle>
+
+<h1>@(_isNew ? "New training content" : "Edit training content")</h1>
+<StatusMessage Message="@_message" IsError="@_isError" />
+
+@if (!_authChecked)
+{
+    <p class="text-muted">Loading permissions…</p>
+}
+
+<EditForm Model="_model" OnValidSubmit="Save" FormName="training-content-edit">
+    @* Round-AF: FormName="training-content-edit" RESTORED per .NET 9 docs
+       guidance — "Always provide a FormName to EditForm when using
+       InteractiveServer mode. The FormName helps Blazor maintain state
+       consistency during re-renders." Round-AE removed FormName on a
+       doc-contradicting hypothesis; the user-visible "Upload file" pill
+       button remained inert AFTER round-AE because removing FormName
+       destabilized the form-aware wiring, not because FormName caused
+       it. The EditForm is ALSO no longer conditionally mounted — the
+       auth-gate is now internal via <fieldset disabled> so the form's
+       render-mode wiring is established on initial render and stays
+       stable through re-renders. The @if (!_authChecked) sentinel above
+       the form shows the loading state ONLY until the single
+       once-per-page OnInitializedAsync completes. See STATUS.md round-AF
+       for the corrected diagnosis. *@
+    <DataAnnotationsValidator />
+    <ValidationSummary />
+    <fieldset disabled="@(!_authChecked || !_canSubmit)">
+
+        @* Per-org scoping (round N): every TrainingContent belongs to one
+           Organization. For NEW: a dropdown of orgs the caller is Admin of.
+           If the caller only Admin's one org, auto-pick + hide the dropdown
+           so a normal admin doesn't see friction. For EDIT: the org is
+           locked (grayed-out badge above the title). "Move training to a
+           different org" is intentionally not implemented — the clean path
+           is delete-and-recreate; training versioning is per-catalog so a
+           cross-org move would orphan version history anyway. *@
+        <div class="mb-3">
+            @if (_isNew)
+            {
+                <label class="form-label">Organization</label>
+                @if (_adminOfMultipleOrgs)
+                {
+                    <select class="form-select" @bind="_model.OrganizationId">
+                        <option value="0">— pick the owning organization —</option>
+                        @foreach (var o in _adminOrgs)
+                        {
+                            <option value="@o.Id">@o.Name</option>
+                        }
+                    </select>
+                    <div class="form-text">Training belongs to one organization and is visible only to members of that org.</div>
+                }
+                else
+                {
+                    <input type="text" class="form-control" readonly value="@(_adminOrgs.FirstOrDefault()?.Name ?? "")" />
+                    <input type="hidden" @bind="_model.OrganizationId" />
+                    <div class="form-text">Auto-assigned to the only organization you administer. Cross-org sharing isn't supported.</div>
+                }
+            }
+            else if (_existingOrg is not null)
+            {
+                <span class="badge bg-secondary">Owned by:</span>
+                <span class="ms-1 fw-semibold">@_existingOrg.Name</span>
+                <input type="hidden" @bind="_model.OrganizationId" />
+                <div class="form-text mt-1">
+                    To move training to another organization, delete and recreate it.
+                </div>
+            }
+        </div>
+
+        <div class="form-floating mb-3">
+            <InputText id="title" class="form-control" @bind-Value="_model.Title" />
+            <label for="title">Title</label>
+        </div>
+        <div class="form-floating mb-3">
+            <InputTextArea id="desc" class="form-control" style="height: 5rem" @bind-Value="_model.Description" />
+            <label for="desc">Description</label>
+        </div>
+        <div class="row g-2">
+            <div class="col-md-6">
+                <label class="form-label">Format</label>
+                <select class="form-select" @bind="_model.Format">
+                    @foreach (var f in Enum.GetValues<TrainingFormat>())
+                    {
+                        <option value="@f">@f</option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Estimated duration (minutes)</label>
+                <input class="form-control" type="number" @bind="_model.DurationMinutes" />
+            </div>
+        </div>
+
+        <div class="mt-3">
+            <label class="form-label">Source</label>
+            <ul class="nav nav-pills mb-2" role="tablist">
+                <li class="nav-item">
+                    <button type="button" class="nav-link @(_source == "url" ? "active" : "")" @onclick='() => _source = "url"'>Use URL</button>
+                </li>
+                <li class="nav-item">
+                    <button type="button" class="nav-link @(_source == "upload" ? "active" : "")" @onclick='() => _source = "upload"'>Upload file</button>
+                </li>
+            </ul>
+
+            @if (_source == "url")
+            {
+                <div class="form-floating mb-3">
+                    <InputText id="url" class="form-control" @bind-Value="_model.FilePathOrUrl" />
+                    <label for="url">URL (YouTube/Vimeo/Drive/etc.)</label>
+                </div>
+            }
+            else
+            {
+                <InputFile OnChange="HandleUpload" class="form-control" accept="video/*,application/pdf" />
+                @if (_uploading)
+                {
+                    <div class="form-text">Uploading…</div>
+                }
+                else if (!string.IsNullOrEmpty(_uploadedPath))
+                {
+                    <div class="form-text text-success">
+                        Uploaded: @_uploadedPath
+                        <button type="button" class="btn btn-sm btn-link" @onclick="() => _model.FilePathOrUrl = _uploadedPath!">Use this</button>
+                    </div>
+                }
+            }
+        </div>
+
+        <div class="mt-3">
+            <button class="btn btn-primary" type="submit">Save</button>
+            <a class="btn btn-outline-secondary ms-2" href="/Training/Manage">Cancel</a>
+        </div>
+    </fieldset>
+</EditForm>
+
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject IUploadPathProvider Uploads
+@inject NavigationManager Nav
+@inject AuthenticationStateProvider Auth
+@inject IOrgAuthService OrgAuth
+@code {
+    [Parameter] public int? Id { get; set; }
+    private bool _isNew => Id is null;
+    // [SupplyParameterFromForm] — see Organizations/Edit.razor for rationale.
+    [SupplyParameterFromForm] private ContentModel _model { get; set; } = new();
+    private string? _message;
+    private bool _isError;
+    private string _source = "url";
+    private bool _uploading;
+    private string? _uploadedPath;
+    // Page count extracted server-side from the just-uploaded PDF
+    // (computed in HandleUpload). Pre-fills TotalPageCount on the
+    // model so Save() persists it alongside the new TrainingContent
+    // row. Null for non-PDF formats — the eligibility rule then uses
+    // duration / dwell instead.
+    private int? _detectedPageCount;
+    // Per-org auth: gated on being Admin of _at least one_ org AND (for
+    // EDIT) of the specific content's owning org. The gate is re-checked
+    // inside Save() — page-level checks can be bypassed via DOM poke.
+    private bool _canSubmit;
+    // Round-AF: Loading-vs-loaded sentinel. Set true at the END of every
+    // OnInitializedAsync path (early-return OR success), so the
+    // EditForm's <fieldset disabled> gate can take over from the
+    // structural conditional-mount pattern used in round-AE. Initial
+    // value false so the EditForm renders disabled + the @if sentinel
+    // shows the loading stub until auth-check finishes.
+    private bool _authChecked;
+    // Orgs the caller is Admin of. Drives the NEW-mode dropdown + auto-pick.
+    private List<OrganizationLite> _adminOrgs = new();
+    private bool _adminOfMultipleOrgs;
+    // EDIT-mode: the persisted owning org, loaded once on init, shown as a
+    // locked badge above the title. Null if the requested content id doesn't
+    // resolve or if the caller isn't Admin of it (in which case Save is
+    // refused explicitly).
+    private OrganizationLite? _existingOrg;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await Auth.GetAuthenticationStateAsync();
+        var userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userId))
+        {
+            _isError = true;
+            _message = "Only organization administrators can edit training content.";
+            _authChecked = true;
+            return;
+        }
+
+        // Org the caller is Admin of (one row per (Org, User, Admin)). Drives
+        // both NEW and EDIT gates: if you can't Admin any org, neither mode
+        // is allowed.
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _adminOrgs = await db.OrganizationMemberships
+            .Where(m => m.PersonUserId == userId && m.Role == OrganizationRole.Admin)
+            .Join(db.Organizations,
+                m => m.OrganizationId, o => o.Id,
+                (m, o) => new OrganizationLite { Id = o.Id, Name = o.Name })
+            .OrderBy(o => o.Name)
+            .ToListAsync();
+        _adminOfMultipleOrgs = _adminOrgs.Count > 1;
+
+        _canSubmit = _adminOrgs.Count > 0;
+        if (!_canSubmit)
+        {
+            _isError = true;
+            _message = "Only organization administrators can edit training content.";
+            _authChecked = true;
+            return;
+        }
+
+        if (_isNew)
+        {
+            // NEW mode: auto-fill OrganizationId with the only admin org if
+            // the caller Admin's exactly one. Multi-org Admins start at 0
+            // and must pick deliberately.
+            _model.OrganizationId = _adminOfMultipleOrgs ? 0 : _adminOrgs[0].Id;
+            _authChecked = true;
+            return;
+        }
+
+        // EDIT mode: load the existing row + verify the caller is Admin of
+        // its org. The locked-org UX means no "switch ownership" affordance;
+        // a non-admin viewer gets the "not authorized" path.
+        var id = Id!.Value;
+        var existing = await db.TrainingContents
+            .Include(c => c.Organization)
+            .AsNoTracking()
+            .FirstOrDefaultAsync(c => c.Id == id);
+        if (existing is null)
+        {
+            _isError = true;
+            _message = "Training content not found.";
+            _canSubmit = false;
+            _authChecked = true;
+            return;
+        }
+        var isAdminOfOwning = await OrgAuth.IsOrgAdminAsync(userId, existing.OrganizationId);
+        if (!isAdminOfOwning)
+        {
+            _isError = true;
+            _message = "You don't have administrator rights for this training's organization.";
+            _canSubmit = false;
+            _authChecked = true;
+            return;
+        }
+        _existingOrg = new OrganizationLite { Id = existing.OrganizationId, Name = existing.Organization.Name };
+        _model = new ContentModel
+        {
+            OrganizationId = existing.OrganizationId,
+            Title = existing.Title,
+            Description = existing.Description,
+            Format = existing.Format,
+            FilePathOrUrl = existing.FilePathOrUrl,
+            DurationMinutes = existing.EstimatedDuration.HasValue ? (int?)existing.EstimatedDuration.Value.TotalMinutes : null,
+        };
+        _authChecked = true;
+    }
+
+
+    private async Task HandleUpload(InputFileChangeEventArgs e)
+    {
+        _uploading = true;
+        try
+        {
+            var file = e.File;
+            var safeName = $"{Guid.NewGuid():N}{Path.GetExtension(file.Name)}";
+            var path = Uploads.GetTrainingUploadPath(safeName);
+            await using var fs = File.Create(path);
+            await file.OpenReadStream(50 * 1024 * 1024).CopyToAsync(fs);
+
+            // PDF "view every page" verification needs to know how many
+            // pages the file has. Count them now (the file is fully
+            // written) so the Take page can compare its viewed-pages set
+            // against TotalPageCount. Non-PDF uploads leave it null —
+            // the eligibility rule then falls back to duration / dwell.
+            if (string.Equals(file.ContentType, "application/pdf", StringComparison.OrdinalIgnoreCase)
+                || safeName.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    _detectedPageCount = PdfPageCounter.Count(path);
+                }
+                catch
+                {
+                    _detectedPageCount = null;
+                }
+            }
+
+            _uploadedPath = $"/uploads/training/{safeName}";
+        }
+        finally
+        {
+            _uploading = false;
+        }
+    }
+
+    private async Task Save()
+    {
+        if (!_canSubmit)
+        {
+            _isError = true;
+            _message = "You don't have permission to do that.";
+            return;
+        }
+
+        // Extra defense-in-depth: re-validate the form-side dropdown
+        // choice before insert. An admin of MORE than one org could pick
+        // an org they don't Admin (auto-fills + dropdown-disables should
+        // prevent this, but a malicious POST body might still let it slip
+        // through). The OrgAuth double-check is the trust boundary.
+        var state = await Auth.GetAuthenticationStateAsync();
+        var userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userId))
+        {
+            _isError = true;
+            _message = "You don't have permission to do that.";
+            return;
+        }
+        if (await OrgAuth.IsOrgAdminAsync(userId, _model.OrganizationId) is false)
+        {
+            _isError = true;
+            _message = "You don't have administrator rights for the chosen organization.";
+            return;
+        }
+        if (_model.OrganizationId <= 0)
+        {
+            _isError = true;
+            _message = "Pick the owning organization.";
+            return;
+        }
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+        if (_isNew)
+        {
+            db.TrainingContents.Add(new TrainingContent
+            {
+                OrganizationId = _model.OrganizationId,
+                Title = _model.Title,
+                Description = _model.Description,
+                Format = _model.Format,
+                FilePathOrUrl = _model.FilePathOrUrl,
+                EstimatedDuration = _model.DurationMinutes.HasValue
+                    ? TimeSpan.FromMinutes(_model.DurationMinutes.Value)
+                    : null,
+                TotalPageCount = _detectedPageCount,
+            });
+            await db.SaveChangesAsync();
+            Nav.NavigateTo("Training/Manage");
+            return;
+        }
+        var existing = await db.TrainingContents.FindAsync(Id!.Value);
+        if (existing is null)
+        {
+            _isError = true;
+            _message = "Training content not found.";
+            return;
+        }
+        // Trust boundary: a non-Admin of the existing org can't mutate this
+        // row even if they bypass the page gate. Belt-and-suspenders.
+        if (existing.OrganizationId != _model.OrganizationId
+            || !await OrgAuth.IsOrgAdminAsync(userId, existing.OrganizationId))
+        {
+            _isError = true;
+            _message = "You don't have administrator rights for this training's organization.";
+            return;
+        }
+        existing.Title = _model.Title;
+        existing.Description = _model.Description;
+        existing.Format = _model.Format;
+        existing.FilePathOrUrl = _model.FilePathOrUrl;
+        existing.EstimatedDuration = _model.DurationMinutes.HasValue
+            ? TimeSpan.FromMinutes(_model.DurationMinutes.Value) : null;
+        // Refresh TotalPageCount from the latest PDF if the admin
+        // uploaded a new one. Version bump below resets any in-flight
+        // activity for this content — that's the contract with
+        // TrainingActivityRow.PK being versioned.
+        existing.TotalPageCount = _detectedPageCount ?? existing.TotalPageCount;
+        existing.Version += 1;
+        existing.VersionDateUtc = DateTime.UtcNow;
+        await db.SaveChangesAsync();
+        Nav.NavigateTo("Training/Manage");
+    }
+
+    private sealed class ContentModel
+    {
+        [Required, StringLength(200)] public string Title { get; set; } = "";
+        [StringLength(2000)] public string? Description { get; set; }
+        public TrainingFormat Format { get; set; }
+        [Required, StringLength(600)] public string FilePathOrUrl { get; set; } = "";
+        public int? DurationMinutes { get; set; }
+        // [Required] isn't enough — 0 is a valid int. Add a Range so the
+        // form-side validator rejects "pick an org" (0) before reaching
+        // the service; the service-side check still re-validates.
+        [Required, Range(1, int.MaxValue, ErrorMessage = "Pick the owning organization.")]
+        public int OrganizationId { get; set; }
+    }
+
+    private sealed class OrganizationLite
+    {
+        public int Id { get; set; }
+        public string Name { get; set; } = "";
+    }
+}

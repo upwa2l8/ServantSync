@@ -1,0 +1,213 @@
+@page "/Training"
+@attribute [Authorize]
+@rendermode InteractiveServer
+
+<PageTitle>My training</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+        <h1>My training</h1>
+        <div class="text-muted small">
+            The training this database requires <em>you</em> to take, plus your
+            personal training history. Required training comes from the organizations
+            you belong to and from any specific slot you are scheduled for.
+        </div>
+    </div>
+    @if (_canManageCatalog)
+    {
+        <a class="btn btn-outline-primary" href="Training/Manage">Manage catalog</a>
+    }
+</div>
+
+@if (_loading)
+{
+    <p><em>Loading…</em></p>
+}
+else
+{
+    @* ---- Action needed ---- *@
+    <section class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <div>
+                <h5 class="mb-0">Action needed</h5>
+                <div class="text-muted small">
+                    Training you have not yet satisfied — re-takes show up here when a previous completion has expired.
+                </div>
+            </div>
+            <span class="badge @(_actionNeeded.Count == 0 ? "bg-success" : "bg-warning text-dark")">
+                @_actionNeeded.Count
+            </span>
+        </div>
+        <div class="card-body">
+            @if (!_hasAnyOrgMembership)
+            {
+                <p class="text-muted mb-0">
+                    You are not yet a member of any organization, so nothing applies.
+                    Once you accept a registration link, training will appear here.
+                </p>
+            }
+            else if (_actionNeeded.Count == 0)
+            {
+                <div class="alert alert-success mb-0">
+                    You're up to date. You have completed all required training for your ministries.
+                </div>
+            }
+            else
+            {
+                <ul class="list-group list-group-flush">
+                    @foreach (var r in _actionNeeded)
+                    {
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            <div>
+                                <a href="@($"Training/{r.TrainingContentId}")">
+                                    <strong>@r.Title</strong>
+                                </a>
+                                <span class="badge bg-secondary ms-2">@r.ScopeLabel</span>
+                                @if (!string.IsNullOrEmpty(r.ContextLabel))
+                                {
+                                    <span class="text-muted small ms-2">@r.ContextLabel</span>
+                                }
+                            </div>
+                            <a class="btn btn-sm btn-primary" href="@($"Training/{r.TrainingContentId}/Take")">Take</a>
+                        </li>
+                    }
+                </ul>
+            }
+        </div>
+    </section>
+
+    @* ---- My history ---- *@
+    <section class="card">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <div>
+                <h5 class="mb-0">My history</h5>
+                <div class="text-muted small">
+                    Every training completion recorded for you, newest first. A
+                    <span class="badge bg-success">Valid</span> badge means the
+                    completion is still current; an
+                    <span class="badge bg-danger">Expired</span> badge means you
+                    need to retake it (it will also appear in "Action needed" above).
+                </div>
+            </div>
+            <span class="badge bg-secondary">@_history.Count</span>
+        </div>
+        <div class="card-body">
+            @if (_history.Count == 0)
+            {
+                <p class="text-muted mb-0">
+                    You haven't completed any training yet. Take one above to get started.
+                </p>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table mb-0">
+                        <thead>
+                            <tr>
+                                <th>Training</th>
+                                <th>Version</th>
+                                <th>Completed</th>
+                                <th>Expires</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var c in _history)
+                            {
+                                var valid = c.IsValid(DateTime.UtcNow);
+                                <tr>
+                                    <td>@(c.TrainingContent?.Title ?? "(removed)")</td>
+                                    <td>v@c.TrainingContentVersion</td>
+                                    <td><LocalTime Utc="@c.CompletionUtc" /></td>
+                                    <td>
+                                        @if (c.ExpiresUtc.HasValue)
+                                        {
+                                            <LocalTime Utc="@c.ExpiresUtc.Value" Format="yyyy-MM-dd" />
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted small">never</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        <span class="badge @(valid ? "bg-success" : "bg-danger")">
+                                            @(valid ? "Valid" : "Expired")
+                                        </span>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </section>
+}
+
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject AuthenticationStateProvider Auth
+@inject IOrgAuthService OrgAuth
+@inject ITrainingService TrainingService
+@code {
+    private bool _loading = true;
+    // The "Action needed" list. We keep raw TrainingRequirement rows
+    // loaded via the service aggregate rather than fetching TrainingContent
+    // separately — the service eager-loads TrainingContent for us.
+    private List<OutstandingRow> _actionNeeded = new();
+    // The "My history" list. Eager-loaded TrainingContent so we can
+    // render titles + versions without an N+1 trip on render.
+    private List<TrainingCompletion> _history = new();
+    // Distinguishes the "no org memberships yet" empty state from the
+    // "you're all caught up" positive empty state on Action needed.
+    private bool _hasAnyOrgMembership = true;
+    // Show the "Manage catalog" CTA only to org admins — the
+    // /Training/Manage page itself re-checks the gate as defense in depth.
+    private bool _canManageCatalog;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await Auth.GetAuthenticationStateAsync();
+        var userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userId))
+        {
+            _loading = false;
+            return;
+        }
+
+        // Cheap up-front check: do we even need to query? If the user has
+        // no memberships at all, both lists are guaranteed empty.
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _hasAnyOrgMembership = await db.OrganizationMemberships
+            .AnyAsync(m => m.PersonUserId == userId);
+
+        var outstanding = await TrainingService.FindMyOutstandingRequirementsAsync(userId);
+        _actionNeeded = outstanding.Select(r => new OutstandingRow
+        {
+            TrainingContentId = r.TrainingContentId,
+            Title = r.TrainingContent?.Title ?? "(removed)",
+            // Build the "where this comes from" badge text inline. Org-scoped
+            // -> "Org: <name>"; slot-scoped -> "Slot: <org> › <ministry> › <slot>".
+            // Using the navigation properties that TrainingService already
+            // eager-loaded saves a second round-trip.
+            ScopeLabel = r.Scope == "Organization" ? "Org" : "Slot",
+            ContextLabel = r.OrganizationId.HasValue
+                ? (r.Organization?.Name ?? "—")
+                : (r.ServiceSlot is null
+                    ? "—"
+                    : $"{r.ServiceSlot.Ministry.Organization.Name} › {r.ServiceSlot.Ministry.Name} › {r.ServiceSlot.Name}"),
+        }).ToList();
+
+        _history = await TrainingService.ListMyHistoryAsync(userId);
+
+        _canManageCatalog = await OrgAuth.IsAnyOrgAdminAsync(userId);
+        _loading = false;
+    }
+
+    private sealed class OutstandingRow
+    {
+        public int TrainingContentId { get; set; }
+        public string Title { get; set; } = "";
+        public string ScopeLabel { get; set; } = "";
+        public string ContextLabel { get; set; } = "";
+    }
+}

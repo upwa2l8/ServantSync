@@ -1,0 +1,74 @@
+@page "/Account/Login"
+@layout AccountLayout
+@using Microsoft.AspNetCore.Antiforgery
+@using ServantSync.Services
+@inject IAntiforgery Antiforgery
+
+<PageTitle>Sign in · ServantSync</PageTitle>
+
+<h1 class="h3 mb-3">Sign in</h1>
+
+@* Round-AN (this): this page is now static-SSR with a plain HTML
+   form posting to /Account/PerformLogin. The previous shape was
+   @rendermode InteractiveServer + <EditForm OnValidSubmit=HandleLogin>
+   which routed the submit through Blazor's SignalR circuit; inside
+   the OnValidSubmit handler SignInManager.PasswordSignInAsync tried
+   to write the auth cookie against the SignalR-cached HttpContext
+   (whose Response had already streamed the initial page render),
+   surfacing "Headers are read-only, response has already started."
+
+   The minimal API endpoint /Account/PerformLogin runs against the
+   FRESH HttpContext of the form POST, so SignInManager writes the
+   cookie to a Response that hasn't started. Cookie write succeeds.
+   After success, the endpoint redirects to the safe ReturnUrl.
+   After failure, the endpoint redirects back to /Account/Login
+   with ?error=... so the same page can re-render the alert below. *@
+
+@if (!string.IsNullOrEmpty(Error))
+{
+    <div class="alert alert-danger py-2 small mb-3">
+        @switch (Error)
+        {
+            case "locked":
+                <text>Account is locked out.</text>
+                break;
+            case "invalid":
+            default:
+                <text>Invalid email or password.</text>
+                break;
+        }
+    </div>
+}
+
+<form method="post" action="/Account/PerformLogin">
+    <input type="hidden" name="returnUrl" value="@(ReturnUrl ?? "/")" />
+    <input type="hidden" name="__RequestVerificationToken" value="@Antiforgery.GetAndStoreTokens(HttpContext).RequestToken" />
+
+    <div class="form-floating mb-3">
+        <input id="email" name="email" type="email" inputmode="email" class="form-control" autocomplete="username" required />
+        <label for="email">Email</label>
+    </div>
+    <div class="form-floating mb-3">
+        <input id="password" name="password" type="password" class="form-control" autocomplete="current-password" required />
+        <label for="password">Password</label>
+    </div>
+    <div class="form-check mb-3">
+        <input id="remember" name="remember" type="checkbox" class="form-check-input" />
+        <label class="form-check-label" for="remember">Remember me</label>
+    </div>
+
+    <button type="submit" class="btn btn-primary w-100">Sign in</button>
+</form>
+
+<p class="mt-3 mb-0">
+    Don't have an account? <a href="@($"Account/Register?returnUrl={Uri.EscapeDataString(ReturnUrl ?? "/")}")">Register</a>
+</p>
+<p class="mb-0">
+    <a href="Account/ForgotPassword">Forgot your password?</a>
+</p>
+
+@code {
+    [SupplyParameterFromQuery] public string? ReturnUrl { get; set; }
+    [SupplyParameterFromQuery(Name = "error")] public string? Error { get; set; }
+    [CascadingParameter] private HttpContext HttpContext { get; set; } = default!;
+}

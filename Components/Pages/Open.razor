@@ -1,0 +1,312 @@
+@page "/Open"
+@attribute [Authorize]
+@rendermode InteractiveServer
+
+<PageTitle>Browse open slots</PageTitle>
+
+<h1>Browse open slots</h1>
+<p class="text-muted">
+    Open shifts that coordinators have queued for your organizations. Sign-up is
+    immediate — the slot becomes <strong>Scheduled</strong> on your
+    <a href="MySchedule">My schedule</a> right away. Missing training will block
+    the sign-up button so the coordinator can route you to the right content.
+</p>
+
+@* Filter pill: "My ministries" default-narrows to the user's
+   MinistryInterest rows; "All my orgs" widens the listing. The choice
+   re-runs the underlying ListOpenSlotOccurrencesAsync through Reload
+   (no full page reload — the signalR circuit stays live so the
+   pill-segment stays interactive). When the user has 0 joined
+   ministries, "My ministries" still renders but the empty-state CTA
+   shows up below. *@
+@if (_userIdPresent && _hasMembership && !_loading)
+{
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <div class="btn-group" role="group" aria-label="Filter open shifts by ministry set">
+            <button type="button"
+                    class="btn btn-sm @(_showOnlyJoined ? "btn-primary" : "btn-outline-primary")"
+                    @onclick="() => SetShowOnlyJoined(true)"
+                    title="Show only open shifts from ministries you have joined">
+                My ministries (@_joinedMinistryIds.Count)
+            </button>
+            <button type="button"
+                    class="btn btn-sm @(_showOnlyJoined ? "btn-outline-primary" : "btn-primary")"
+                    @onclick="() => SetShowOnlyJoined(false)"
+                    title="Show every open shift across every ministry in your organizations">
+                All my orgs
+            </button>
+        </div>
+        @if (_joinedMinistryIds.Count > 0)
+        {
+            <a class="btn btn-sm btn-outline-secondary" href="/">Manage my ministries</a>
+        }
+    </div>
+}
+
+@if (_loading)
+{
+    <p><em>Loading…</em></p>
+}
+else if (!_userIdPresent)
+{
+    <div class="alert alert-warning">You need to be signed in to see open slots.</div>
+}
+else if (!_hasMembership)
+{
+    <div class="alert alert-info">
+        You're not a member of any organization yet. Once an Admin invites you,
+        open slots from that org will show up here.
+    </div>
+}
+else if (_showOnlyJoined && _joinedMinistryIds.Count == 0)
+{
+    @* Combined "0 joined ministries + 0 open shifts" empty-state. The
+       user is filtering to a set they haven't built yet. Direct them to
+       the Home panel where they can browse ministries and start
+       following some (which will populate the pill-segment count and
+       bring shifts in here). *@
+    <div class="alert alert-info">
+        <h6 class="alert-heading mb-2">You haven't joined any ministries yet</h6>
+        <p class="mb-2">
+            You're filtering to your followed ministries, but you haven't followed any. Switch to <strong>All my orgs</strong> to see everything, or pick a few ministries from your organizations.
+        </p>
+        <a class="btn btn-primary btn-sm" href="/">Pick ministries to follow</a>
+        <button class="btn btn-outline-secondary btn-sm ms-2" type="button" @onclick="() => SetShowOnlyJoined(false)">
+            Switch to All my orgs
+        </button>
+    </div>
+}
+else if (!_openShifts.Any())
+{
+    <div class="alert alert-info">
+        Nothing open @(_showOnlyJoined && _joinedMinistryIds.Count > 0 ? "in your followed ministries" : "right now").
+        Check back later, or ask a coordinator to queue a shift for a slot you care about.
+    </div>
+}
+else
+{
+    <div class="row g-3">
+        @foreach (var s in _openShifts)
+        {
+            <div class="col-md-6">
+                <div class="card h-100">
+                    <div class="card-body">
+                        <h5 class="card-title mb-1">@s.SlotName</h5>
+                        <div class="text-muted small mb-2">
+                            <a href="Organizations/@s.OrganizationId">@s.MinistryName</a>
+                        </div>
+                        <p class="mb-2">
+                            <strong><LocalTime Utc="@s.StartUtc" Format="ddd, MMM d \u2022 h:mm tt" /></strong>
+                            &ndash; <LocalTime Utc="@s.EndUtc" Format="h:mm tt" />
+                            @if (!string.IsNullOrEmpty(s.Location))
+                            {
+                                <span class="text-muted small ms-2">@s.Location</span>
+                            }
+                        </p>
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span class="badge bg-secondary">
+                                @s.SignedUpCount / @s.Capacity signed up
+                            </span>
+                            @if (s.SignedUpCount + 1 >= s.Capacity)
+                            {
+                                <span class="badge bg-warning text-dark">Last spot</span>
+                            }
+                        </div>
+                        @if (!s.TrainingCompliant)
+                        {
+                            <div class="alert alert-warning py-2 small mb-2">
+                                Training required before signing up:
+                                <ul class="mb-0">
+                                    @foreach (var t in s.MissingTrainings)
+                                    {
+                                        <li>@t</li>
+                                    }
+                                </ul>
+                            </div>
+                        }
+                    </div>
+                    <div class="card-footer bg-transparent border-0 pt-0">
+                        <button class="btn btn-primary w-100"
+                                disabled="@(!s.TrainingCompliant || _busyId == s.OccurrenceId)"
+                                @onclick="() => SignUp(s)">
+                            @(_busyId == s.OccurrenceId
+                                ? "Signing up\u2026"
+                                : (s.TrainingCompliant ? "Sign up" : "Update training to sign up"))
+                        </button>
+                        @if (_lastResult is not null && _lastResult.Id == s.OccurrenceId)
+                        {
+                            <div class="alert @(_lastResult.Succeeded ? "alert-success" : "alert-danger") py-2 small mt-2 mb-0">
+                                @_lastResult.Message
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject IAssignmentService AssignmentService
+@inject IMinistryInterestService MinistryInterest
+@inject AuthenticationStateProvider Auth
+@inject UserTimeZoneProvider TzProvider
+@code {
+    private bool _loading = true;
+    private string? _userId;
+    private bool _userIdPresent;
+    private bool _hasMembership;
+    private List<OpenSlotOccurrenceView> _openShifts = new();
+    private int _busyId;
+    private SignupResult? _lastResult;
+    // Filter state: true = narrow to MinistryInterest row set, false = wide.
+    // Default-on for safety: a user who just registered with a token has
+    // 0 joined ministries and would otherwise see every open shift in
+    // their organization; filtering to 0 yields the explicit empty-state
+    // CTA below instead.
+    private bool _showOnlyJoined = true;
+    // Cached joined-ministry ids, populated alongside the open-shifts
+    // query in Reload. Drives the empty-state CTA and the pill-segment
+    // count badge.
+    private HashSet<int> _joinedMinistryIds = new();
+
+    protected override async Task OnInitializedAsync() => await Reload();
+
+    private async Task SetShowOnlyJoined(bool value)
+    {
+        if (_showOnlyJoined == value) return;
+        _showOnlyJoined = value;
+        await Reload();
+    }
+
+    /// <summary>
+    /// Monotonic counter incremented on every Reload entry. Each call
+    /// captures <c>version</c> at entry; on exit it compares against the
+    /// latest. If they differ, a more recent Reload has started and this
+    /// one is stale — its prospective writes would otherwise lose to a
+    /// fresh call.
+    /// </summary>
+    private int _reloadVersion;
+
+    /// <summary>
+    /// Re-query the open-shifts list (joined ministeries + filter pill).
+    /// Race-safe against rapid pill clicks / SignUp-triggered re-runs:
+    /// each invocation captures a <see cref="_reloadVersion"/> at entry,
+    /// reads every result into a LOCAL, and only commits to Blazor fields
+    /// after passing the FINAL version guard. A stale Reload that loses
+    /// the race simply abandons its locals without ever mutating
+    /// <c>_openShifts</c> / <c>_joinedMinistryIds</c> / <c>_hasMembership</c>.
+    ///
+    /// <para>
+    /// We deliberately don't pass a <see cref="CancellationToken"/> to the
+    /// awaits: doing so risks an unhandled
+    /// <see cref="OperationCanceledException"/> surfacing as a runtime
+    /// error in Blazor's interactive-server circuit when one Reload
+    /// cancels another. The version-token pattern achieves the same
+    /// outcome (discard stale results) without the OCE surface.
+    /// </para>
+    /// </summary>
+    private async Task Reload()
+    {
+        var version = System.Threading.Interlocked.Increment(ref _reloadVersion);
+        bool iAmLatest() => version == _reloadVersion;
+
+        _loading = true;
+        try
+        {
+            var state = await Auth.GetAuthenticationStateAsync();
+            if (!iAmLatest()) return;
+
+            var userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
+            var userIdPresent = !string.IsNullOrEmpty(userId);
+
+            if (!userIdPresent)
+            {
+                if (!iAmLatest()) return;
+                _userId = userId;
+                _userIdPresent = false;
+                _lastResult = null;
+                _hasMembership = false;
+                _openShifts = new();
+                _joinedMinistryIds = new();
+                return;
+            }
+
+            await using var db = await DbFactory.CreateDbContextAsync();
+            if (!iAmLatest()) return;
+
+            var hasMembership = await db.OrganizationMemberships
+                .AnyAsync(m => m.PersonUserId == userId);
+
+            // Refresh the joined-ministry id set each time so the pill
+            // count and the empty-state CTA track any join/leave the
+            // user just made elsewhere (e.g., on Home or on Ministries/Detail).
+            var joined = await MinistryInterest.ListJoinedAsync(userId);
+            if (!iAmLatest()) return;
+
+            // 90-day forward window matches the MySchedule default chip.
+            var fromUtc = DateTime.UtcNow;
+            var toUtc = fromUtc.AddDays(90);
+
+            // Filter param: only pass when narrowed and the user has at
+            // least one joined ministry. Empty/null falls back to "all my
+            // orgs" in the service. Snapshotted into a local before each
+            // await chain so the read is deterministic for this run.
+            var showOnlyJoined = _showOnlyJoined;
+            var joinedIds = joined.Select(i => i.MinistryId).ToHashSet();
+            IReadOnlyCollection<int>? filter = (showOnlyJoined && joinedIds.Count > 0)
+                ? joinedIds
+                : null;
+            var openShifts = await AssignmentService.ListOpenSlotOccurrencesAsync(userId, fromUtc, toUtc, filter);
+
+            if (!iAmLatest()) return;
+
+            // ---- Commit ---- every prior iAmLatest() check has passed,
+            // so this Reload is the most recent run and its locals can
+            // safely flow into the Blazor-bound fields.
+            _userId = userId;
+            _userIdPresent = true;
+            _lastResult = null;
+            _hasMembership = hasMembership;
+            _joinedMinistryIds = joinedIds;
+            _openShifts = openShifts.ToList();
+        }
+        finally
+        {
+            // Only the latest Reload owns _loading — otherwise a slow,
+            // lost-race Reload would clobber a newer one's _loading=true.
+            if (iAmLatest()) _loading = false;
+        }
+    }
+
+    private async Task SignUp(OpenSlotOccurrenceView s)
+    {
+        if (string.IsNullOrEmpty(_userId)) return;
+        _busyId = s.OccurrenceId;
+        _lastResult = null;
+        try
+        {
+            // Use the existing AssignAsync path so the same validation
+            // (conflict + missing training + capacity) applies uniformly.
+            var result = await AssignmentService.AssignAsync(_userId, s.ServiceSlotId, s.StartUtc, s.EndUtc);
+            if (result.Succeeded)
+            {
+                _lastResult = new SignupResult(s.OccurrenceId, true,
+                    $"You're signed up for {s.SlotName} on {s.StartUtc:ddd, MMM d h:mm tt}.");
+                await Reload();
+            }
+            else
+            {
+                var why = result.Conflicts.FirstOrDefault() ?? result.MissingTrainings.FirstOrDefault()
+                    ?? "Unable to sign up.";
+                _lastResult = new SignupResult(s.OccurrenceId, false, why);
+            }
+        }
+        finally
+        {
+            _busyId = 0;
+        }
+    }
+
+    private record SignupResult(int Id, bool Succeeded, string Message);
+}

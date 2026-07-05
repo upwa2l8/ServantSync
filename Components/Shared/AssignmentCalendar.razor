@@ -1,0 +1,283 @@
+@implements IDisposable
+@inject UserTimeZoneProvider TzProvider
+
+@* Month + week calendar. Renders a 6×7 grid (Sun-first) in Month mode
+   and an hour-row × 7-day-column grid in Week mode. Day cells in Month
+   mode cap visible pills at 3 and surface a "+N more" affordance that
+   expands inline on click.
+
+   Day grouping and hour bucketing happen in the *user's local* timezone
+   (via UserTimeZoneProvider) so an evening service scheduled as
+   "2025-01-12 03:00Z" lands under Jan 11 for an EST viewer, not Jan 12.
+   Falls back to server TimeZoneInfo.Local during the brief prerender
+   window before the JS roundtrip populates the provider. *@
+
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <div class="btn-group btn-group-sm">
+            <button type="button" class="btn btn-outline-secondary" @onclick="Prev" aria-label="Previous">‹</button>
+            <button type="button" class="btn btn-outline-secondary" @onclick="GoToday">Today</button>
+            <button type="button" class="btn btn-outline-secondary" @onclick="Next" aria-label="Next">›</button>
+        </div>
+        <strong>@_title</strong>
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+            <span class="text-muted small">@Events.Count event@(Events.Count == 1 ? "" : "s") in view</span>
+            <div class="btn-group btn-group-sm" role="group" aria-label="View">
+                <button type="button" class="btn @(_viewMode == CalendarViewMode.Month ? "btn-primary" : "btn-outline-primary")"
+                        @onclick="() => SetViewMode(CalendarViewMode.Month)">Month</button>
+                <button type="button" class="btn @(_viewMode == CalendarViewMode.Week ? "btn-primary" : "btn-outline-primary")"
+                        @onclick="() => SetViewMode(CalendarViewMode.Week)">Week</button>
+            </div>
+        </div>
+    </div>
+
+    @if (_viewMode == CalendarViewMode.Month)
+    {
+        <div class="calendar-grid">
+            @foreach (var dn in DayNames)
+            {
+                <div class="calendar-head">@dn</div>
+            }
+            @foreach (var cell in _monthCells)
+            {
+                <div class="calendar-cell @(cell.IsCurrentMonth ? "" : "calendar-out") @(cell.IsToday ? "calendar-today" : "")">
+                    <div class="calendar-daynum">@cell.Date.Day</div>
+                    @foreach (var ev in cell.Events)
+                    {
+                        <a href="@ev.Href" class="calendar-pill badge bg-@ev.StatusColor text-decoration-none"
+                           title="@ev.Tooltip">
+                            <LocalTime Utc="@ev.StartUtc" Format="HH:mm" Class="calendar-pill-time" />@ev.Title
+                        </a>
+                    }
+                    @if (cell.MoreCount > 0)
+                    {
+                        var key = cell.Date.ToString("yyyy-MM-dd");
+                        if (_expandedDays.Contains(key))
+                        {
+                            @foreach (var ev in cell.AllEvents.Skip(3))
+                            {
+                                <a href="@ev.Href" class="calendar-pill badge bg-@ev.StatusColor text-decoration-none"
+                                   title="@ev.Tooltip">
+                                    <LocalTime Utc="@ev.StartUtc" Format="HH:mm" Class="calendar-pill-time" />@ev.Title
+                                </a>
+                            }
+                            <button type="button" class="btn btn-link btn-sm text-muted text-decoration-none px-1 py-0 text-start"
+                                    aria-expanded="true" aria-label="Collapse this day"
+                                    @onclick="() => ToggleDayExpansion(cell.Date)">
+                                Show less
+                            </button>
+                        }
+                        else
+                        {
+                            <button type="button" class="btn btn-link btn-sm text-muted text-decoration-none px-1 py-0 text-start"
+                                    aria-expanded="false" aria-label="Show @cell.MoreCount more events"
+                                    @onclick="() => ToggleDayExpansion(cell.Date)">
+                                +@cell.MoreCount more
+                            </button>
+                        }
+                    }
+                </div>
+            }
+        </div>
+    }
+    else
+    {
+        <div class="week-grid">
+            <div class="week-corner"></div>
+            @foreach (var d in _weekDays)
+            {
+                <div class="week-day-header @(d.Date == _today ? "calendar-today" : "")">
+                    <div>@d.Date.ToString("ddd")</div>
+                    <div class="small text-muted">@d.Date.Day</div>
+                </div>
+            }
+            @for (int h = StartHour; h < EndHour; h++)
+            {
+                <div class="week-hour-label">@FormatHour(h)</div>
+                @foreach (var d in _weekDays)
+                {
+                    // Bucketing is local: the cell date is in the user's
+                    // local TZ, the event's local date/hour must match.
+                    var hourEvents = Events
+                        .Select(e => new { Ev = e, Local = TzProvider.ToLocal(e.StartUtc) })
+                        .Where(x => x.Local.Date == d.Date && x.Local.Hour == h)
+                        .OrderBy(x => x.Ev.StartUtc)
+                        .Select(x => x.Ev)
+                        .ToList();
+                    <div class="week-cell">
+                        @foreach (var ev in hourEvents)
+                        {
+                            <a href="@ev.Href" class="calendar-pill badge bg-@ev.StatusColor text-decoration-none"
+                               title="@ev.Tooltip">
+                                <LocalTime Utc="@ev.StartUtc" Format="HH:mm" Class="calendar-pill-time" />@(ev.EndUtc.Hour > ev.StartUtc.Hour ? "→" : "")<LocalTime Utc="@ev.EndUtc" Format="HH:mm" />@ev.Title
+                            </a>
+                        }
+                    </div>
+                }
+            }
+        </div>
+    }
+</div>
+
+@code {
+    public enum CalendarViewMode { Month, Week }
+
+    private const int StartHour = 6;   // 6 AM
+    private const int EndHour   = 22;  // 10 PM (exclusive)
+
+    [Parameter, EditorRequired] public List<CalendarEvent> Events { get; set; } = new();
+    [Parameter] public DateTime AnchorDate { get; set; } = DateTime.UtcNow;
+    [Parameter] public EventCallback<DateTime> AnchorDateChanged { get; set; }
+    /// <summary>One-way: the parent can set the initial view mode; the
+    /// calendar owns subsequent toggles via the inline Month/Week buttons.</summary>
+    [Parameter] public CalendarViewMode ViewMode { get; set; } = CalendarViewMode.Month;
+
+    private CalendarViewMode _viewMode = CalendarViewMode.Month;
+    private DateTime _anchor = new(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1);
+    private DateTime _today = DateTime.UtcNow.Date;
+    private List<MonthCell> _monthCells = new();
+    private List<DateTime> _weekDays = new();
+    private string _title = "";
+    private HashSet<string> _expandedDays = new();
+
+    private static readonly string[] DayNames = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
+
+    protected override void OnInitialized()
+    {
+        TzProvider.TimeZoneChanged += OnTimeZoneChanged;
+    }
+
+    public void Dispose()
+    {
+        TzProvider.TimeZoneChanged -= OnTimeZoneChanged;
+    }
+
+    private void OnTimeZoneChanged()
+    {
+        // TzProvider is now populated for real; rebuild everything that
+        // depends on a user-local frame and trigger a re-render. The
+        // razor markup re-evaluates the inline .Where filters on render,
+        // so a plain StateHasChanged is enough to redraw with the new TZ.
+        _today = TzProvider.ToLocal(DateTime.UtcNow).Date;
+        if (_viewMode == CalendarViewMode.Month) BuildMonthCells();
+        else BuildWeekDays();
+        InvokeAsync(StateHasChanged);
+    }
+
+    protected override void OnParametersSet()
+    {
+        _viewMode = ViewMode;
+        _today = TzProvider.ToLocal(DateTime.UtcNow).Date;
+        if (_viewMode == CalendarViewMode.Month)
+        {
+            // AnchorDate is a *local-frame* month marker; callers compute it
+            // from TzProvider.ToLocal(DateTime.UtcNow). Reading Year/Month
+            // directly (no extra ToLocal here) avoids the previous bug
+            // where the UTC instant and the local calendar day landed in
+            // different months for negative-offset users.
+            _anchor = new DateTime(AnchorDate.Year, AnchorDate.Month, 1);
+            _title = _anchor.ToString("MMMM yyyy");
+            BuildMonthCells();
+        }
+        else
+        {
+            _anchor = StartOfWeek(AnchorDate.Date);
+            _title = $"{_anchor:MMM d} \u2013 {_anchor.AddDays(6):MMM d, yyyy}";
+            BuildWeekDays();
+        }
+    }
+
+    private void BuildMonthCells()
+    {
+        var firstOfMonth = _anchor;
+        var startGrid = firstOfMonth.AddDays(-(int)firstOfMonth.DayOfWeek);
+        _monthCells = new List<MonthCell>(42);
+        for (int i = 0; i < 42; i++)
+        {
+            var d = startGrid.AddDays(i);
+            // Day bucketing is local: each event's local Date must match
+            // the cell's user-local date.
+            var dayEvents = Events
+                .Select(e => new { Ev = e, Local = TzProvider.ToLocal(e.StartUtc) })
+                .Where(x => x.Local.Date == d)
+                .OrderBy(x => x.Ev.StartUtc)
+                .Select(x => x.Ev)
+                .ToList();
+            _monthCells.Add(new MonthCell
+            {
+                Date = d,
+                IsCurrentMonth = d.Month == _anchor.Month,
+                IsToday = d.Date == _today,
+                Events = dayEvents.Take(3).ToList(),
+                AllEvents = dayEvents,
+                MoreCount = Math.Max(0, dayEvents.Count - 3),
+            });
+        }
+    }
+
+    private void BuildWeekDays()
+    {
+        _weekDays = Enumerable.Range(0, 7).Select(i => _anchor.AddDays(i)).ToList();
+    }
+
+    private async Task Prev()
+    {
+        _anchor = _viewMode == CalendarViewMode.Month
+            ? _anchor.AddMonths(-1)
+            : _anchor.AddDays(-7);
+        await AnchorDateChanged.InvokeAsync(_anchor);
+    }
+
+    private async Task Next()
+    {
+        _anchor = _viewMode == CalendarViewMode.Month
+            ? _anchor.AddMonths(1)
+            : _anchor.AddDays(7);
+        await AnchorDateChanged.InvokeAsync(_anchor);
+    }
+
+    private async Task GoToday()
+    {
+        var now = _today;
+        _anchor = _viewMode == CalendarViewMode.Month
+            ? new DateTime(now.Year, now.Month, 1)
+            : StartOfWeek(now);
+        await AnchorDateChanged.InvokeAsync(_anchor);
+    }
+
+    private async Task SetViewMode(CalendarViewMode mode)
+    {
+        if (_viewMode == mode) return;
+        _viewMode = mode;
+        _expandedDays.Clear();
+        // Snap the anchor to a sensible value for the new view.
+        _anchor = mode == CalendarViewMode.Month
+            ? new DateTime(_anchor.Year, _anchor.Month, 1)
+            : StartOfWeek(_anchor);
+    }
+
+    private void ToggleDayExpansion(DateTime date)
+    {
+        var key = date.ToString("yyyy-MM-dd");
+        if (!_expandedDays.Add(key)) _expandedDays.Remove(key);
+    }
+
+    private static DateTime StartOfWeek(DateTime d) =>
+        d.Date.AddDays(-(int)d.DayOfWeek);
+
+    private static string FormatHour(int h) =>
+        h == 0 ? "12 AM" :
+        h < 12 ? $"{h} AM" :
+        h == 12 ? "12 PM" :
+        $"{h - 12} PM";
+
+    private class MonthCell
+    {
+        public DateTime Date { get; set; }
+        public bool IsCurrentMonth { get; set; }
+        public bool IsToday { get; set; }
+        public List<CalendarEvent> Events { get; set; } = new();
+        public List<CalendarEvent> AllEvents { get; set; } = new();
+        public int MoreCount { get; set; }
+    }
+}

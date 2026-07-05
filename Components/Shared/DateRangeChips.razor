@@ -1,0 +1,97 @@
+@* Shared date-range chip strip. Emits (fromUtc, toUtc) on user change.
+   Parent owns the (FromUtc, ToUtc) state; this component manages the chip
+   selection and the custom date inputs visually. *@
+
+<div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+    <span class="text-muted small me-1">Range:</span>
+    <div class="btn-group btn-group-sm" role="group" aria-label="Date range">
+        @foreach (var p in Presets)
+        {
+            <button type="button"
+                    class="btn @(_mode == p.mode ? "btn-primary" : "btn-outline-primary")"
+                    @onclick="() => SetModeAsync(p.mode)">
+                @p.label
+            </button>
+        }
+    </div>
+    @if (_mode == RangeMode.Custom)
+    {
+        <div class="d-flex align-items-center gap-2 ms-2 flex-wrap">
+            <label class="small text-muted mb-0">From</label>
+            <input type="date" class="form-control form-control-sm" style="width:160px"
+                   value="@_customFrom.ToString("yyyy-MM-dd")"
+                   @onchange="OnCustomFromChanged" />
+            <label class="small text-muted mb-0">to</label>
+            <input type="date" class="form-control form-control-sm" style="width:160px"
+                   value="@_customTo.ToString("yyyy-MM-dd")"
+                   @onchange="OnCustomToChanged" />
+        </div>
+    }
+</div>
+
+@code {
+    public enum RangeMode
+    {
+        Today = 0,
+        Next7 = 1,
+        Next14 = 2,
+        Next30 = 3,
+        Next90 = 4,
+        All = 5,
+        Custom = 6,
+    }
+
+    [Parameter, EditorRequired] public DateTime FromUtc { get; set; }
+    [Parameter, EditorRequired] public DateTime ToUtc { get; set; }
+    [Parameter] public EventCallback<(DateTime From, DateTime To)> OnRangeChanged { get; set; }
+    [Parameter] public RangeMode InitialMode { get; set; } = RangeMode.Next14;
+
+    private RangeMode _mode;
+    private DateTime _customFrom = DateTime.UtcNow.Date;
+    private DateTime _customTo = DateTime.UtcNow.Date.AddDays(14);
+
+    private record PresetItem(RangeMode mode, string label);
+
+    private static readonly List<PresetItem> Presets = new()
+    {
+        new(RangeMode.Today,  "Today"),
+        new(RangeMode.Next7,  "7 days"),
+        new(RangeMode.Next14, "14 days"),
+        new(RangeMode.Next30, "30 days"),
+        new(RangeMode.Next90, "90 days"),
+        new(RangeMode.All,    "All"),
+        new(RangeMode.Custom, "Custom…"),
+    };
+
+    protected override void OnInitialized()
+    {
+        _mode = InitialMode;
+    }
+
+    private async Task SetModeAsync(RangeMode mode)
+    {
+        _mode = mode;
+        var (from, to) = DateRangeCalculator.Resolve(mode, _customFrom, _customTo, DateTime.UtcNow);
+        FromUtc = from;
+        ToUtc = to;
+        await OnRangeChanged.InvokeAsync((from, to));
+    }
+
+    private async Task OnCustomFromChanged(ChangeEventArgs e)
+    {
+        if (!DateTime.TryParse(e.Value?.ToString(), out var d)) return;
+        _customFrom = d;
+        if (_customTo < _customFrom) _customTo = _customFrom;
+        if (_mode == RangeMode.Custom)
+            await SetModeAsync(RangeMode.Custom);
+    }
+
+    private async Task OnCustomToChanged(ChangeEventArgs e)
+    {
+        if (!DateTime.TryParse(e.Value?.ToString(), out var d)) return;
+        _customTo = d;
+        if (_customTo < _customFrom) _customFrom = _customTo;
+        if (_mode == RangeMode.Custom)
+            await SetModeAsync(RangeMode.Custom);
+    }
+}

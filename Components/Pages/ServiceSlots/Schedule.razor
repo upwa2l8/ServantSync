@@ -1,0 +1,781 @@
+@page "/Organizations/{OrgId:int}/Ministries/{MinId:int}/Roles/{Id:int}/Schedule"
+@attribute [Authorize]
+@rendermode InteractiveServer
+
+<PageTitle>Schedule · @(_slot?.Name ?? "Slot")</PageTitle>
+
+@if (_slot is null)
+{
+    <p><em>Loading…</em></p>
+}
+else
+{
+    <h1>@_slot.Name</h1>
+    <div class="text-muted mb-3">@_slot.Description</div>
+
+    <h5>Add a scheduled instance</h5>
+    <EditForm Model="_proposal" OnValidSubmit="Validate" FormName="proposal" Context="ctx">
+        <div class="row g-2 align-items-end">
+            <div class="col-md-3">
+                <label class="form-label">Date</label>
+                <InputDate class="form-control" @bind-Value="_proposal.Date" />
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Start (local, HH:mm)</label>
+                <InputText type="time" class="form-control" @bind-Value="_proposal.StartLocal" />
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Duration (min)</label>
+                <input class="form-control" type="number" min="0" step="15"
+                       @bind="_proposal.DurationMinutes" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Volunteer</label>
+                <select class="form-select" @bind="_proposal.PersonUserId">
+                    <option value="">— pick person —</option>
+                    @foreach (var p in _orgMembers)
+                    {
+                        <option value="@p.UserId">@p.DisplayName</option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-2">
+                <button class="btn btn-primary w-100" disabled="@(_busy || !_canSchedule)">
+                    @(_busy ? "Checking…" : (_canSchedule ? "Assign" : "Coordinators only"))
+                </button>
+            </div>
+        </div>
+    </EditForm>
+
+    @if (_conflicts.Any() || _missing.Any())
+    {
+        <div class="alert alert-danger mt-3">
+            @if (_conflicts.Any())
+            {
+                <strong>Cannot assign — conflicts:</strong>
+                <ul>@foreach (var c in _conflicts) { <li>@c</li> }</ul>
+            }
+            @if (_missing.Any())
+            {
+                <strong>Cannot assign — missing training:</strong>
+                <ul>@foreach (var m in _missing) { <li>@m</li> }</ul>
+            }
+        </div>
+    }
+
+    <h5 class="mt-4">Upcoming assignments</h5>
+    @if (!_assignments.Any())
+    {
+        <div class="alert alert-info">None scheduled.</div>
+    }
+    else
+    {
+        <table class="table">
+            <thead><tr><th>When</th><th>Volunteer</th><th>Status</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var a in _assignments)
+                {
+                    <tr>
+                        <td><LocalTime Utc="@a.StartUtc" /> – <LocalTime Utc="@a.EndUtc" /></td>
+                        <td>@a.PersonName</td>
+                        <td>@a.Status</td>
+                        <td class="text-end">
+                            @if (a.Status != AssignmentStatus.Cancelled)
+                            {
+                                <button class="btn btn-sm btn-outline-danger"
+                                        @onclick="() => Cancel(a.Id)">Cancel</button>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+
+    <h5 class="mt-5">Create an open shift</h5>
+    <p class="text-muted small">
+        Schedule a time for this slot without pre-assigning a volunteer. Volunteers
+        can browse open shifts under <a href="Open">Browse open slots</a> and self-sign-up
+        until this slot's <em>Capacity</em> is reached. Capacity defaults to the slot's
+        configured value; you can override it for a one-off opportunity here.
+    </p>
+    <EditForm Model="_openShift" OnValidSubmit="CreateOpenShift" Context="openShiftCtx">
+        <div class="row g-2 align-items-end">
+            <div class="col-md-3">
+                <label class="form-label">Date</label>
+                <InputDate class="form-control" @bind-Value="_openShift.Date" />
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Start (local HH:mm)</label>
+                <InputText type="time" class="form-control" @bind-Value="_openShift.StartLocal" />
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Duration (min)</label>
+                <input class="form-control" type="number" min="0" step="15"
+                       @bind="_openShift.DurationMinutes" />
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Capacity override</label>
+                <input class="form-control" type="number" min="1" step="1"
+                       @bind="_openShift.CapacityOverride"
+                       placeholder="@(((ServiceSlot?)null)?.Capacity.ToString() ?? "1")" />
+                <div class="form-text">Leave blank to use the slot's configured capacity.</div>
+            </div>
+            <div class="col-md-2">
+                <button class="btn btn-primary w-100" disabled="@(_openShiftBusy || !_canSchedule)">
+                    @(_openShiftBusy ? "Creating…" : (_canSchedule ? "Create open shift" : "Coordinators only"))
+                </button>
+            </div>
+        </div>
+    </EditForm>
+
+    @if (!string.IsNullOrEmpty(_openShiftMessage))
+    {
+        <div class="alert @(_openShiftError ? "alert-danger" : "alert-success") py-2 small mt-2 mb-0">
+            @_openShiftMessage
+        </div>
+    }
+
+    <h6 class="mt-4">Open shifts queued for this slot</h6>
+    @if (!_openSlots.Any())
+    {
+        <div class="alert alert-info small py-2">No open shifts queued. Volunteers won't see this slot on Browse.</div>
+    }
+    else
+    {
+        <table class="table table-sm">
+            <thead><tr><th>When (local)</th><th>Capacity</th><th>Signed up</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var o in _openSlots)
+                {
+                    <tr>
+                        <td><LocalTime Utc="@o.StartUtc" Format="ddd, MMM d h:mm tt" /> &ndash; <LocalTime Utc="@o.EndUtc" Format="h:mm tt" /></td>
+                        <td>@o.Capacity</td>
+                        <td>@o.SignedUpCount / @o.Capacity</td>
+                        <td class="text-end">
+                            <button class="btn btn-sm btn-outline-danger" @onclick="() => CancelOpenShift(o.OccurrenceId)">Cancel shift</button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+}
+
+<h5 class="mt-5">Schedule a recurring series</h5>
+<p class="text-muted small">
+    Recur one shift per week for this slot. Use <strong>Pre-assigned</strong>
+    to pin the same volunteer every week, or <strong>Open shift</strong> so
+    volunteers sign up each week from <a href="Open">Browse open slots</a>.
+    Skipped dates are reported so conflicts aren't silent.
+</p>
+
+<ul class="nav nav-pills mb-3" role="tablist">
+    <li class="nav-item">
+        <button type="button" class="nav-link @(_seriesMode == SeriesMode.Assigned ? "active" : "")"
+                @onclick="() => SwitchSeriesMode(SeriesMode.Assigned)">Pre-assigned</button>
+    </li>
+    <li class="nav-item">
+        <button type="button" class="nav-link @(_seriesMode == SeriesMode.Open ? "active" : "")"
+                @onclick="() => SwitchSeriesMode(SeriesMode.Open)">Open shift</button>
+    </li>
+</ul>
+
+<EditForm Model="_seriesForm" OnValidSubmit="GenerateRecurringSeries" Context="seriesCtx">
+    <div class="row g-2 align-items-end">
+        @if (_seriesMode == SeriesMode.Assigned)
+        {
+            <div class="col-md-3">
+                <label class="form-label">Volunteer</label>
+                <select class="form-select" @bind="_seriesForm.PersonUserId">
+                    <option value="">— pick person —</option>
+                    @foreach (var p in _orgMembers)
+                    {
+                        <option value="@p.UserId">@p.DisplayName</option>
+                    }
+                </select>
+            </div>
+        }
+        else
+        {
+            <div class="col-md-2">
+                <label class="form-label">Capacity override</label>
+                <input class="form-control" type="number" min="1" step="1"
+                       @bind="_seriesForm.CapacityOverride"
+                       placeholder="@((_slot?.Capacity ?? 1).ToString())" />
+                <div class="form-text">Leave blank to use the slot's configured capacity.</div>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Notes (optional)</label>
+                <InputText class="form-control" @bind-Value="_seriesForm.SeriesNotes"
+                           placeholder="E.g. Holiday Sunday pattern" />
+            </div>
+        }
+        <div class="col-md-2">
+            <label class="form-label">Day of week</label>
+            <select class="form-select" @bind="_seriesForm.DayOfWeek">
+                @foreach (var d in Enum.GetValues<DayOfWeek>())
+                {
+                    <option value="@d">@d</option>
+                }
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">Start (local HH:mm)</label>
+            <InputText type="time" class="form-control" @bind-Value="_seriesForm.StartLocal" />
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">Duration (min)</label>
+            <input class="form-control" type="number" min="0" step="15"
+                   @bind="_seriesForm.DurationMinutes" />
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">First date</label>
+            <InputDate class="form-control" @bind-Value="_seriesForm.StartDate" />
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">Last date (exclusive)</label>
+            <InputDate class="form-control" @bind-Value="_seriesForm.EndDate" />
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">Time zone</label>
+            <select class="form-select" @bind="_seriesForm.TimeZoneId">
+                @foreach (var tz in _timeZones)
+                {
+                    <option value="@tz.Id">@tz.DisplayName</option>
+                }
+            </select>
+            <div class="form-text">
+                @if (!string.IsNullOrEmpty(TzProvider.TimeZoneId))
+                {
+                    <span>Detected from your browser: <code>@TzProvider.TimeZoneId</code></span>
+                }
+                else
+                {
+                    <span>Browser timezone unavailable — using server default until you pick.</span>
+                }
+            </div>
+        </div>
+        <div class="col-md-12 mt-2">
+            <button class="btn btn-primary" disabled="@(_seriesBusy || !_canSchedule)">
+                @(_seriesBusy ? "Generating…" : (_canSchedule ? "Generate weekly series" : "Coordinators only"))
+            </button>
+        </div>
+    </div>
+</EditForm>
+
+@if (!string.IsNullOrEmpty(_seriesMessage))
+{
+    <div class="alert @(_seriesError ? "alert-danger" : "alert-success") py-2 small mt-3 mb-0">
+        @_seriesMessage
+    </div>
+}
+
+@if (_seriesRun is not null)
+{
+    var createdCount = _seriesRun.AssignedCreated?.Count ?? _seriesRun.OpenCreated?.Count ?? 0;
+    <div class="row mt-3">
+        <div class="col-md-6">
+            <h6>Created (@createdCount)</h6>
+            @if (_seriesRun.AssignedCreated is not null)
+            {
+                @if (!_seriesRun.AssignedCreated.Any())
+                {
+                    <div class="alert alert-warning small mb-0">No occurrences created (all skipped).</div>
+                }
+                else
+                {
+                    <table class="table table-sm">
+                        <thead><tr><th>When (local)</th><th>Duration</th></tr></thead>
+                        <tbody>
+                            @foreach (var a in _seriesRun.AssignedCreated.OrderBy(a => a.StartUtc))
+                            {
+                                <tr>
+                                    <td><LocalTime Utc="@a.StartUtc" Format="ddd, MMM d h:mm tt" /> &ndash; <LocalTime Utc="@a.EndUtc" Format="h:mm tt" /></td>
+                                    <td>@((a.EndUtc - a.StartUtc).TotalMinutes) min</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+                <p class="text-muted small mb-0 mt-1">Assignments now show under "Upcoming assignments" above.</p>
+            }
+            @if (_seriesRun.OpenCreated is not null)
+            {
+                @if (!_seriesRun.OpenCreated.Any())
+                {
+                    <div class="alert alert-warning small mb-0">No open shifts created (all skipped).</div>
+                }
+                else
+                {
+                    <table class="table table-sm">
+                        <thead><tr><th>When (local)</th><th>Duration</th></tr></thead>
+                        <tbody>
+                            @foreach (var o in _seriesRun.OpenCreated.OrderBy(o => o.StartUtc))
+                            {
+                                <tr>
+                                    <td><LocalTime Utc="@o.StartUtc" Format="ddd, MMM d h:mm tt" /> &ndash; <LocalTime Utc="@o.EndUtc" Format="h:mm tt" /></td>
+                                    <td>@((o.EndUtc - o.StartUtc).TotalMinutes) min</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+                <p class="text-muted small mb-0 mt-1">Open shifts now show under "Open shifts queued" above.</p>
+            }
+        </div>
+        <div class="col-md-6">
+            <h6>Skipped (@_seriesRun.Skipped.Count)</h6>
+            @if (!_seriesRun.Skipped.Any())
+            {
+                <div class="alert alert-success mb-0 small">All occurrences were scheduled.</div>
+            }
+            else
+            {
+                <ul class="list-group">
+                    @foreach (var s in _seriesRun.Skipped.OrderBy(s => s.ProposedStartUtc))
+                    {
+                        <li class="list-group-item">
+                            <strong><LocalTime Utc="@s.ProposedStartUtc" Format="ddd, MMM d h:mm tt" /></strong>
+                            <ul class="mb-0 small">
+                                @foreach (var r in s.Reasons)
+                                {
+                                    <li>@r</li>
+                                }
+                            </ul>
+                        </li>
+                    }
+                </ul>
+            }
+        </div>
+        @if (_seriesRun.CapReached)
+        {
+            <div class="col-12 mt-2">
+                <div class="alert alert-warning mb-0">
+                    Note: hit the 500-occurrence safety cap. Split your range into smaller chunks.
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject IAssignmentService AssignmentService
+@inject AuthenticationStateProvider Auth
+@inject IOrgAuthService OrgAuth
+@inject UserTimeZoneProvider TzProvider
+@code {
+    [Parameter] public int OrgId { get; set; }
+    [Parameter] public int MinId { get; set; }
+    [Parameter] public int Id { get; set; }
+    private ServiceSlot? _slot;
+    private List<Person> _orgMembers = new();
+    private List<AssignRow> _assignments = new();
+    // [SupplyParameterFromForm] — see Organizations/Edit.razor for rationale.
+    [SupplyParameterFromForm] private Proposal _proposal { get; set; } = new();
+    private bool _busy;
+    private List<string> _conflicts = new();
+    private List<string> _missing = new();
+    private bool _canSchedule;
+    // ----- open-shift (no pre-assigned volunteer) scaffolding state -----
+    // FormName intentionally omitted: STATUS.md Known quirks note that
+    // EditForm FormName mounted inside an @if branch on an InteractiveServer
+    // page drops the SignalR circuit. Schedule.razor's outer @if(_slot) gate
+    // is the conditional; we keep Model + OnValidSubmit only.
+    [SupplyParameterFromForm] private OpenShiftForm _openShift { get; set; } = new();
+    private bool _openShiftBusy;
+    private string? _openShiftMessage;
+    private bool _openShiftError;
+    private List<OpenShiftRow> _openSlots = new();
+    // ----- recurring-series state -----
+    // Mode toggle on the inline series form: pin the same volunteer every
+    // week, or queue an open shift every week for /Browse open slots to
+    // surface. Both modes share day/time/duration/date-range fields and
+    // funnel through the matching AssignmentService method.
+    private enum SeriesMode { Assigned, Open }
+    private SeriesMode _seriesMode = SeriesMode.Assigned;
+    [SupplyParameterFromForm] private SeriesForm _seriesForm { get; set; } = new();
+    private bool _seriesBusy;
+    private string? _seriesMessage;
+    private bool _seriesError;
+    private SeriesRunInfo? _seriesRun;
+    private List<TimeZoneInfo> _timeZones = TimeZoneInfo.GetSystemTimeZones()
+        .OrderBy(tz => tz.BaseUtcOffset).ThenBy(tz => tz.Id).ToList();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await Auth.GetAuthenticationStateAsync();
+        var userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        _canSchedule = !string.IsNullOrEmpty(userId)
+            && await OrgAuth.CanManageSlotAsync(userId, Id);
+        await Reload();
+
+        // Seed defaults for the recurring-series form once _slot is populated.
+        // SeriesForm's field-level defaults handle the simple cases; _slot's
+        // DefaultDurationMinutes is the real-world value a coordinator will
+        // usually want, so we copy it in here and let the user override.
+        _seriesForm.StartDate = DateTime.Today;
+        _seriesForm.EndDate = DateTime.Today.AddMonths(3);
+        _seriesForm.DayOfWeek = DayOfWeek.Sunday;
+        _seriesForm.DurationMinutes = _slot?.DefaultDurationMinutes ?? 60;
+        _seriesForm.TimeZoneId = TzProvider.TimeZoneId ?? TimeZoneInfo.Local.Id;
+    }
+
+    private async Task Reload()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _slot = await db.ServiceSlots.AsNoTracking().FirstOrDefaultAsync(s => s.Id == Id);
+        _orgMembers = await db.OrganizationMemberships
+            .Where(m => m.OrganizationId == OrgId)
+            .Select(m => m.Person)
+            .OrderBy(p => p.LastName)
+            .ToListAsync();
+
+        var fromUtc = DateTime.UtcNow;
+        _assignments = await db.Assignments
+            .Where(a => a.ServiceSlotId == Id && a.StartUtc >= fromUtc
+                && a.Status != AssignmentStatus.Cancelled)
+            .OrderBy(a => a.StartUtc)
+            .Select(a => new AssignRow
+            {
+                Id = a.Id,
+                StartUtc = a.StartUtc,
+                EndUtc = a.EndUtc,
+                PersonName = a.Person.DisplayName,
+                Status = a.Status,
+            })
+            .ToListAsync();
+
+        // Open shifts queued for this slot in the future, with current sign-up
+        // count so the coordinator can see what's still available for volunteers.
+        var occRows = await db.SlotOccurrences
+            .Where(o => o.ServiceSlotId == Id && o.EndUtc > DateTime.UtcNow)
+            .OrderBy(o => o.StartUtc)
+            .Select(o => new
+            {
+                o.Id,
+                o.StartUtc,
+                o.EndUtc,
+                o.CapacityOverride,
+                SlotCap = o.ServiceSlot.Capacity,
+                SignedUp = db.Assignments.Count(a =>
+                    a.ServiceSlotId == Id
+                    && a.StartUtc == o.StartUtc
+                    && a.Status != AssignmentStatus.Cancelled
+                    && a.Status != AssignmentStatus.NoShow),
+            })
+            .ToListAsync();
+
+        _openSlots = occRows
+            .Select(o => new OpenShiftRow
+            {
+                OccurrenceId = o.Id,
+                StartUtc = o.StartUtc,
+                EndUtc = o.EndUtc,
+                Capacity = o.CapacityOverride ?? o.SlotCap,
+                SignedUpCount = o.SignedUp,
+            })
+            .ToList();
+    }
+
+    private async Task Validate()
+    {
+        if (!_canSchedule)
+        {
+            _conflicts = new() { "You don't have permission to schedule for this organization." };
+            _missing = new();
+            return;
+        }
+
+        _busy = true;
+        _conflicts.Clear();
+        _missing.Clear();
+        try
+        {
+            if (string.IsNullOrEmpty(_proposal.PersonUserId)) return;
+            if (!TimeSpan.TryParse(_proposal.StartLocal, out var startTime))
+            {
+                _missing = new List<string> { "Start time must be HH:mm." };
+                return;
+            }
+            var localDate = _proposal.Date.Date;
+            // Pin DateTimeKind=Unspecified so ConvertTimeToUtc uses the timezone we
+            // pass in (not the implicit server-local fallback).
+            var startLocal = DateTime.SpecifyKind(localDate + startTime, DateTimeKind.Unspecified);
+            var tzId = TzProvider.TimeZoneId ?? TimeZoneInfo.Local.Id;
+            var tz = TimeZoneInfo.FindSystemTimeZoneById(tzId);
+            var startUtc = TimeZoneInfo.ConvertTimeToUtc(startLocal, tz);
+            var endUtc = startUtc.AddMinutes(_proposal.DurationMinutes <= 0 ? 60 : _proposal.DurationMinutes);
+
+            var result = await AssignmentService.AssignAsync(
+                _proposal.PersonUserId, Id, startUtc, endUtc);
+            if (result.Succeeded)
+            {
+                _proposal = new();
+                await Reload();
+                return;
+            }
+            _conflicts = result.Conflicts.ToList();
+            _missing = result.MissingTrainings.ToList();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task Cancel(int assignmentId)
+    {
+        if (!_canSchedule) return;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var a = await db.Assignments.FindAsync(assignmentId);
+        if (a is null) return;
+        a.Status = AssignmentStatus.Cancelled;
+        await db.SaveChangesAsync();
+        await Reload();
+    }
+
+    // -- Open shift (no pre-assigned volunteer) flow ------------------------------
+
+    private async Task CreateOpenShift()
+    {
+        if (!_canSchedule)
+        {
+            _openShiftError = true;
+            _openShiftMessage = "You don't have permission to schedule for this organization.";
+            return;
+        }
+        _openShiftBusy = true;
+        _openShiftMessage = null;
+        _openShiftError = false;
+        try
+        {
+            if (!TimeSpan.TryParse(_openShift.StartLocal, out var startTime))
+            {
+                _openShiftError = true;
+                _openShiftMessage = "Start time must be HH:mm.";
+                return;
+            }
+            var localDate = _openShift.Date.Date;
+            // Pin DateTimeKind=Unspecified so ConvertTimeToUtc uses our tz
+            // (TzProvider is the per-user browser-zone cookie) instead of the
+            // server-local fallback.
+            var startLocal = DateTime.SpecifyKind(localDate + startTime, DateTimeKind.Unspecified);
+            var tzId = TzProvider.TimeZoneId ?? TimeZoneInfo.Local.Id;
+            var tz = TimeZoneInfo.FindSystemTimeZoneById(tzId);
+            var startUtc = TimeZoneInfo.ConvertTimeToUtc(startLocal, tz);
+            var endUtc = startUtc.AddMinutes(_openShift.DurationMinutes <= 0 ? 60 : _openShift.DurationMinutes);
+
+            var result = await AssignmentService.CreateSlotOccurrenceAsync(
+                Id, startUtc, endUtc, _openShift.Notes, _openShift.CapacityOverride);
+            if (result.Succeeded)
+            {
+                _openShiftMessage = $"Open shift scheduled for {startUtc:u}.";
+                _openShift = new();
+                await Reload();
+            }
+            else
+            {
+                _openShiftError = true;
+                _openShiftMessage = result.Error ?? "Could not create the open shift.";
+            }
+        }
+        finally
+        {
+            _openShiftBusy = false;
+        }
+    }
+
+    private async Task CancelOpenShift(int occurrenceId)
+    {
+        if (!_canSchedule) return;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var occ = await db.SlotOccurrences.FindAsync(occurrenceId);
+        if (occ is null) return;
+        // Removing the open shift scaffolding while signed-up volunteers still
+        // hold Assignment rows means those rows remain assigned at this time.
+        // Coordinator-facing intent is currently "remove the help-wanted sign";
+        // the volunteers are NOT auto-cancelled. Surface a note in the UI if
+        // we ever want a stricter mode.
+        db.SlotOccurrences.Remove(occ);
+        await db.SaveChangesAsync();
+        await Reload();
+    }
+
+    private class Proposal
+    {
+        public DateTime Date { get; set; } = DateTime.Today.AddDays(7);
+        public string StartLocal { get; set; } = "09:00";
+        public int DurationMinutes { get; set; } = 60;
+        public string? PersonUserId { get; set; }
+    }
+
+    private class AssignRow
+    {
+        public int Id { get; set; }
+        public DateTime StartUtc { get; set; }
+        public DateTime EndUtc { get; set; }
+        public string PersonName { get; set; } = "";
+        public AssignmentStatus Status { get; set; }
+    }
+
+    private class OpenShiftForm
+    {
+        public DateTime Date { get; set; } = DateTime.Today.AddDays(7);
+        public string StartLocal { get; set; } = "09:00";
+        public int DurationMinutes { get; set; } = 60;
+        public int? CapacityOverride { get; set; }
+        public string? Notes { get; set; }
+    }
+
+    private class OpenShiftRow
+    {
+        public int OccurrenceId { get; set; }
+        public DateTime StartUtc { get; set; }
+        public DateTime EndUtc { get; set; }
+        public int Capacity { get; set; }
+        public int SignedUpCount { get; set; }
+    }
+
+    // -- Recurring-series flow -------------------------------------------
+    // Both modes (Assigned / Open) share this section's UI and re-use the
+    // day/time/duration/date-range fields. Per-iteration validation differs:
+    // Assigned funnels through ScheduleSeriesAsync (which calls AssignAsync
+    // per occurrence and skips on conflict / training-gate failures); Open
+    // funnels through ScheduleOpenShiftSeriesAsync (which creates
+    // SlotOccurrence rows and skips on duplicate (slot, StartUtc) pairs).
+
+    private void SwitchSeriesMode(SeriesMode mode)
+    {
+        if (_seriesMode == mode) return;
+        _seriesMode = mode;
+        // Clear the prior run panel so the user doesn't see stale numbers
+        // from the previous mode hang around.
+        _seriesRun = null;
+        _seriesMessage = null;
+        // Clear mode-specific fields so a stale value from the prior mode
+        // can’t accidentally drive a future generate (e.g. user picks
+        // "Vee" in Assigned, flips to Open, generates — we don’t want the
+        // Open series to silently bind to Vee behind the coordinator’s
+        // back if they flip back to Assigned later).
+        if (mode == SeriesMode.Open)
+            _seriesForm.PersonUserId = null;
+        else
+        {
+            _seriesForm.CapacityOverride = null;
+            _seriesForm.SeriesNotes = null;
+        }
+    }
+
+    private async Task GenerateRecurringSeries()
+    {
+        if (!_canSchedule) return;
+        _seriesBusy = true;
+        _seriesMessage = null;
+        _seriesError = false;
+        _seriesRun = null;
+        try
+        {
+            if (!TimeSpan.TryParse(_seriesForm.StartLocal, out var stime))
+            {
+                _seriesError = true;
+                _seriesMessage = "Start time must be HH:mm.";
+                return;
+            }
+            if (_seriesForm.EndDate <= _seriesForm.StartDate)
+            {
+                _seriesError = true;
+                _seriesMessage = "Last date must be after first date.";
+                return;
+            }
+            if (_seriesForm.DurationMinutes <= 0)
+            {
+                _seriesError = true;
+                _seriesMessage = "Duration must be positive.";
+                return;
+            }
+            // Capacity override is optional; if provided (non-null) it must
+            // be positive. Surface this as a friendly page-level alert
+            // instead of letting it slip through to a service-thrown
+            // ArgumentException caught further down (which still works, but
+            // ties the UX to a “generation failed” frame).
+            if (_seriesForm.CapacityOverride is int cap && cap <= 0)
+            {
+                _seriesError = true;
+                _seriesMessage = "Capacity override must be a positive number, or left blank.";
+                return;
+            }
+
+            var tzId = _seriesForm.TimeZoneId ?? TimeZoneInfo.Local.Id;
+
+            if (_seriesMode == SeriesMode.Assigned)
+            {
+                if (string.IsNullOrEmpty(_seriesForm.PersonUserId))
+                {
+                    _seriesError = true;
+                    _seriesMessage = "Pick a volunteer first.";
+                    return;
+                }
+                var result = await AssignmentService.ScheduleSeriesAsync(
+                    _seriesForm.PersonUserId, Id, _seriesForm.DayOfWeek, stime,
+                    _seriesForm.DurationMinutes,
+                    _seriesForm.StartDate.Date, _seriesForm.EndDate.Date, tzId);
+                _seriesRun = new SeriesRunInfo(
+                    result.Created,
+                    null,
+                    result.Skipped,
+                    result.CapReached);
+                _seriesMessage = $"Series evaluated. Created {result.Created.Count}, skipped {result.Skipped.Count}."
+                    + (result.CapReached ? " " : "");
+            }
+            else
+            {
+                var result = await AssignmentService.ScheduleOpenShiftSeriesAsync(
+                    Id, _seriesForm.DayOfWeek, stime, _seriesForm.DurationMinutes,
+                    _seriesForm.StartDate.Date, _seriesForm.EndDate.Date, tzId,
+                    _seriesForm.CapacityOverride, _seriesForm.SeriesNotes);
+                _seriesRun = new SeriesRunInfo(
+                    null,
+                    result.Created,
+                    result.Skipped,
+                    result.CapReached);
+                _seriesMessage = $"Open-shift series evaluated. Created {result.Created.Count}, skipped {result.Skipped.Count}."
+                    + (result.CapReached ? " " : "");
+            }
+
+            await Reload();
+        }
+        catch (Exception ex)
+        {
+            _seriesError = true;
+            _seriesMessage = "Series generation failed: " + ex.Message;
+        }
+        finally
+        {
+            _seriesBusy = false;
+        }
+    }
+
+    // Holds the full per-occurrence lists for both modes so the result
+    // panel can drill down to the actual rows (mirrors the /Series page).
+    // The two Created lists are mutually exclusive (whichever mode the user
+    // picked).
+    private record SeriesRunInfo(
+        IReadOnlyList<Assignment>? AssignedCreated,
+        IReadOnlyList<SlotOccurrence>? OpenCreated,
+        IReadOnlyList<ScheduleSeriesSkipped> Skipped,
+        bool CapReached);
+
+    private class SeriesForm
+    {
+        public string? PersonUserId { get; set; }
+        public DayOfWeek DayOfWeek { get; set; }
+        public string StartLocal { get; set; } = "09:00";
+        public int DurationMinutes { get; set; }
+        public DateTime StartDate { get; set; }
+        public DateTime EndDate { get; set; }
+        public string? TimeZoneId { get; set; }
+        public int? CapacityOverride { get; set; }
+        public string? SeriesNotes { get; set; }
+    }
+}

@@ -1,0 +1,221 @@
+@page "/Games/{GameId:int}"
+@attribute [Authorize]
+@rendermode InteractiveServer
+
+<PageTitle>@(_game is null ? "Game" : $"{_game.HomeTeam.Name} vs {_game.AwayTeam.Name}")</PageTitle>
+
+@if (_game is null)
+{
+    <p><em>Loading…</em></p>
+}
+else
+{
+    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+        <div>
+            <h1 class="mb-0">@_game.HomeTeam.Name vs @_game.AwayTeam.Name</h1>
+            <div class="text-muted">
+                <a href="@($"Leagues/{_game.MinistryId}")">@_game.Ministry?.Name</a>
+                · @_game.Arena.Name
+            </div>
+        </div>
+        <div class="d-flex gap-2 flex-wrap">
+            <a class="btn btn-outline-secondary" href="@($"Leagues/{_game.MinistryId}/Schedule")">Back to schedule</a>
+            @if (_canManage)
+            {
+                <a class="btn btn-outline-primary" href="@($"Games/{GameId}/Edit")">Edit</a>
+            }
+        </div>
+    </div>
+
+    <div class="row g-3">
+        <div class="col-md-7">
+            <div class="card">
+                <div class="card-body">
+                    <div class="row text-center align-items-center">
+                        <div class="col">
+                            <a href="@($"Teams/{_game.HomeTeamId}")"><h3 class="mb-0">@_game.HomeTeam.Name</h3></a>
+                            <div class="text-muted small">home</div>
+                        </div>
+                        <div class="col-auto">
+                            <h2>
+                                <span class="badge bg-@AssignmentStatusUi.ColorFor(_game.Status)">
+                                    @(_game.HomeScore?.ToString() ?? "—") : @(_game.AwayScore?.ToString() ?? "—")
+                                </span>
+                            </h2>
+                            <div class="text-muted small">@_game.Status</div>
+                        </div>
+                        <div class="col">
+                            <a href="@($"Teams/{_game.AwayTeamId})")"><h3 class="mb-0">@_game.AwayTeam.Name</h3></a>
+                            <div class="text-muted small">away</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card mt-3">
+                <div class="card-header">When & where</div>
+                <div class="card-body">
+                    <div><strong>Start:</strong> <LocalTime Utc="@_game.StartUtc" Format="ddd, MMM d yyyy h:mm tt" /></div>
+                    <div><strong>End:</strong> <LocalTime Utc="@_game.EndUtc" Format="h:mm tt" /></div>
+                    <div><strong>Arena:</strong> @_game.Arena.Name @(_game.Arena.SurfaceType is null ? "" : $"({_game.Arena.SurfaceType})")</div>
+                    @if (!string.IsNullOrEmpty(_game.Arena.Address))
+                    {
+                        <div><strong>Address:</strong> @_game.Arena.Address</div>
+                    }
+                    @if (!string.IsNullOrEmpty(_game.Notes))
+                    {
+                        <div class="mt-2"><strong>Notes:</strong> @_game.Notes</div>
+                    }
+                </div>
+            </div>
+
+            @if (_canManage)
+            {
+                <div class="card mt-3">
+                    <div class="card-header">Record final score</div>
+                    <div class="card-body">
+                        @* No FormName="…" on purpose: this EditForm is
+                           mounted inside an @if(_canManage) branch of
+                           an @rendermode InteractiveServer page. Blazor's
+                           enhanced-form handling treats any
+                           <EditForm FormName="X"> as static-form-SSR-capable;
+                           mounting such a form mid-render into an
+                           already-interactive circuit triggers the
+                           SignalR-drop regression captured in
+                           STATUS.md → Known quirks. Keep this comment if
+                           you ever add a FormName back. *@
+                        <EditForm Model="_scoreModel" OnValidSubmit="SaveScore">
+                            <div class="row g-2 align-items-end">
+                                <div class="col-md-4">
+                                    <label class="form-label">@_game.HomeTeam.Name (home)</label>
+                                    <InputNumber class="form-control" @bind-Value="_scoreModel.HomeScore" TValue="int" />
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label">@_game.AwayTeam.Name (away)</label>
+                                    <InputNumber class="form-control" @bind-Value="_scoreModel.AwayScore" TValue="int" />
+                                </div>
+                                <div class="col-md-4">
+                                    <button class="btn btn-success w-100" type="submit">Save final score</button>
+                                </div>
+                            </div>
+                        </EditForm>
+                        <StatusMessage Message="@_scoreMessage" IsError="@_scoreError" />
+                    </div>
+                </div>
+            }
+        </div>
+
+        <div class="col-md-5">
+            <div class="card">
+                <div class="card-header">Game-day volunteers</div>
+                <div class="card-body">
+                    <p class="text-muted small">Volunteer shifts scheduled for this game's day. Each shift is a regular <c>Assignment</c> on a game-day slot (e.g. "Game-Day Referee").</p>
+                    @if (!_shifts.Any())
+                    {
+                        <div class="text-muted">None scheduled.</div>
+                    }
+                    else
+                    {
+                        <ul class="list-group list-group-flush">
+                            @foreach (var s in _shifts)
+                            {
+                                <li class="list-group-item d-flex justify-content-between">
+                                    <span><a href="@($"People/{s.PersonUserId}")">@s.PersonName</a> · @s.SlotName</span>
+                                    <span class="badge bg-@AssignmentStatusUi.ColorFor(s.Status)">@s.Status</span>
+                                </li>
+                            }
+                        </ul>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject IGameService GameService
+@inject AuthenticationStateProvider Auth
+@inject IOrgAuthService OrgAuth
+@code {
+    [Parameter] public int GameId { get; set; }
+    private Game? _game;
+    private bool _canManage;
+    // [SupplyParameterFromForm] — see Organizations/Edit.razor for rationale.
+    [SupplyParameterFromForm] private ScoreModel _scoreModel { get; set; } = new();
+    private string? _scoreMessage;
+    private bool _scoreError;
+    private List<ShiftRow> _shifts = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await Auth.GetAuthenticationStateAsync();
+        var userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+
+        _game = await GameService.GetGameAsync(GameId);
+        if (_game is null) return;
+
+        if (!string.IsNullOrEmpty(userId))
+        {
+            _canManage = await OrgAuth.CanManageMinistryAsync(userId, _game.MinistryId);
+        }
+
+        // Default the score form to the current values (or 0-0) for convenience.
+        _scoreModel = new ScoreModel
+        {
+            HomeScore = _game.HomeScore ?? 0,
+            AwayScore = _game.AwayScore ?? 0,
+        };
+
+        // Game-day volunteer shifts: assignments on game-day slots in the
+        // game's ministry whose time window overlaps the game.
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _shifts = await db.Assignments
+            .Where(a => a.ServiceSlot.MinistryId == _game.MinistryId
+                && a.StartUtc < _game.EndUtc
+                && a.EndUtc > _game.StartUtc
+                && a.Status != AssignmentStatus.Cancelled)
+            .OrderBy(a => a.StartUtc)
+            .Select(a => new ShiftRow
+            {
+                Id = a.Id,
+                PersonUserId = a.PersonUserId,
+                PersonName = a.Person.DisplayName,
+                SlotName = a.ServiceSlot.Name,
+                Status = a.Status,
+            })
+            .AsNoTracking()
+            .ToListAsync();
+    }
+
+    private async Task SaveScore()
+    {
+        if (_game is null || !_canManage) return;
+        try
+        {
+            await GameService.SetScoreAsync(GameId, _scoreModel.HomeScore, _scoreModel.AwayScore);
+            _game = await GameService.GetGameAsync(GameId);
+            _scoreMessage = "Score saved.";
+            _scoreError = false;
+        }
+        catch (Exception ex)
+        {
+            _scoreError = true;
+            _scoreMessage = "Save failed: " + ex.Message;
+        }
+    }
+
+    private class ScoreModel
+    {
+        public int HomeScore { get; set; }
+        public int AwayScore { get; set; }
+    }
+
+    private class ShiftRow
+    {
+        public int Id { get; set; }
+        public string PersonUserId { get; set; } = "";
+        public string PersonName { get; set; } = "";
+        public string SlotName { get; set; } = "";
+        public AssignmentStatus Status { get; set; }
+    }
+}

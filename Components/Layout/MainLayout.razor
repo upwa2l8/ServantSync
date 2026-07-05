@@ -1,0 +1,42 @@
+@* Per .NET 9 Blazor: this layout intentionally does NOT carry a
+   `@rendermode` directive. Putting one here triggers
+
+       System.InvalidOperationException:
+        Cannot pass the parameter 'Body' to component 'MainLayout'
+        with rendermode 'InteractiveServerRenderMode'. This is
+        because the parameter is of the delegate type 'Microsoft.
+        AspNetCore.Components.RenderFragment', which is arbitrary
+        code and cannot be serialized.
+
+   The framework tries to serialize the layout's parameters for
+   streaming-SSR and `@Body` is a `RenderFragment` that captures
+   the parent render context — it can't be serialized across the
+   wire. The cascade therefore comes from each PAGE's own
+   `@rendermode InteractiveServer` directive instead, so any page
+   routed through this layout that needs interactivity must opt in
+   explicitly. See `Components/Routes.razor` for the canonical
+   pattern and the per-page opt-out note. *@
+@inherits LayoutComponentBase
+
+<div class="page">
+    <div class="sidebar">
+        <NavMenu />
+    </div>
+
+    <main>
+        <div class="top-row px-4">
+            <a href="https://learn.microsoft.com/aspnet/core/" target="_blank">About</a>
+        </div>
+
+        <article class="content px-4">
+            <TimeZoneInitializer />
+            @Body
+        </article>
+    </main>
+</div>
+
+<div id="blazor-error-ui" data-nosnippet>
+    An unhandled error has occurred.
+    <a href="." class="reload">Reload</a>
+    <span class="dismiss">🗙</span>
+</div>

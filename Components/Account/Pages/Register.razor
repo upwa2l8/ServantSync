@@ -1,0 +1,135 @@
+@page "/Account/Register"
+@layout AccountLayout
+@using Microsoft.AspNetCore.Antiforgery
+@using ServantSync.Services
+@using ServantSync.Models
+@using Microsoft.EntityFrameworkCore
+@inject IAntiforgery Antiforgery
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+
+<PageTitle>Register · ServantSync</PageTitle>
+
+<h1 class="h3 mb-3">Create your account</h1>
+
+@* Round-AN (this): this page is now static-SSR with a plain HTML
+   form posting to /Account/PerformRegister. See the matching
+   WHY-block in Components/Account/Pages/Login.razor — the same
+   "Headers are read-only" race surfaced here too because
+   HandleRegister also called SignInManager.SignInAsync after
+   UserManager.CreateAsync. Static-SSR form-POST to a minimal
+   API endpoint runs against the FRESH HttpContext so the cookie
+   write succeeds. *@
+
+@* Code-status banner. We show ONE of three states in this slot: *@
+@if (_autoJoinOrg is not null)
+{
+    <div class="alert alert-info py-2 small">
+        You'll be joining <strong>@_autoJoinOrg.Name</strong> as a volunteer after registering.
+    </div>
+}
+else if (_codeWasProvided)
+{
+    <div class="alert alert-warning py-2 small">
+        This invitation code didn't match any organization. Please ask the admin who
+        shared the link to re-send it — they may have rotated the registration token
+        since you started.
+    </div>
+}
+
+@if (!string.IsNullOrEmpty(Error))
+{
+    <div class="alert alert-danger py-2 small">
+        @Error
+    </div>
+}
+
+<form method="post" action="/Account/PerformRegister">
+    <input type="hidden" name="token" value="@(Token ?? "")" />
+    <input type="hidden" name="returnUrl" value="@(ReturnUrl ?? "/")" />
+    <input type="hidden" name="__RequestVerificationToken" value="@Antiforgery.GetAndStoreTokens(HttpContext).RequestToken" />
+
+    <div class="row g-2">
+        <div class="col">
+            <div class="form-floating mb-3">
+                <input id="first" name="firstName" class="form-control" autocomplete="given-name" required />
+                <label for="first">First name</label>
+            </div>
+        </div>
+        <div class="col">
+            <div class="form-floating mb-3">
+                <input id="last" name="lastName" class="form-control" autocomplete="family-name" required />
+                <label for="last">Last name</label>
+            </div>
+        </div>
+    </div>
+    <div class="form-floating mb-3">
+        <input id="email" name="email" type="email" class="form-control" autocomplete="username" required />
+        <label for="email">Email</label>
+    </div>
+    <div class="form-floating mb-3">
+        <input id="password" name="password" type="password" class="form-control" autocomplete="new-password" required minlength="8" />
+        <label for="password">Password (8+ chars)</label>
+    </div>
+
+    @* Dropdown fallback: ONLY shown when no code was passed AND no
+       token resolved an org. Mirrors the prior (round-AG) shape
+       so the form rendering logic is identical to before. *@
+    @if (_autoJoinOrg is null && !_codeWasProvided && _orgsForDropdown.Count > 0)
+    {
+        <div class="form-floating mb-3">
+            <select id="org" name="organizationId" class="form-select">
+                <option value="">— no organization (register without joining) —</option>
+                @foreach (var o in _orgsForDropdown)
+                {
+                    <option value="@o.Id">@o.Name</option>
+                }
+            </select>
+            <label for="org">Join an organization</label>
+        </div>
+    }
+
+    <button type="submit" class="btn btn-primary w-100">Register</button>
+</form>
+
+<p class="mt-3 mb-0">
+    Already have an account? <a href="@($"Account/Login?returnUrl={Uri.EscapeDataString(ReturnUrl ?? "/")}")">Sign in</a>
+</p>
+
+@code {
+    [SupplyParameterFromQuery] public string? ReturnUrl { get; set; }
+    [SupplyParameterFromQuery(Name = "token")] public string? Token { get; set; }
+    [SupplyParameterFromQuery(Name = "orgId")] public int? OrgIdQuery { get; set; }
+    [SupplyParameterFromQuery(Name = "error")] public string? Error { get; set; }
+    [CascadingParameter] private HttpContext HttpContext { get; set; } = default!;
+
+    private Organization? _autoJoinOrg;
+    private bool _codeWasProvided;
+    private List<Organization> _orgsForDropdown = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Resolve the org-banner state up front (which code
+        // applies) so the form can render correctly. The actual
+        // org-join decision happens in /Account/PerformRegister.
+        _codeWasProvided = !string.IsNullOrWhiteSpace(Token) || OrgIdQuery.HasValue;
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+
+        if (!string.IsNullOrWhiteSpace(Token))
+        {
+            var t = Token.Trim();
+            _autoJoinOrg = await db.Organizations
+                .FirstOrDefaultAsync(o => o.RegistrationToken == t);
+        }
+
+        if (_autoJoinOrg is null && OrgIdQuery.HasValue)
+        {
+            _autoJoinOrg = await db.Organizations.FindAsync(OrgIdQuery.Value);
+        }
+
+        _orgsForDropdown = await db.Organizations
+            .OrderBy(o => o.Name)
+            .Select(o => new Organization { Id = o.Id, Name = o.Name })
+            .ToListAsync();
+    }
+}

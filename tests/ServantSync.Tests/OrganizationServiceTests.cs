@@ -1,0 +1,358 @@
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
+using ServantSync.Data;
+using ServantSync.Models;
+using ServantSync.Services;
+using Xunit;
+
+namespace ServantSync.Tests;
+
+/// <summary>
+/// Service-integration tests for <see cref="OrganizationService"/>. Covers
+/// the bootstrap-Admin pattern (the new Organization row + its first
+/// OrganizationMembership are both inserted atomically in a transaction).
+/// Real SQLite-backed DbContext via the shared <see cref="SqliteTestBase"/>.
+/// </summary>
+public class OrganizationServiceTests : SqliteTestBase
+{
+    private OrganizationService NewSvc() => new(
+        Factory,
+        new OrgAuthService(Factory),
+        NullLogger<OrganizationService>.Instance);
+
+    [Fact]
+    public async Task CreateOrg_AdminCaller_InsertsBothRows_AndReturnsId()
+    {
+        // Prerequisite: the caller is Admin of some pre-existing org.
+        var seedOrg = TestData.Org(Factory, "Seed Org");
+        var admin = TestData.Person(Factory);
+        TestData.Membership(Factory, admin.UserId, seedOrg.Id, OrganizationRole.Admin);
+
+        var newId = await NewSvc().CreateOrgAsync(
+            callerUserId: admin.UserId,
+            name: "Brand New Org",
+            description: "Created in test",
+            address: null,
+            contactEmail: null,
+            contactPhone: null);
+
+        Assert.NotNull(newId);
+
+        await using var db = await Factory.CreateDbContextAsync();
+
+        var org = await db.Organizations.SingleAsync(o => o.Id == newId);
+        Assert.Equal("Brand New Org", org.Name);
+
+        var membership = await db.OrganizationMemberships.SingleAsync(m =>
+            m.OrganizationId == newId && m.PersonUserId == admin.UserId);
+        Assert.Equal(OrganizationRole.Admin, membership.Role);
+    }
+
+    [Fact]
+    public async Task CreateOrg_TrimsNameWhitespace()
+    {
+        var seedOrg = TestData.Org(Factory);
+        var admin = TestData.Person(Factory);
+        TestData.Membership(Factory, admin.UserId, seedOrg.Id, OrganizationRole.Admin);
+
+        var newId = await NewSvc().CreateOrgAsync(
+            callerUserId: admin.UserId,
+            name: "  Spaced Out  ",
+            description: null, address: null, contactEmail: null, contactPhone: null);
+
+        Assert.NotNull(newId);
+        await using var db = await Factory.CreateDbContextAsync();
+        var org = await db.Organizations.SingleAsync(o => o.Id == newId);
+        Assert.Equal("Spaced Out", org.Name);
+    }
+
+    [Fact]
+    public async Task CreateOrg_NonAdminCaller_ReturnsNull()
+    {
+        // Caller is only a Coordinator of an existing org, not an Admin.
+        var seedOrg = TestData.Org(Factory);
+        var coordinator = TestData.Person(Factory);
+        TestData.Membership(Factory, coordinator.UserId, seedOrg.Id, OrganizationRole.Coordinator);
+
+        var newId = await NewSvc().CreateOrgAsync(
+            callerUserId: coordinator.UserId,
+            name: "Should Not Exist",
+            description: null, address: null, contactEmail: null, contactPhone: null);
+
+        Assert.Null(newId);
+
+        await using var db = await Factory.CreateDbContextAsync();
+        Assert.False(await db.Organizations.AnyAsync(o => o.Name == "Should Not Exist"));
+    }
+
+    [Fact]
+    public async Task CreateOrg_VolunteerCaller_ReturnsNull()
+    {
+        var seedOrg = TestData.Org(Factory);
+        var volunteer = TestData.Person(Factory);
+        TestData.Membership(Factory, volunteer.UserId, seedOrg.Id, OrganizationRole.Volunteer);
+
+        var newId = await NewSvc().CreateOrgAsync(
+            callerUserId: volunteer.UserId,
+            name: "Should Not Exist",
+            description: null, address: null, contactEmail: null, contactPhone: null);
+
+        Assert.Null(newId);
+    }
+
+    [Fact]
+    public async Task CreateOrg_NonMemberCaller_ReturnsNull()
+    {
+        // Caller has no membership in any org.
+        var nobody = TestData.Person(Factory);
+
+        var newId = await NewSvc().CreateOrgAsync(
+            callerUserId: nobody.UserId,
+            name: "Should Not Exist",
+            description: null, address: null, contactEmail: null, contactPhone: null);
+
+        Assert.Null(newId);
+    }
+
+    [Fact]
+    public async Task CreateOrg_EmptyCallerId_ReturnsNull()
+    {
+        var newId = await NewSvc().CreateOrgAsync(
+            callerUserId: "",
+            name: "Should Not Exist",
+            description: null, address: null, contactEmail: null, contactPhone: null);
+
+        Assert.Null(newId);
+    }
+
+    [Fact]
+    public async Task CreateOrg_EmptyName_ReturnsNull()
+    {
+        var seedOrg = TestData.Org(Factory);
+        var admin = TestData.Person(Factory);
+        TestData.Membership(Factory, admin.UserId, seedOrg.Id, OrganizationRole.Admin);
+
+        var newId = await NewSvc().CreateOrgAsync(
+            callerUserId: admin.UserId,
+            name: "",
+            description: null, address: null, contactEmail: null, contactPhone: null);
+
+        Assert.Null(newId);
+    }
+
+    [Fact]
+    public async Task CreateOrg_WhitespaceName_ReturnsNull()
+    {
+        var seedOrg = TestData.Org(Factory);
+        var admin = TestData.Person(Factory);
+        TestData.Membership(Factory, admin.UserId, seedOrg.Id, OrganizationRole.Admin);
+
+        var newId = await NewSvc().CreateOrgAsync(
+            callerUserId: admin.UserId,
+            name: "   ",
+            description: null, address: null, contactEmail: null, contactPhone: null);
+
+        Assert.Null(newId);
+    }
+
+    [Fact]
+    public async Task CreateOrg_BootstrapMembershipIsAdmin_NotCoordinatorOrVolunteer()
+    {
+        // The bootstrap membership is explicitly Admin, never any other role.
+        // (Even if a future refactor "helpfully picks a default role," the
+        // explicit OrganizationRole.Admin argument here must hold.)
+        var seedOrg = TestData.Org(Factory);
+        var admin = TestData.Person(Factory);
+        TestData.Membership(Factory, admin.UserId, seedOrg.Id, OrganizationRole.Admin);
+
+        var newId = await NewSvc().CreateOrgAsync(
+            callerUserId: admin.UserId,
+            name: "X",
+            description: null, address: null, contactEmail: null, contactPhone: null);
+
+        await using var db = await Factory.CreateDbContextAsync();
+        var row = await db.OrganizationMemberships.SingleAsync(m =>
+            m.OrganizationId == newId && m.PersonUserId == admin.UserId);
+        Assert.Equal(OrganizationRole.Admin, row.Role);
+    }
+
+    [Fact]
+    public async Task CreateOrg_IsAtomic_NoOrphanOrganizationWithoutAdmin()
+    {
+        // Hard to engineer a rollback in SQLite via EF without a controlled
+        // fault. Instead, sanity-check the contract: every Organization
+        // created via this service has exactly one Admin membership (the
+        // creator). If a future refactor splits the two inserts and forgets
+        // the transaction wrap, this test will catch it.
+        var seedOrg = TestData.Org(Factory);
+        var admin = TestData.Person(Factory);
+        TestData.Membership(Factory, admin.UserId, seedOrg.Id, OrganizationRole.Admin);
+
+        var newId = await NewSvc().CreateOrgAsync(
+            callerUserId: admin.UserId,
+            name: "Atomic Org",
+            description: null, address: null, contactEmail: null, contactPhone: null);
+
+        await using var db = await Factory.CreateDbContextAsync();
+
+        var org = await db.Organizations.FindAsync(newId);
+        Assert.NotNull(org);
+
+        var adminCount = await db.OrganizationMemberships.CountAsync(m =>
+            m.OrganizationId == newId && m.Role == OrganizationRole.Admin);
+        Assert.Equal(1, adminCount);
+    }
+
+    [Fact]
+    public async Task CreateOrg_GeneratesRegistrationToken_SoLinkCanBeSharedImmediately()
+    {
+        // New orgs are born with a non-null RegistrationToken so Admins can
+        // share the invite link from /Organizations/{Id} right away without
+        // needing a separate "rotate to first value" round-trip.
+        var seedOrg = TestData.Org(Factory);
+        var admin = TestData.Person(Factory);
+        TestData.Membership(Factory, admin.UserId, seedOrg.Id, OrganizationRole.Admin);
+
+        var newId = await NewSvc().CreateOrgAsync(
+            callerUserId: admin.UserId,
+            name: "Link-Ready Org",
+            description: null, address: null, contactEmail: null, contactPhone: null);
+
+        await using var db = await Factory.CreateDbContextAsync();
+        var org = await db.Organizations.SingleAsync(o => o.Id == newId);
+        Assert.False(string.IsNullOrEmpty(org.RegistrationToken));
+        // Guid.NewGuid().ToString("N") yields 32 hex chars. Defensive shape
+        // check: if a future token source changes length we want this test
+        // to fail loudly rather than ship a malformed URL.
+        Assert.Equal(32, org.RegistrationToken!.Length);
+    }
+
+    [Fact]
+    public async Task CreateOrg_DifferentOrgs_HaveDistinctTokens()
+    {
+        // Collisions are multiplied by N orgs in production; the unique
+        // index catches them but we want to assert the generator isn't
+        // accidentally returning a constant.
+        var seedOrg = TestData.Org(Factory);
+        var admin = TestData.Person(Factory);
+        TestData.Membership(Factory, admin.UserId, seedOrg.Id, OrganizationRole.Admin);
+
+        var idA = await NewSvc().CreateOrgAsync(
+            callerUserId: admin.UserId, name: "Org A",
+            description: null, address: null, contactEmail: null, contactPhone: null);
+        var idB = await NewSvc().CreateOrgAsync(
+            callerUserId: admin.UserId, name: "Org B",
+            description: null, address: null, contactEmail: null, contactPhone: null);
+
+        await using var db = await Factory.CreateDbContextAsync();
+        var tokA = (await db.Organizations.FindAsync(idA))!.RegistrationToken;
+        var tokB = (await db.Organizations.FindAsync(idB))!.RegistrationToken;
+        Assert.NotEqual(tokA, tokB);
+    }
+
+    // ─── GenerateRegistrationTokenAsync (rotation) ────────────────────────
+
+    [Fact]
+    public async Task RotateToken_AsAdmin_ReturnsNewToken_AndPersistsIt()
+    {
+        // Pre: an existing org Admin rotates the link.
+        var org = TestData.Org(Factory);
+        var admin = TestData.Person(Factory);
+        TestData.Membership(Factory, admin.UserId, org.Id, OrganizationRole.Admin);
+
+        // Seed an initial token (CreateOrgAsync does this for newly-spawned
+        // orgs, but for a Standalone test we set it explicitly).
+        await using (var db = await Factory.CreateDbContextAsync())
+        {
+            var row = await db.Organizations.FindAsync(org.Id);
+            row!.RegistrationToken = "initialtoken1" + new string('a', 20); // 32 chars
+            await db.SaveChangesAsync();
+        }
+
+        var newToken = await NewSvc().GenerateRegistrationTokenAsync(admin.UserId, org.Id);
+        Assert.NotNull(newToken);
+        Assert.NotEqual("initialtoken1aaaaaaaaaaaaaaaaaaaaaaaa", newToken); // changed
+        Assert.Equal(32, newToken!.Length); // still 32-char shape
+
+        await using var db2 = await Factory.CreateDbContextAsync();
+        var refreshed = await db2.Organizations.FindAsync(org.Id);
+        Assert.Equal(newToken, refreshed!.RegistrationToken);
+    }
+
+    [Fact]
+    public async Task RotateToken_TwiceOnSameOrg_ProducesDifferentTokens()
+    {
+        // Each rotation must invalidate any previously-shared URL. A second
+        // rotation should yield a fresh GUID different from the first.
+        var org = TestData.Org(Factory);
+        var admin = TestData.Person(Factory);
+        TestData.Membership(Factory, admin.UserId, org.Id, OrganizationRole.Admin);
+
+        var first = await NewSvc().GenerateRegistrationTokenAsync(admin.UserId, org.Id);
+        var second = await NewSvc().GenerateRegistrationTokenAsync(admin.UserId, org.Id);
+        Assert.NotNull(first);
+        Assert.NotNull(second);
+        Assert.NotEqual(first, second);
+    }
+
+    [Fact]
+    public async Task RotateToken_AsCoordinator_ReturnsNull_WithoutChangingToken()
+    {
+        // Coordinators cannot rotate (matches the Admin-only gate on the
+        // /Account/Register?token=… link — only Admins can regenerate).
+        var org = TestData.Org(Factory);
+        var coordinator = TestData.Person(Factory);
+
+        var seedToken = "coordinatorcanno";
+        await using (var db = await Factory.CreateDbContextAsync())
+        {
+            var admin = TestData.Person(Factory);
+            TestData.Membership(Factory, admin.UserId, org.Id, OrganizationRole.Admin);
+            TestData.Membership(Factory, coordinator.UserId, org.Id, OrganizationRole.Coordinator);
+            var row = await db.Organizations.FindAsync(org.Id);
+            row!.RegistrationToken = seedToken;
+            await db.SaveChangesAsync();
+        }
+
+        var result = await NewSvc().GenerateRegistrationTokenAsync(coordinator.UserId, org.Id);
+        Assert.Null(result);
+
+        await using var db2 = await Factory.CreateDbContextAsync();
+        var refreshed = await db2.Organizations.FindAsync(org.Id);
+        Assert.Equal(seedToken, refreshed!.RegistrationToken); // unchanged
+    }
+
+    [Fact]
+    public async Task RotateToken_AsVolunteer_ReturnsNull()
+    {
+        var org = TestData.Org(Factory);
+        var admin = TestData.Person(Factory);
+        var volunteer = TestData.Person(Factory);
+        TestData.Membership(Factory, admin.UserId, org.Id, OrganizationRole.Admin);
+        TestData.Membership(Factory, volunteer.UserId, org.Id, OrganizationRole.Volunteer);
+
+        var result = await NewSvc().GenerateRegistrationTokenAsync(volunteer.UserId, org.Id);
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task RotateToken_EmptyCallerId_ReturnsNull()
+    {
+        var org = TestData.Org(Factory);
+        var result = await NewSvc().GenerateRegistrationTokenAsync("", org.Id);
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task RotateToken_UnknownOrg_ReturnsNull()
+    {
+        // Admin of one org rotating a token on a different (non-existent)
+        // org id must return null rather than throwing.
+        var seedOrg = TestData.Org(Factory);
+        var admin = TestData.Person(Factory);
+        TestData.Membership(Factory, admin.UserId, seedOrg.Id, OrganizationRole.Admin);
+
+        var result = await NewSvc().GenerateRegistrationTokenAsync(admin.UserId, organizationId: 9_999_999);
+        Assert.Null(result);
+    }
+}

@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Least-privilege: the CI job only checks out code and runs dotnet.
+# Bump if you later add steps that need to comment on PRs, upload artifacts, etc.
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: Build & test (net9.0)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 9
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+          # Built-in NuGet cache (keyed off the lock-file-free default of
+          # **/packages.lock.json or, when absent, the project.assets.json
+          # glob). Safe because the test project shares the same restore
+          # output as the main project.
+          cache: true
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build (Release)
+        run: dotnet build --configuration Release --no-restore
+
+      - name: Test
+        # --no-build because the previous step already produced the
+        # binaries. Tests run against the EF Core in-memory provider
+        # where applicable, so no DB is needed.
+        run: dotnet test --configuration Release --no-build --verbosity normal

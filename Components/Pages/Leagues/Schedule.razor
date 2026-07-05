@@ -1,0 +1,116 @@
+@page "/Leagues/{MinistryId:int}/Schedule"
+@attribute [Authorize]
+@rendermode InteractiveServer
+
+<PageTitle>Schedule · @(_ministry?.Name ?? "League")</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <div>
+        <h1 class="mb-0">Schedule</h1>
+        <div class="text-muted">@_ministry?.Organization?.Name · @_ministry?.Name</div>
+    </div>
+    <div class="d-flex gap-2 flex-wrap">
+        <a class="btn btn-outline-secondary" href="@($"Leagues/{MinistryId}")">Back to league</a>
+        @if (_canManage)
+        {
+            <a class="btn btn-primary" href="@($"Leagues/{MinistryId}/Games/New")">+ Schedule a game</a>
+        }
+    </div>
+</div>
+
+@if (_events is null)
+{
+    <p><em>Loading…</em></p>
+}
+else
+{
+    <GameDayCalendar Events="_events"
+                     FromUtc="_fromUtc" ToUtc="_toUtc"
+                     Arenas="_arenas"
+                     Title="@($"{_ministry?.Name} — games + game-day volunteers, {_fromUtc:MMM d} to {_toUtc.AddDays(-1):MMM d, yyyy}")" />
+}
+
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject AuthenticationStateProvider Auth
+@inject IOrgAuthService OrgAuth
+@code {
+    [Parameter] public int MinistryId { get; set; }
+    private Ministry? _ministry;
+    private List<CalendarEvent> _events = new();
+    private List<Arena> _arenas = new();
+    private DateTime _fromUtc = DateTime.UtcNow;
+    private DateTime _toUtc = DateTime.UtcNow.AddDays(14);
+    private bool _canManage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await Auth.GetAuthenticationStateAsync();
+        var userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _ministry = await db.Ministries.Include(m => m.Organization).AsNoTracking().FirstOrDefaultAsync(m => m.Id == MinistryId);
+        if (_ministry is null) return;
+
+        // All arenas in the parent org.
+        _arenas = await db.Arenas
+            .Where(a => a.OrganizationId == _ministry.OrganizationId && a.IsActive)
+            .OrderBy(a => a.Name)
+            .AsNoTracking()
+            .ToListAsync();
+
+        // Games in the window.
+        var games = await db.Games
+            .Include(g => g.HomeTeam)
+            .Include(g => g.AwayTeam)
+            .Include(g => g.Arena)
+            .Where(g => g.MinistryId == MinistryId && g.StartUtc >= _fromUtc && g.StartUtc < _toUtc)
+            .OrderBy(g => g.StartUtc)
+            .AsNoTracking()
+            .ToListAsync();
+
+        // Volunteer shifts in the window: any assignment whose service slot
+        // belongs to a ministry in this org (covers sub-ministries too).
+        var assignments = await db.Assignments
+            .Include(a => a.ServiceSlot).ThenInclude(s => s.Ministry)
+            .Include(a => a.Person)
+            .Where(a => a.StartUtc >= _fromUtc && a.StartUtc < _toUtc
+                && a.Status != AssignmentStatus.Cancelled
+                && a.ServiceSlot.Ministry.OrganizationId == _ministry.OrganizationId)
+            .OrderBy(a => a.StartUtc)
+            .AsNoTracking()
+            .ToListAsync();
+
+        var evs = new List<CalendarEvent>();
+        evs.AddRange(games.Select(g => new CalendarEvent
+        {
+            Id = g.Id,
+            StartUtc = g.StartUtc,
+            EndUtc = g.EndUtc,
+            Title = $"{g.HomeTeam.Name} vs {g.AwayTeam.Name}",
+            Subtitle = $"@{g.Arena.Name}",
+            Location = g.Arena.Name,
+            Status = g.Status.ToString(),
+            StatusColor = AssignmentStatusUi.ColorFor(g.Status),
+            Href = $"Games/{g.Id}",
+            ArenaId = g.ArenaId,
+        }));
+        evs.AddRange(assignments.Select(a => new CalendarEvent
+        {
+            Id = 1_000_000 + a.Id, // avoid collision with game ids
+            StartUtc = a.StartUtc,
+            EndUtc = a.EndUtc,
+            Title = a.ServiceSlot.Name,
+            Subtitle = a.Person.DisplayName,
+            Location = a.ServiceSlot.Location,
+            Status = a.Status.ToString(),
+            StatusColor = AssignmentStatusUi.ColorFor(a.Status),
+            Href = $"People/{a.PersonUserId}",
+        }));
+        _events = evs.OrderBy(e => e.StartUtc).ToList();
+
+        if (!string.IsNullOrEmpty(userId))
+        {
+            _canManage = await OrgAuth.CanManageMinistryAsync(userId, MinistryId);
+        }
+    }
+}

@@ -1,0 +1,321 @@
+@page "/"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@* Volunteer / Manager routing on /:
+   - Managers (Admin or Coordinator of any org) see the org-wide KPI dashboard.
+   - Volunteers / non-managers are redirected to /MySchedule — that's their
+     canonical view (their own assignments + signed-up interests) and they're
+     not interested in org-wide metrics. The redirect happens via a flag-set
+     in OnInitializedAsync + handle-in-OnAfterRenderAsync, NOT a direct
+     Nav.NavigateTo during init, because Blazor's
+     `Microsoft.AspNetCore.Components.NavigationException` (which the
+     framework uses internally to abort a render cycle for a soft nav) does
+     not always get framework-swallowed in the prerender→interactive blend
+     used here — it surfaces to the user as an unhandled exception. Calling
+     NavigateTo from OnAfterRenderAsync sits OUTSIDE the render tree build
+     so the framework processes it cleanly. *@
+
+<PageTitle>ServantSync</PageTitle>
+
+<section class="px-4 py-4">
+    <h1 class="display-6">Welcome to ServantSync</h1>
+    <p class="lead text-muted">
+        A volunteer database that handles org memberships, ministry sign-ups, training
+        (video, slideshow, or PDF), and conflict-free scheduling.
+    </p>
+
+    <AuthorizeView>
+        <Authorized>
+            <div class="row g-3 mt-3">
+                <div class="col-md-3">
+                    <a class="card text-decoration-none h-100" href="Organizations">
+                        <div class="card-body">
+                            <div class="text-muted small">Organizations</div>
+                            @if (!_loaded)
+                            {
+                                <SkeletonLoader Size="SkeletonLoader.SkeletonSize.Display" Columns="3" />
+                            }
+                            else
+                            {
+                                <div class="display-6">@_orgCount</div>
+                            }
+                        </div>
+                    </a>
+                </div>
+                <div class="col-md-3">
+                    <a class="card text-decoration-none h-100" href="People">
+                        <div class="card-body">
+                            <div class="text-muted small">Volunteers</div>
+                            @if (!_loaded)
+                            {
+                                <SkeletonLoader Size="SkeletonLoader.SkeletonSize.Display" Columns="3" />
+                            }
+                            else
+                            {
+                                <div class="display-6">@_personCount</div>
+                            }
+                        </div>
+                    </a>
+                </div>
+                <div class="col-md-3">
+                    <a class="card text-decoration-none h-100" href="Training">
+                        <div class="card-body">
+                            <div class="text-muted small">My pending training</div>
+                            @if (!_loaded)
+                            {
+                                <SkeletonLoader Size="SkeletonLoader.SkeletonSize.Display" Columns="3" />
+                            }
+                            else
+                            {
+                                <div class="display-6">@_myPending</div>
+                            }
+                        </div>
+                    </a>
+                </div>
+                <div class="col-md-3">
+                    <a class="card text-decoration-none h-100" href="MySchedule">
+                        <div class="card-body">
+                            <div class="text-muted small">Next 30 days</div>
+                            @if (!_loaded)
+                            {
+                                <SkeletonLoader Size="SkeletonLoader.SkeletonSize.Display" Columns="3" />
+                            }
+                            else
+                            {
+                                <div class="display-6">@_myUpcoming</div>
+                            }
+                        </div>
+                    </a>
+                </div>
+            </div>
+
+            @if (_loaded)
+            {
+                @* "My ministries" panel. Shows the ministries the volunteer
+                   has explicitly opted into; click a row to leave. When
+                   empty, the panel surfaces the "browse ministries" CTA.
+                   For users with no OrganizationMembership at all, the
+                   "no membership" state from the prior round takes
+                   priority — they have nothing to follow anyway. *@
+                <div class="card mt-4">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <div>
+                            <h5 class="mb-0">My ministries</h5>
+                            <div class="text-muted small">Ministries you have opted to follow. Sign-up opportunities on these will show up on <a href="Open">Browse open slots</a>.</div>
+                        </div>
+                        <a class="btn btn-sm btn-outline-primary" href="Open">Browse open slots</a>
+                    </div>
+                    <div class="card-body">
+                        @if (!_hasAnyOrgMembership)
+                        {
+                            <p class="text-muted mb-0 small">
+                                You're not yet a member of any organization, so there are no ministries to follow.
+                            </p>
+                        }
+                        else if (_myMinistries.Count == 0)
+                        {
+                            <p class="text-muted mb-2">
+                                You're not following any ministries yet. Tap "Join this ministry" on any ministry page to start seeing its open shifts here.
+                            </p>
+                            <a class="btn btn-outline-primary btn-sm" href="Organizations">Browse ministries in your organizations</a>
+                        }
+                        else
+                        {
+                            <ul class="list-group list-group-flush">
+                                @foreach (var mi in _myMinistries)
+                                {
+                                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                                        <div>
+                                            <a href="@($"Organizations/{mi.Ministry.OrganizationId}/Ministries/{mi.MinistryId}")">
+                                                <strong>@mi.Ministry.Name</strong>
+                                            </a>
+                                            <span class="text-muted small ms-2">
+                                                in @mi.Ministry.Organization.Name
+                                            </span>
+                                        </div>
+                                        <button class="btn btn-sm btn-outline-secondary" type="button"
+                                                @onclick="() => LeaveFromHomeAsync(mi.MinistryId, mi.Ministry.Name)"
+                                                disabled="@(_busyLeaveId == mi.MinistryId)">
+                                            @(_busyLeaveId == mi.MinistryId ? "Leaving..." : "Leave")
+                                        </button>
+                                    </li>
+                                }
+                            </ul>
+                        }
+                        @if (_lastMessage is not null)
+                        {
+                            <div class="alert @(_lastIsError ? "alert-danger" : "alert-success") py-2 small mt-3 mb-0">
+                                @_lastMessage
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+        </Authorized>
+        <NotAuthorized>
+            <div class="mt-3">
+                <a class="btn btn-primary me-2" href="Account/Login">Sign in</a>
+                <a class="btn btn-outline-primary" href="Account/Register">Register</a>
+            </div>
+        </NotAuthorized>
+    </AuthorizeView>
+</section>
+
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject AuthenticationStateProvider Auth
+@inject ITrainingService TrainingService
+@inject IMinistryInterestService MinistryInterest
+@inject IOrgAuthService OrgAuth
+@inject NavigationManager Nav
+@code {
+    private int _orgCount, _personCount, _myPending, _myUpcoming;
+    private bool _loaded;
+    // Per-user state for the "My ministries" panel. The list is loaded in
+    // OnInitializedAsync (one DB trip via the service's ListJoinedAsync),
+    // then mutated in-memory when the user clicks Leave so we don't have
+    // to re-query just to update the UI.
+    private List<MinistryInterest> _myMinistries = new();
+    // When false, the panel renders the "join to start seeing shifts"
+    // empty-state CTA rather than the list.
+    private bool _hasAnyOrgMembership = true;
+    // Tracks which Leave row is in-flight so the spinner only shows on
+    // the row being acted on (other rows stay clickable).
+    private int _busyLeaveId;
+    private string? _lastMessage;
+    private bool _lastIsError;
+
+    // Volunteer → /MySchedule redirect flag. Set during OnInitializedAsync
+    // (after the IsAnyOrgManagerAsync check fires). The actual NavigateTo
+    // is performed in OnAfterRenderAsync on the first render — Blazor's
+    // NavigationException that the IPC-based soft nav throws is not
+    // reliably framework-swallowed when invoked from OnInitializedAsync in
+    // the prerender→interactive blend used here (it surfaces as an
+    // unhandled exception in the user's runtime). OnAfterRenderAsync runs
+    // AFTER the initial render cycle, so calling NavigateTo from there is
+    // the canonical pattern documented in Microsoft.AspNetCore.Components
+    // for this scenario. Default is false so a non-Volunteer caller never
+    // triggers the redirect branch.
+    private bool _shouldRedirectToSchedule;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Volunteer / manager routing gate. Set _shouldRedirectToSchedule
+        // here and return — OnAfterRenderAsync performs the actual nav.
+        // The IsAnyOrgManagerAsync check is the same one NavMenu uses to
+        // gate the manage-only links, so a Volunteer naturally has `false`
+        // here and lands on the schedule. isManager=true short-circuits the
+        // redirect and lets the dashboard initialize.
+        var state = await Auth.GetAuthenticationStateAsync();
+        var routingUserId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (!string.IsNullOrWhiteSpace(routingUserId)
+            && !await OrgAuth.IsAnyOrgManagerAsync(routingUserId))
+        {
+            _shouldRedirectToSchedule = true;
+            // Returning here is safe — OnAfterRenderAsync runs on the next
+            // first-render frame and reads the flag, so the dashboard's
+            // data load is skipped entirely for the@rendermode InteractiveServer@rendermode InteractiveServer redirect path.
+            return;
+        }
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _orgCount = await db.Organizations.CountAsync();
+        _personCount = await db.People.CountAsync();
+
+        var userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userId))
+        {
+            // The volunteer-redirect path doesn't reach here. We hit this
+            // branch only on the manager path when the auth state is
+            // somehow missing the user id (shouldn't happen on an
+            // authorized page, but defensive empty-state remains so the
+            // manager who somehow lands here without a claim sees the
+            // skeleton placeholders instead of an exception).
+            _loaded = true;
+            return;
+        }
+
+        var fromUtc = DateTime.UtcNow;
+        var toUtc = fromUtc.AddDays(30);
+        _myUpcoming = await db.Assignments
+            .CountAsync(a => a.PersonUserId == userId
+                && a.StartUtc >= fromUtc && a.StartUtc < toUtc
+                && a.Status != AssignmentStatus.Cancelled);
+
+        // Pending training across all my organizations + slots I'm
+        // currently assigned to. Delegates to the service so the union +
+        // expiry logic lives in one place (it was previously open-coded
+        // here and also inline in MySchedule.razor — that duplication
+        // was exactly what caused the per-org foreach to drift away
+        // from the per-slot treatment the data model actually needs).
+        var outstanding = await TrainingService.FindMyOutstandingRequirementsAsync(userId);
+        _myPending = outstanding.Count;
+        // The "no membership" gate was previously computed from the
+        // raw OrganizationMembership list — keeping that single source
+        // of truth on the service side means a coordinator with only
+        // slot assignments (no org membership? shouldn't happen, but
+        // defensively) is still counted.
+        _hasAnyOrgMembership = outstanding.Count > 0
+            || (await db.OrganizationMemberships
+                .AnyAsync(m => m.PersonUserId == userId));
+
+        // The "My ministries" panel content. Eager-loads
+        // Ministry + Organization via the service so a single trip powers
+        // the entire list rendering.
+        _myMinistries = await MinistryInterest.ListJoinedAsync(userId);
+        _loaded = true;
+    }
+
+    private async Task LeaveFromHomeAsync(int ministryId, string ministryName)
+    {
+        var state = await Auth.GetAuthenticationStateAsync();
+        var userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userId)) return;
+
+        _busyLeaveId = ministryId;
+        _lastMessage = null;
+        try
+        {
+            var result = await MinistryInterest.LeaveAsync(userId, userId, ministryId);
+            switch (result)
+            {
+                case MinistryInterestLeaveResult.Left:
+                case MinistryInterestLeaveResult.NotInterested:
+                    _myMinistries = _myMinistries.Where(m => m.MinistryId != ministryId).ToList();
+                    _lastIsError = false;
+                    _lastMessage = $"You stopped following {ministryName}.";
+                    break;
+                case MinistryInterestLeaveResult.PermissionDenied:
+                    _lastIsError = true;
+                    _lastMessage = "You can only stop following ministries in organizations you belong to.";
+                    break;
+                case MinistryInterestLeaveResult.MinistryNotFound:
+                    _lastIsError = true;
+                    _lastMessage = "This ministry no longer exists.";
+                    break;
+            }
+        }
+        finally
+        {
+            _busyLeaveId = 0;
+        }
+    }
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        // Volunteer → /MySchedule redirect. Called AFTER the initial
+        // render cycle, so the navigation does not throw a
+        // NavigationException that the framework can fail to swallow in
+        // the prerender→interactive blend. Soft nav (no forceLoad) keeps
+        // the Blazor circuit alive so the user is sent to the schedule
+        // page within the same SignalR connection rather than going
+        // through a full HTTP round-trip.
+        if (firstRender && _shouldRedirectToSchedule)
+        {
+            // Clear the flag so a subsequent re-render (rarely triggered
+            // but possible — e.g., an authentication-state change while
+            // the page is open) doesn't re-fire the navigation loop.
+            _shouldRedirectToSchedule = false;
+            Nav.NavigateTo("/MySchedule");
+        }
+    }
+}

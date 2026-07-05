@@ -1,0 +1,37 @@
+@page "/Account/Manage"
+@layout AccountLayout
+@attribute [Authorize]
+@rendermode InteractiveServer
+
+<PageTitle>Account · ServantSync</PageTitle>
+
+<h1 class="h3 mb-3">Your account</h1>
+<StatusMessage Message="@_message" IsError="@_isError" />
+<dl class="row mb-3">
+    <dt class="col-sm-3">Email</dt>
+    <dd class="col-sm-9">@_user?.Email</dd>
+    <dt class="col-sm-3">UserId</dt>
+    <dd class="col-sm-9 text-muted small">@_user?.Id</dd>
+</dl>
+
+<a class="btn btn-outline-secondary" href="/">Back to portal</a>
+<a class="btn btn-outline-secondary ms-2" href="Account/ChangePassword">Change password</a>
+
+@inject UserManager<IdentityUser> UserManager
+@inject AuthenticationStateProvider Auth
+@code {
+    private IdentityUser? _user;
+    private string? _message;
+    private bool _isError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await Auth.GetAuthenticationStateAsync();
+        _user = await UserManager.GetUserAsync(state.User);
+        if (_user is null)
+        {
+            _isError = true;
+            _message = "Could not load your account.";
+        }
+    }
+}

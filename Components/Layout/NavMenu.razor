@@ -1,0 +1,186 @@
+@using Microsoft.AspNetCore.Components.Authorization
+@using ServantSync.Services
+
+<div class="top-row ps-3 navbar navbar-dark">
+    <div class="container-fluid">
+        @* The navbar brand. Uses the mark SVG (square 512×512, scales
+           cleanly) at a fixed navbar height; CSS caps the rendered size
+           so the SVG doesn't burst up to its native dimensions. The
+           visible "ServantSync" wordmark is preserved as accessible
+           text for screen readers (aria-label), and as a no-CSS fallback
+           if the SVG fails to load (the `<img>` alt text). The home
+           link is unchanged so the existing "/" navigation still works.
+           See BRANDING.md for the design tokens behind the choice. *@
+        <a class="navbar-brand d-flex align-items-center gap-2" href="" aria-label="ServantSync home">
+            <img src="@Assets["img/servantsync-mark.svg"]"
+                 alt="ServantSync"
+                 width="36" height="36"
+                 class="navbar-brand-mark" />
+            <span class="navbar-brand-wordmark">ServantSync</span>
+        </a>
+    </div>
+</div>
+
+<input type="checkbox" title="Navigation menu" class="navbar-toggler" />
+
+<div class="nav-scrollable" onclick="document.querySelector('.navbar-toggler').click()">
+    <nav class="nav flex-column">
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
+                <span class="bi bi-house-door-fill-nav-menu" aria-hidden="true"></span> Home
+            </NavLink>
+        </div>
+
+        <AuthorizeView>
+            <Authorized>
+                @* Manager-only links — Admin or Coordinator of any org. Visible
+                   once the user has at least one such role; fetched once per
+                   render via OrgAuthService.IsAnyOrgManagerAsync. Defensive
+                   default is "hide": if the call fails (e.g. transient DB
+                   error), the user sees only the always-visible links below
+                   rather than manage-only affordances they may not have
+                   permission for. *@
+                @if (_isManager)
+                {
+                    <div class="nav-item px-3">
+                        <NavLink class="nav-link" href="Organizations">
+                            <span class="bi bi-building-nav-menu" aria-hidden="true"></span> Organizations
+                        </NavLink>
+                    </div>
+                    <div class="nav-item px-3">
+                        <NavLink class="nav-link" href="People">
+                            <span class="bi bi-people-nav-menu" aria-hidden="true"></span> Volunteers
+                        </NavLink>
+                    </div>
+                    <div class="nav-item px-3">
+                        <NavLink class="nav-link" href="Leagues">
+                            <span class="bi bi-trophy-nav-menu" aria-hidden="true"></span> Leagues
+                        </NavLink>
+                    </div>
+                    <div class="nav-item px-3">
+                        <NavLink class="nav-link" href="Dashboard">
+                            <span class="bi bi-speedometer2-nav-menu" aria-hidden="true"></span> Dashboard
+                        </NavLink>
+                    </div>
+                }
+                @* Always-visible links for any signed-in user, regardless of
+                   org role. Training / My schedule / Browse open slots are
+                   the volunteer-primary surfaces; volunteers without any
+                   manage role still need them. *@
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="Training">
+                        <span class="bi bi-mortarboard-nav-menu" aria-hidden="true"></span> Training
+                    </NavLink>
+                </div>
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="MySchedule">
+                        <span class="bi bi-calendar-nav-menu" aria-hidden="true"></span> My schedule
+                    </NavLink>
+                </div>
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="Open">
+                        <span class="bi bi-search-nav-menu" aria-hidden="true"></span> Browse open slots
+                    </NavLink>
+                </div>
+
+                <div class="nav-item px-3 mt-3 border-top border-secondary pt-3">
+                    <NavLink class="nav-link" href="Account/Manage">
+                        <span class="bi bi-person-circle-nav-menu" aria-hidden="true"></span> Account
+                    </NavLink>
+                </div>
+                <div class="nav-item px-3">
+                    <form method="post" action="Account/Logout">
+                        <AntiforgeryToken />
+                        <button type="submit" class="nav-link btn btn-link text-start w-100">
+                            <span class="bi bi-box-arrow-right-nav-menu" aria-hidden="true"></span> Sign out
+                        </button>
+                    </form>
+                </div>
+            </Authorized>
+            <NotAuthorized>
+                <div class="nav-item px-3 mt-3 border-top border-secondary pt-3">
+                    <NavLink class="nav-link" href="Account/Login">Sign in</NavLink>
+                </div>
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="Account/Register">Register</NavLink>
+                </div>
+            </NotAuthorized>
+        </AuthorizeView>
+    </nav>
+</div>
+
+@inject AuthenticationStateProvider Auth
+@inject IOrgAuthService OrgAuth
+@inject ILoggerFactory LoggerFactory
+@implements IDisposable
+@code {
+    // Cached "user is Admin or Coordinator of any org" flag. AuthorizeView's
+    // <Authorized> already guaranteed an authenticated user, so the lookup
+    // is just the membership check. Default false until OnInitializedAsync
+    // finishes — that way the unauthorized user never sees a flicker of
+    // manage-only links while the auth-state await runs.
+    private bool _isManager;
+    // Toolbar logger: created in OnInitialized so we don't allocate on
+    // every auth-state tick. Logging takes the place of a silent catch so
+    // a logic bug in RefreshManagerFlagAsync is visible in production
+    // logs rather than hiding behind a swallowed exception.
+    private ILogger _log = null!;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Component-scoped logger; using a fixed category name keeps the
+        // log entries searchable across deployments.
+        _log = LoggerFactory.CreateLogger("ServantSync.Components.NavMenu");
+        // Subscribe FIRST, then run the first refresh. No
+        // AuthenticationStateChanged event will fire synchronously between
+        // these two lines (Blazor lifecycle is single-threaded), so the
+        // order is just style — a defense-in-depth "subscribe before
+        // await" pattern.
+        Auth.AuthenticationStateChanged += OnAuthStateChanged;
+        await RefreshManagerFlagAsync();
+    }
+
+    private async void OnAuthStateChanged(Task<AuthenticationState> task)
+    {
+        // The event handler is async void by contract; wrap the actual
+        // work so the unhandled exception can't crash the circuit.
+        try
+        {
+            await RefreshManagerFlagAsync();
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            // Logged, not swallowed: a transient DB hiccup should not
+            // tear down the user's session, but a real bug in
+            // RefreshManagerFlagAsync needs to be visible when triaging.
+            // The next auth-state event will retry the lookup.
+            _log.LogWarning(ex, "NavMenu: ignored error refreshing manager flag; will retry on next state change.");
+        }
+    }
+
+    private async Task RefreshManagerFlagAsync()
+    {
+        var state = await Auth.GetAuthenticationStateAsync();
+        var userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        // IsNullOrWhiteSpace (not IsNullOrEmpty) matches the convention used
+        // elsewhere in this codebase — Register.razor's Token check for
+        // example — so an anonymous user with an empty claim still gets
+        // cleanly classified as "no manager" instead of a stale view.
+        if (string.IsNullOrWhiteSpace(userId))
+        {
+            _isManager = false;
+            return;
+        }
+        _isManager = await OrgAuth.IsAnyOrgManagerAsync(userId);
+    }
+
+    public void Dispose()
+    {
+        // Unsubscribe so the handler doesn't outlive the component
+        // (matters for the InteractiveServer circuit — the layout lives
+        // across many navigations within one circuit and would otherwise
+        // pin a stale closure indefinitely).
+        Auth.AuthenticationStateChanged -= OnAuthStateChanged;
+    }
+}

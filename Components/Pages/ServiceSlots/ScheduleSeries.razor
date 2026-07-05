@@ -1,0 +1,270 @@
+@page "/Organizations/{OrgId:int}/Ministries/{MinId:int}/Roles/{Id:int}/Series"
+@attribute [Authorize]
+@rendermode InteractiveServer
+
+<PageTitle>Schedule series · @(_slot?.Name ?? "Slot")</PageTitle>
+
+@if (_slot is null)
+{
+    <p><em>Loading…</em></p>
+}
+else
+{
+    <h1>@_slot.Name</h1>
+    <div class="text-muted mb-3">@_slot.Description</div>
+
+    <h5>Create a weekly series</h5>
+    <p class="text-muted">
+        Expands into one Assignment per matching weekday in the range. Occurrences that
+        would conflict with another assignment, or where the volunteer lacks valid training,
+        are skipped-with-reason — the rest are still created.
+    </p>
+
+    <EditForm Model="_form" OnValidSubmit="Generate" FormName="series" Context="ctx">
+        <div class="row g-2 align-items-end">
+            <div class="col-md-4">
+                <label class="form-label">Volunteer</label>
+                <select class="form-select" @bind="_form.PersonUserId">
+                    <option value="">— pick person —</option>
+                    @foreach (var p in _orgMembers)
+                    {
+                        <option value="@p.UserId">@p.DisplayName</option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Day of week</label>
+                <select class="form-select" @bind="_form.DayOfWeek">
+                    @foreach (var d in Enum.GetValues<DayOfWeek>())
+                    {
+                        <option value="@d">@d</option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Start (local HH:mm)</label>
+                <InputText type="time" class="form-control" @bind-Value="_form.StartLocal" />
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Duration (min)</label>
+                <input class="form-control" type="number" min="0" step="15"
+                       @bind="_form.DurationMinutes" />
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">First date</label>
+                <InputDate class="form-control" @bind-Value="_form.StartDate" />
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Last date (exclusive)</label>
+                <InputDate class="form-control" @bind-Value="_form.EndDate" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Time zone</label>
+                <select class="form-select" @bind="_form.TimeZoneId">
+                    @foreach (var tz in _timeZones)
+                    {
+                        <option value="@tz.Id">@tz.DisplayName</option>
+                    }
+                </select>
+                <div class="form-text">
+                    @if (!string.IsNullOrEmpty(TzProvider.TimeZoneId))
+                    {
+                        <span>Detected from your browser: <code>@TzProvider.TimeZoneId</code></span>
+                    }
+                    else
+                    {
+                        <span>Browser timezone unavailable — using server default until you pick.</span>
+                    }
+                </div>
+            </div>
+            <div class="col-md-12 mt-2">
+                <button class="btn btn-primary" disabled="@(_busy || !_canSchedule)">
+                    @(_busy ? "Generating…" : (_canSchedule ? "Generate series" : "Coordinators only"))
+                </button>
+            </div>
+        </div>
+    </EditForm>
+
+    <StatusMessage Message="@_message" IsError="@_isError" />
+
+    @if (_result is not null)
+    {
+        <div class="row mt-4">
+            <div class="col-md-6">
+                <h6>Created (@_result.Created.Count)</h6>
+                @if (!_result.Created.Any())
+                {
+                    <div class="alert alert-warning">No occurrences created (all skipped).</div>
+                }
+                else
+                {
+                    <table class="table table-sm">
+                        <thead><tr><th>When (UTC)</th><th>Duration</th></tr></thead>
+                        <tbody>
+                            @foreach (var a in _result.Created.OrderBy(a => a.StartUtc))
+                            {
+                                <tr>
+                                    <td><LocalTime Utc="@a.StartUtc" /> – <LocalTime Utc="@a.EndUtc" /></td>
+                                    <td>@((a.EndUtc - a.StartUtc).TotalMinutes) min</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </div>
+            <div class="col-md-6">
+                <h6>Skipped (@_result.Skipped.Count)</h6>
+                @if (!_result.Skipped.Any())
+                {
+                    <div class="alert alert-success">All occurrences were scheduled.</div>
+                }
+                else
+                {
+                    <ul class="list-group">
+                        @foreach (var s in _result.Skipped.OrderBy(s => s.ProposedStartUtc))
+                        {
+                            <li class="list-group-item">
+                                <strong><LocalTime Utc="@s.ProposedStartUtc" Format="ddd, MMM d h:mm tt" /></strong>
+                                <ul class="mb-0">
+                                    @foreach (var r in s.Reasons)
+                                    {
+                                        <li>@r</li>
+                                    }
+                                </ul>
+                            </li>
+                        }
+                    </ul>
+                }
+            </div>
+            @if (_result.CapReached)
+            {
+                <div class="col-12 mt-2">
+                    <div class="alert alert-warning">
+                        Note: the series hit the safety cap of 500 occurrences. Split your range
+                        into smaller chunks if you need more.
+                    </div>
+                </div>
+            }
+        </div>
+    }
+}
+
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject IAssignmentService AssignmentService
+@inject UserTimeZoneProvider TzProvider
+@inject AuthenticationStateProvider Auth
+@inject IOrgAuthService OrgAuth
+@code {
+    [Parameter] public int OrgId { get; set; }
+    [Parameter] public int MinId { get; set; }
+    [Parameter] public int Id { get; set; }
+
+    private ServiceSlot? _slot;
+    private List<Person> _orgMembers = new();
+    // [SupplyParameterFromForm] — see Organizations/Edit.razor for rationale.
+    [SupplyParameterFromForm] private SeriesForm _form { get; set; } = new();
+    private ScheduleSeriesResult? _result;
+    private bool _busy;
+    private string? _message;
+    private bool _isError;
+    private bool _canSchedule;
+
+    private List<TimeZoneInfo> _timeZones = TimeZoneInfo.GetSystemTimeZones()
+        .OrderBy(tz => tz.BaseUtcOffset).ThenBy(tz => tz.Id).ToList();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await Auth.GetAuthenticationStateAsync();
+        var userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        _canSchedule = !string.IsNullOrEmpty(userId)
+            && await OrgAuth.CanManageOrgAsync(userId, OrgId);
+
+        await Reload();
+
+        _form.StartDate = DateTime.Today;
+        _form.EndDate = DateTime.Today.AddMonths(3);
+        _form.DayOfWeek = DayOfWeek.Sunday;
+        _form.DurationMinutes = _slot?.DefaultDurationMinutes ?? 60;
+        _form.TimeZoneId = TzProvider.TimeZoneId
+            ?? TimeZoneInfo.Local.Id;
+    }
+
+    private async Task Reload()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _slot = await db.ServiceSlots.AsNoTracking().FirstOrDefaultAsync(s => s.Id == Id);
+        _orgMembers = await db.OrganizationMemberships
+            .Where(m => m.OrganizationId == OrgId)
+            .Select(m => m.Person)
+            .OrderBy(p => p.LastName)
+            .ToListAsync();
+    }
+
+    private async Task Generate()
+    {
+        if (!_canSchedule) return;
+        _busy = true;
+        _message = null;
+        _isError = false;
+        try
+        {
+            if (string.IsNullOrEmpty(_form.PersonUserId))
+            {
+                _isError = true;
+                _message = "Pick a volunteer first.";
+                return;
+            }
+            if (!TimeSpan.TryParse(_form.StartLocal, out var stime))
+            {
+                _isError = true;
+                _message = "Start time must be HH:mm.";
+                return;
+            }
+            if (_form.EndDate <= _form.StartDate)
+            {
+                _isError = true;
+                _message = "Last date must be after first date.";
+                return;
+            }
+            if (_form.DurationMinutes <= 0)
+            {
+                _isError = true;
+                _message = "Duration must be positive.";
+                return;
+            }
+
+            _result = await AssignmentService.ScheduleSeriesAsync(
+                _form.PersonUserId,
+                Id,
+                _form.DayOfWeek,
+                stime,
+                _form.DurationMinutes,
+                _form.StartDate.Date,
+                _form.EndDate.Date,
+                _form.TimeZoneId ?? TimeZoneInfo.Local.Id);
+
+            _message = $"Series evaluated. Created {_result.Created.Count}, skipped {_result.Skipped.Count}."
+                + (_result.CapReached ? " (Hit the 500-occurrence safety cap.)" : "");
+        }
+        catch (Exception ex)
+        {
+            _isError = true;
+            _message = "Series generation failed: " + ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private class SeriesForm
+    {
+        public string? PersonUserId { get; set; }
+        public DayOfWeek DayOfWeek { get; set; }
+        public string StartLocal { get; set; } = "09:00";
+        public int DurationMinutes { get; set; }
+        public DateTime StartDate { get; set; }
+        public DateTime EndDate { get; set; }
+        public string? TimeZoneId { get; set; }
+    }
+}

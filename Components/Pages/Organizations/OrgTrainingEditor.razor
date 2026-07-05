@@ -1,0 +1,203 @@
+@* OrgTrainingEditor — manages TrainingRequirement rows scoped to one organization. *@
+@attribute [Authorize]
+
+@if (_loading)
+{
+    <p><em>Loading…</em></p>
+}
+else
+{
+    @if (_errorMessage is not null)
+    {
+        <div class="alert alert-warning d-flex justify-content-between align-items-center" role="alert">
+            <div>@_errorMessage</div>
+            <button type="button" class="btn-close" @onclick="() => _errorMessage = null" aria-label="Dismiss"></button>
+        </div>
+    }
+    @if (!_content.Any())
+    {
+        <p class="text-muted">No training content available yet — add some under <a href="Training">Training</a> first.</p>
+    }
+    else
+    {
+        @* No FormName="…" Context="…" on purpose: this EditForm is
+           mounted conditionally inside an @if(_content.Any()) branch
+           of the parent page. Blazor's enhanced-form handling treats
+           any <EditForm FormName="X"> as static-form-SSR-capable;
+           mounting it mid-render into an already-interactive circuit
+           triggers the SignalR-drop regression captured in
+           STATUS.md → Known quirks. The conditional branch above
+           (the "no content" message) is the alternative when the
+           dropdown has nothing to show. Keep this comment if you
+           ever add a FormName back. *@
+        <EditForm Model="_addModel" OnValidSubmit="AddRequirement">
+            <div class="row g-2 align-items-end">
+                <div class="col">
+                    <select class="form-select"
+                            @bind="_addModel.TrainingContentId"
+                            @bind:after="ClearError">
+                        <option value="">— pick training —</option>
+                        @foreach (var c in _content)
+                        {
+                            <option value="@c.Id">@c.Title (@c.Format v@c.Version)</option>
+                        }
+                    </select>
+                </div>
+                <div class="col">
+                    <select class="form-select" @bind="_addModel.Cadence">
+                        <option value="@TrainingCadence.Yearly">Yearly</option>
+                        <option value="@TrainingCadence.OneTime">One-time</option>
+                        <option value="@TrainingCadence.EveryMonths">Every N months…</option>
+                    </select>
+                </div>
+                @if (_addModel.Cadence == TrainingCadence.EveryMonths)
+                {
+                    <div class="col">
+                        <input class="form-control" type="number" min="1" max="60"
+                               @bind="_addModel.CadenceMonths" placeholder="Months" />
+                    </div>
+                }
+                <div class="col-auto">
+                    <button class="btn btn-primary">Required</button>
+                </div>
+            </div>
+        </EditForm>
+    }
+
+    <h6 class="mt-4">Currently required</h6>
+    @if (!_requirements.Any())
+    {
+        <div class="alert alert-secondary">No org-wide training required yet.</div>
+    }
+    else
+    {
+        <ul class="list-group">
+            @foreach (var r in _requirements)
+            {
+                <li class="list-group-item d-flex justify-content-between align-items-center">
+                    <div>
+                        <a href="@($"Training/{r.TrainingContentId}/Edit")">@r.Title</a>
+                        <span class="badge bg-secondary ms-2">@r.Cadence</span>
+                    </div>
+                    <button class="btn btn-sm btn-outline-danger" @onclick="() => Remove(r.Id)">Remove</button>
+                </li>
+            }
+        </ul>
+    }
+}
+
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject ITrainingService TrainingService
+@code {
+    [Parameter, EditorRequired] public int OrganizationId { get; set; }
+
+    private bool _loading = true;
+    private List<TrainingContent> _content = new();
+    private List<ReqRow> _requirements = new();
+    // Per-org guard UX: if a stale dropdown id submits a content row that
+    // no longer belongs to this org (deleted / reassigned since the
+    // dropdown was loaded), surface a friendly message instead of
+    // silently bailing. Auto-cleared on the next dropdown change or on a
+    // successful save; can also be dismissed manually.
+    private string? _errorMessage;
+
+    private void ClearError() => _errorMessage = null;
+    // [SupplyParameterFromForm] — see Organizations/Edit.razor for rationale.
+    [SupplyParameterFromForm] private AddModel _addModel { get; set; } = new();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await Reload();
+        _loading = false;
+    }
+
+    private async Task Reload()
+    {
+        // Per-org scoping (round N): the content dropdown only shows training
+        // owned by THIS organization. Without this filter, an Admin of org A
+        // could attach a requirement pointing at training belonging to org B,
+        // silently cross-pollinating the catalogs.
+        _content = await TrainingService.ListOrgTrainingAsync(OrganizationId);
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _requirements = await db.TrainingRequirements
+            .Include(r => r.TrainingContent)
+            .Where(r => r.OrganizationId == OrganizationId)
+            .Select(r => new ReqRow
+            {
+                Id = r.Id,
+                TrainingContentId = r.TrainingContentId,
+                Title = r.TrainingContent.Title,
+                Cadence = r.Cadence,
+            })
+            .ToListAsync();
+    }
+
+    private async Task AddRequirement()
+    {
+        if (_addModel.TrainingContentId == 0) return;
+        await using var db = await DbFactory.CreateDbContextAsync();
+
+        // Per-org scoping guard (round N): the dropdown only shows
+        // training owned by THIS org (via ListOrgTrainingAsync), but a
+        // stale id (someone deleted/reassigned the content between load
+        // and submit) or a hostile POST body could still submit a
+        // foreign TrainingContentId. Re-verify the org membership before
+        // the insert so a requirement never lands pointing at a
+        // different org's training. Defensive; echoes the same gate the
+        // service applies on RecordCompletion.
+        var contentOrgId = await db.TrainingContents
+            .Where(c => c.Id == _addModel.TrainingContentId)
+            .Select(c => (int?)c.OrganizationId)
+            .FirstOrDefaultAsync();
+        if (contentOrgId != OrganizationId)
+        {
+            // Content was deleted or now belongs to another org. Tell
+            // the user and refresh the dropdown so the corrected list
+            // is visible — silent bail would be confusing.
+            _errorMessage = "That training isn't part of this organization anymore. Please pick from the refreshed list.";
+            _addModel = new();
+            await Reload();
+            return;
+        }
+
+        db.TrainingRequirements.Add(new TrainingRequirement
+        {
+            OrganizationId = OrganizationId,
+            TrainingContentId = _addModel.TrainingContentId,
+            Cadence = _addModel.Cadence,
+            CadenceMonths = _addModel.Cadence == TrainingCadence.EveryMonths ? _addModel.CadenceMonths : null,
+        });
+        await db.SaveChangesAsync();
+        _addModel = new();
+        _errorMessage = null;
+        await Reload();
+    }
+
+    private async Task Remove(int id)
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var req = await db.TrainingRequirements.FindAsync(id);
+        if (req is not null)
+        {
+            db.TrainingRequirements.Remove(req);
+            await db.SaveChangesAsync();
+        }
+        await Reload();
+    }
+
+    private class AddModel
+    {
+        public int TrainingContentId { get; set; }
+        public TrainingCadence Cadence { get; set; } = TrainingCadence.Yearly;
+        public int CadenceMonths { get; set; } = 12;
+    }
+
+    private class ReqRow
+    {
+        public int Id { get; set; }
+        public int TrainingContentId { get; set; }
+        public string Title { get; set; } = "";
+        public TrainingCadence Cadence { get; set; }
+    }
+}

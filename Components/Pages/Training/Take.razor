@@ -1,0 +1,461 @@
+@page "/Training/{Id:int}"
+@attribute [Authorize]
+@rendermode InteractiveServer
+
+<PageTitle>@(_content?.Title ?? "Training")</PageTitle>
+
+@if (_content is null)
+{
+    <p><em>Loading…</em></p>
+}
+else if (!_inOwningOrg)
+{
+    @* Per-org access gate: a volunteer who isn't a member of the
+       content's org can't take it. The service refuses anyway; mirror
+       here for UX clarity. *@
+    <div class="alert alert-warning">
+        <h4 class="alert-heading">Training belongs to @_content.Organization?.Name</h4>
+        <p class="mb-2">You're not currently a member of this organization, so you can't start or complete this training here.</p>
+        <p class="mb-0 small">
+            Ask the owning organization's admin for a registration link, or browse the
+            <a href="Organizations">organizations</a> you're already part of for their catalog.
+        </p>
+    </div>
+}
+else
+{
+    @* Progress badge — the volunteer can see how close they are to
+       unlocking "Mark as completed". Hidden until the server snapshot
+       has been read once. *@
+    @if (_eligibility is not null)
+    {
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <div class="text-muted small">
+                @_eligibility.Reason
+            </div>
+            <span class="badge @(_eligibility.IsEligible ? "bg-success" : "bg-warning text-dark")">
+                @ProgressLabel(_eligibility)
+            </span>
+        </div>
+    }
+
+    @* Format-specific viewer host. Picking the right mount is the only
+       formatting responsibility the page has — the JS bridge handles
+       engagement tracking regardless of format.
+
+       Round-AJ (this): round-AH conditionally dropped the
+       `ratio ratio-16x9` wrapper for the local-PDF branch (hypothesis:
+       portrait letter-sized canvases were being CSS-squished into a
+       16:9 box → bilinear blur on retina). After round-AH shipped,
+       the user reported the PDF.js canvas was entirely missing from
+       the page (not blurry, MISSING). Reverting the wrapper class to
+       the round-AG shape ("ratio ratio-16x9 mb-3" for both local-PDF
+       and external-PDF/video branches) restores at-least-visible
+       behavior. The "blurry" complaint stays in the round-AH-2 / AK
+       backlog as a known HiDPI-quality limitation — we accept the
+       trade until we have an in-browser repro to design against. *@
+    <div class="ratio ratio-16x9 mb-3" id="training-host">
+        @switch (_content.Format)
+        {
+            case TrainingFormat.Pdf:
+                if (_content.FilePathOrUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+                {
+                    // External PDF — no per-page hook, drop to best-effort timer.
+                    <iframe id="external-pdf" src="@_content.FilePathOrUrl" allowfullscreen
+                            @ref="_iframeEl"></iframe>
+                }
+                else
+                {
+                    <div id="pdf-canvas-host" @ref="_pdfHostEl" class="w-100" style="overflow:auto; max-height:70vh;"></div>
+                    <div class="btn-group btn-group-sm mt-2" role="group" aria-label="PDF navigation">
+                        <button type="button" class="btn btn-outline-secondary" data-pdf-action="prev" data-pdf-target="pdf-canvas-host">◀ Prev</button>
+                        <button type="button" class="btn btn-outline-secondary" data-pdf-action="next" data-pdf-target="pdf-canvas-host">Next ▶</button>
+                    </div>
+                }
+                break;
+
+            case TrainingFormat.Video:
+                if (_content.FilePathOrUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+                {
+                    var embedUrl = ToYouTubeEmbed(_content.FilePathOrUrl);
+                    if (embedUrl is null)
+                    {
+                        <iframe src="@_content.FilePathOrUrl" allowfullscreen @ref="_iframeEl"></iframe>
+                    }
+                    else
+                    {
+                        <iframe id="video-iframe"
+                                src="@embedUrl?enablejsapi=1"
+                                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                allowfullscreen
+                                @ref="_iframeEl"></iframe>
+                    }
+                }
+                else
+                {
+                    <video class="w-100" controls preload="metadata" src="@_content.FilePathOrUrl" @ref="_videoEl"></video>
+                }
+                break;
+
+            case TrainingFormat.Slideshow:
+            default:
+                // Slideshow / external URL — best-effort timer only.
+                <iframe src="@_content.FilePathOrUrl" allowfullscreen @ref="_iframeEl"></iframe>
+                break;
+        }
+    </div>
+
+    @* Fallback for PDF when the JS bridge failed to mount PDF.js —
+       alert + a real iframe so the volunteer can still read the file.
+       Engagement won't be tracked, but the IsInsufficientEngagement
+       gate at Mark Completed still serves as the trust boundary.
+       Critically: this block is OUTSIDE the #training-host div above
+       so an unpaired close tag can't accidentally swallow it. *@
+    @* Fallback for PDF when the JS bridge failed to mount PDF.js:
+       alert + a real iframe so the volunteer can still read the file.
+       Engagement won't be tracked, but the IsInsufficientEngagement
+       gate at Mark Completed still serves as the trust boundary.
+       Critically: this block is OUTSIDE the #training-host div above
+       so an unpaired close tag can't accidentally swallow it. *@
+    @if (_trackingFailed && _content is { Format: TrainingFormat.Pdf, FilePathOrUrl: var path } && !path.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+    {
+        <div class="alert alert-warning py-2 small mt-2 mb-2">
+            Engagement tracking unavailable in this browser — using native rendering. Mark-completed gating is still enforced.
+        </div>
+        <iframe class="w-100" style="height: 70vh;" src="@path"></iframe>
+    }
+
+    <h1>@_content.Title <small class="text-muted">v@_content.Version</small></h1>
+    <div class="text-muted small mb-2">
+        Owned by <strong>@_content.Organization?.Name</strong>
+    </div>
+    <p>@_content.Description</p>
+
+    @if (_myCompletion is null || !_myCompletion.IsValid(DateTime.UtcNow))
+    {
+        <button class="btn btn-success"
+                @onclick="RecordCompletion"
+                disabled="@(_saving || (_eligibility is not null && !_eligibility.IsEligible))">
+            @(_saving ? "Saving…" : "Mark as completed")
+        </button>
+        @if (_lastError is not null)
+        {
+            <div class="alert alert-danger py-2 small mt-2 mb-0">@_lastError</div>
+        }
+    }
+    else
+    {
+        <div class="alert alert-success">
+            Completed @_myCompletion.CompletionUtc.ToString("u")
+            @if (_myCompletion.ExpiresUtc.HasValue)
+            {
+                <span> · valid until @_myCompletion.ExpiresUtc.Value.ToString("u")</span>
+            }
+        </div>
+    }
+}
+
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject ITrainingService TrainingService
+@inject IJSRuntime JS
+@inject AuthenticationStateProvider Auth
+@inject NavigationManager Nav
+@inject IPdfPageCountHealer PdfHealer
+@implements IAsyncDisposable
+@code {
+    [Parameter] public int Id { get; set; }
+    private TrainingContent? _content;
+    private TrainingCompletion? _myCompletion;
+    // Snapshot returned by CheckEligibilityAsync. The JS bridge mirrors
+    // its truth locally so the UI feels live, but the server-side rule
+    // is the trust boundary at RecordCompletionAsync time.
+    private TrainingEligibilitySnapshot? _eligibility;
+    private bool _saving;
+    private bool _inOwningOrg = true;
+    private string? _lastError;
+    // JS-interop handles for the per-format viewer mount.
+    private ElementReference _pdfHostEl;
+    private ElementReference _iframeEl;
+    // Bound to the <video> element when Format == Video and the source is
+    // an uploaded path. The JS bridge hooks its timeupdate / ended events
+    // to drive HighestWatchedSec up the round-trip to SyncProgress.
+    private ElementReference _videoEl;
+    // True once the JS bridge has had a chance to attach event hooks.
+    // Drives the "show me the content even if tracking failed" fallback
+    // in the render tree when the bridge fails on a no-PDF.js browser.
+    private bool _trackingFailed;
+    private DotNetObjectReference<Take>? _dotNetRef;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || _content is null || !_inOwningOrg) return;
+        await MountViewerAsync();
+    }
+
+    private async Task MountViewerAsync()
+    {
+        try
+        {
+            if (_dotNetRef is null)
+            {
+                _dotNetRef = DotNetObjectReference.Create(this);
+            }
+            // Round-AL (CURRENT): revert round-AK's per-tick cache-bust.
+            // The user-reported runtime crash — JSException followed by
+            // ServantSync.exe exiting with code 4294967295 — fired
+            // after the second OnInitializedAsync pass on /Training/3.
+            // Mechanism unconfirmed; round-AK's per-tick URL was the
+            // only JS-side delta between round-AG (known-good — user
+            // observed "PDF looks fine to me") and the crash. Reverting
+            // returns to known-good. See STATUS.md round-AL for the
+            // full triage.
+            var module = await JS.InvokeAsync<IJSObjectReference>("import",
+                "/js/trainingview.js");
+
+            if (_content!.Format == TrainingFormat.Pdf
+                && !_content.FilePathOrUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+            {
+                // Local PDF — render with PDF.js.
+                await module.InvokeVoidAsync("ServantSyncTraining.mountPdf",
+                    _pdfHostEl, _content.FilePathOrUrl, _dotNetRef, Id);
+            }
+            else if (_content.Format == TrainingFormat.Video)
+            {
+                if (_content.FilePathOrUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase)
+                    && ToYouTubeEmbed(_content.FilePathOrUrl) is not null)
+                {
+                    // YouTube IFrame Player API — works against the bound
+                    // iframe ref. Without the @ref on the iframe element
+                    // this silently no-ops; that's the round-M bug.
+                    await module.InvokeVoidAsync("ServantSyncTraining.mountYouTube",
+                        _iframeEl, _dotNetRef, Id);
+                }
+                else
+                {
+                    // Native <video>: pass the bound ElementReference so
+                    // the bridge can hook its timeupdate / ended events.
+                    // The mountVideo JS function attaches listeners on
+                    // the element ref; null here short-circuits all
+                    // engagement tracking.
+                    await module.InvokeVoidAsync("ServantSyncTraining.mountVideo",
+                        _videoEl, _dotNetRef, Id);
+                }
+            }
+            else
+            {
+                await module.InvokeVoidAsync("ServantSyncTraining.mountBestEffortDwell",
+                    _dotNetRef, Id);
+            }
+        }
+        catch (Exception ex)
+        {
+            // Non-fatal — content still renders (via tracked element's
+            // native controls); only engagement tracking is degraded.
+            // The monitor reported `_trackingFailed = true` so the
+            // render tree can show the warning + the JS bridge failure
+            // user-visible. We deliberately do NOT swallow — the page
+            // still requires InsufficientEngagement to clear before a
+            // Mark-as-completed can succeed, so the trust boundary
+            // remains intact.
+            _trackingFailed = true;
+            _lastError = $"Viewer tracking unavailable: {ex.Message}";
+        }
+    }
+
+    [JSInvokable]
+    public async Task SyncProgress(int contentId, TrainingActivitySync sync)
+    {
+        if (_content is null || contentId != _content.Id) return;
+        await TrainingService.SyncActivityAsync(
+            await CurrentUserId() ?? "",
+            _content.Id,
+            sync);
+        // Periodically refresh the snapshot so the progress badge updates
+        // without polling from .NET. Cheap: single small read per sync.
+        _eligibility = await TrainingService.CheckEligibilityAsync(
+            await CurrentUserId() ?? "", _content.Id);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _content = await db.TrainingContents
+            .Include(c => c.Organization)
+            .AsNoTracking()
+            .FirstOrDefaultAsync(c => c.Id == Id);
+
+        var userId = await CurrentUserId();
+        if (_content is not null && userId is not null)
+        {
+            _inOwningOrg = await db.OrganizationMemberships
+                .AnyAsync(m => m.PersonUserId == userId
+                    && m.OrganizationId == _content.OrganizationId);
+
+            _myCompletion = await db.TrainingCompletions
+                .Where(c => c.PersonUserId == userId && c.TrainingContentId == Id
+                    && c.TrainingContentVersion == _content.Version)
+                .OrderByDescending(c => c.CompletionUtc)
+                .FirstOrDefaultAsync();
+
+            if (_inOwningOrg)
+            {
+                // Round-AI: self-heal the row's TotalPageCount if PdfPig
+                // can derive it from the on-disk PDF. Closes the gap for
+                // legacy uploads predating PdfPageCounter's wiring and
+                // for files whose upload-time extension/MIME check
+                // silently missed the .pdf case — without this the
+                // volunteer would see "PDF page count unknown — admin
+                // re-upload required." at the top of every visit until
+                // an admin re-uploaded, even though the on-disk file is
+                // openable. Heal updates ONLY TotalPageCount (no
+                // Version bump) so any in-flight activity the volunteer
+                // already accumulated at the current version stays
+                // valid; if the heal returns null (encrypted / missing
+                // file / malformed) we fall through with the existing
+                // "unknown" gate untouched.
+                await TryHealPdfPageCountAsync();
+
+                // Seed an empty activity row immediately so the
+                // FirstOpenedUtc anchor starts ticking even before the JS
+                // bridge has had a chance to fire SyncProgress.
+                _eligibility = await TrainingService.CheckEligibilityAsync(userId, Id);
+                if (_eligibility.IsEligible == false && _eligibility.DwellSec == 0)
+                {
+                    await TrainingService.SyncActivityAsync(userId, Id, new TrainingActivitySync());
+                    _eligibility = await TrainingService.CheckEligibilityAsync(userId, Id);
+                }
+            }
+        }
+    }
+
+    private async Task<string?> CurrentUserId()
+    {
+        var state = await Auth.GetAuthenticationStateAsync();
+        return state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+    }
+
+    private async Task RecordCompletion()
+    {
+        _saving = true;
+        _lastError = null;
+        try
+        {
+            var userId = await CurrentUserId();
+            if (userId is null || _content is null) return;
+            // Force a fresh eligibility snapshot at click time — the
+            // JS bridge has been posting SyncProgress but we want to be
+            // sure the value the server checks against is <= now.
+            _eligibility = await TrainingService.CheckEligibilityAsync(userId, _content.Id);
+            var result = await TrainingService.RecordCompletionAsync(userId, _content.Id, DateTime.UtcNow);
+            switch (result)
+            {
+                case TrainingCompletionResult.Recorded:
+                    {
+                        await using var db = await DbFactory.CreateDbContextAsync();
+                        _myCompletion = await db.TrainingCompletions
+                            .Where(c => c.PersonUserId == userId && c.TrainingContentId == _content.Id
+                                && c.TrainingContentVersion == _content.Version)
+                            .OrderByDescending(c => c.CompletionUtc)
+                            .FirstOrDefaultAsync();
+                    }
+                    break;
+                case TrainingCompletionResult.NotInOrg:
+                    _inOwningOrg = false;
+                    break;
+                case TrainingCompletionResult.ContentNotFound:
+                    _lastError = "This training is no longer available.";
+                    break;
+                case TrainingCompletionResult.InsufficientEngagement:
+                    _lastError = "You haven't engaged with this training enough yet. " +
+                                 (_eligibility?.Reason ?? "Try again in a minute.");
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            _lastError = ex.Message;
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private static string ProgressLabel(TrainingEligibilitySnapshot e) => e.Format switch
+    {
+        TrainingFormat.Pdf => e.TotalPages > 0 ? $"{e.ViewedPagesCount} / {e.TotalPages} pages" : "PDF",
+        TrainingFormat.Video => e.ActualDurationSec > 0
+            ? $"{(int)(100.0 * e.HighestWatchedSec / e.ActualDurationSec)}% watched"
+            : "Video",
+        _ => $"{e.DwellSec}s elapsed",
+    };
+
+    // Round-AI: PDF self-heal wrapper. Delegates the actual write to
+    // IPdfPageCountHealer.TryHealAsync (Services/PdfPageCountHealer.cs)
+    // which is fully unit-tested. This thin wrapper's only job is
+    // gating the call to the right conditions (PDF + null page count)
+    // and re-fetching the in-memory _content snapshot so the subsequent
+    // CheckEligibilityAsync reads the healed TotalPageCount without
+    // requiring a second OnInitializedAsync pass.
+    private async Task TryHealPdfPageCountAsync()
+    {
+        if (_content is null) return;
+        if (_content.Format != TrainingFormat.Pdf) return;
+        if (_content.TotalPageCount.HasValue) return;
+
+        var pages = await PdfHealer.TryHealAsync(_content.Id);
+        if (!pages.HasValue) return; // heal didn't fix it — keep gate as-is
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _content = await db.TrainingContents
+            .Include(c => c.Organization)
+            .AsNoTracking()
+            .FirstOrDefaultAsync(c => c.Id == _content.Id);
+    }
+
+    // Plain-string Youtube-watch?v=… → embed/… rewrite; null when the
+    // URL points at a non-watchable resource. Hand-rolled query parse
+    // keeps us off System.Web (not default in ASP.NET Core) so the
+    // project file doesn't need an extra reference.
+    private static string? ToYouTubeEmbed(string url)
+    {
+        if (string.IsNullOrWhiteSpace(url)) return null;
+        try
+        {
+            var u = new Uri(url);
+            var host = u.Host;
+            if (host.EndsWith("youtube.com", StringComparison.OrdinalIgnoreCase)
+                && u.AbsolutePath.StartsWith("/watch", StringComparison.OrdinalIgnoreCase))
+            {
+                string? v = null;
+                foreach (var part in u.Query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))
+                {
+                    var eq = part.IndexOf('=');
+                    if (eq <= 0) continue;
+                    var key = part[..eq];
+                    var val = part[(eq + 1)..];
+                    if (string.Equals(key, "v", StringComparison.OrdinalIgnoreCase))
+                    {
+                        v = Uri.UnescapeDataString(val);
+                        break;
+                    }
+                }
+                return v is null ? null : $"https://www.youtube.com/embed/{v}";
+            }
+            if (host.EndsWith("youtu.be", StringComparison.OrdinalIgnoreCase))
+            {
+                var id = u.AbsolutePath.Trim('/');
+                return string.IsNullOrEmpty(id) ? null : $"https://www.youtube.com/embed/{id}";
+            }
+        }
+        catch { }
+        return null;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _dotNetRef?.Dispose();
+        _dotNetRef = null;
+    }
+}

@@ -1,0 +1,187 @@
+@page "/Leagues/{MinistryId:int}"
+@attribute [Authorize]
+@rendermode InteractiveServer
+
+<PageTitle>@(_ministry?.Name ?? "League")</PageTitle>
+
+@if (_ministry is null)
+{
+    <p><em>Loading…</em></p>
+}
+else
+{
+    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+        <div>
+            <h1 class="mb-0">@_ministry.Name</h1>
+            <div class="text-muted">@_ministry.Organization.Name · @_ministry.Description</div>
+        </div>
+        <div class="d-flex gap-2 flex-wrap">
+            <a class="btn btn-outline-secondary" href="@($"Organizations/{_ministry.OrganizationId}/Ministries/{MinistryId}/Edit")">Edit ministry</a>
+            <a class="btn btn-outline-primary" href="@($"Leagues/{MinistryId}/Standings")">Full standings</a>
+            <a class="btn btn-primary" href="@($"Leagues/{MinistryId}/Schedule")">Schedule</a>
+        </div>
+    </div>
+
+    @if (_canManage)
+    {
+        <div class="alert alert-info py-2 small d-flex flex-wrap gap-2 align-items-center">
+            <span>You can manage this league.</span>
+            <a class="btn btn-sm btn-primary" href="@($"Leagues/{MinistryId}/Teams/New")">+ Add team</a>
+            <a class="btn btn-sm btn-primary" href="@($"Leagues/{MinistryId}/Games/New")">+ Schedule a game</a>
+        </div>
+    }
+
+    <div class="row g-3">
+        <div class="col-md-7">
+            <div class="card">
+                <div class="card-header">Teams</div>
+                <div class="card-body">
+                    @if (!_ministry.Teams.Any())
+                    {
+                        <div class="text-muted">No teams yet.</div>
+                    }
+                    else
+                    {
+                        <ul class="list-group list-group-flush">
+                            @foreach (var t in _ministry.Teams.OrderBy(t => t.AgeBracket).ThenBy(t => t.Name))
+                            {
+                                <li class="list-group-item d-flex justify-content-between">
+                                    <a href="@($"Teams/{t.Id}")">@t.Name</a>
+                                    <span class="text-muted small">
+                                        @t.AgeBracket · @t.Gender · coach: @(t.CoachPerson?.DisplayName ?? "—")
+                                    </span>
+                                </li>
+                            }
+                        </ul>
+                    }
+                </div>
+            </div>
+
+            <div class="card mt-3">
+                <div class="card-header">Upcoming games</div>
+                <div class="card-body">
+                    @if (!_upcomingGames.Any())
+                    {
+                        <div class="text-muted">No upcoming games.</div>
+                    }
+                    else
+                    {
+                        <ul class="list-group list-group-flush">
+                            @foreach (var g in _upcomingGames)
+                            {
+                                <li class="list-group-item d-flex justify-content-between">
+                                    <a href="@($"Games/{g.Id}")">@g.HomeTeam.Name vs @g.AwayTeam.Name</a>
+                                    <span class="text-muted small">
+                                        <LocalTime Utc="@g.StartUtc" Format="ddd, MMM d h:mm tt" /> · @g.Arena.Name
+                                    </span>
+                                </li>
+                            }
+                        </ul>
+                    }
+                </div>
+            </div>
+
+            @if (_ministry.SubMinistries.Any())
+            {
+                <div class="card mt-3">
+                    <div class="card-header">Sub-ministries (coordinated separately)</div>
+                    <div class="card-body">
+                        <ul class="list-group list-group-flush">
+                            @foreach (var s in _ministry.SubMinistries.OrderBy(s => s.Name))
+                            {
+                                <li class="list-group-item d-flex justify-content-between">
+                                    <span>@s.Name</span>
+                                    <span class="text-muted small">
+                                        coordinator: @(s.CoordinatorPerson?.DisplayName ?? "—") · @s.ServiceSlots.Count slots
+                                    </span>
+                                </li>
+                            }
+                        </ul>
+                    </div>
+                </div>
+            }
+        </div>
+
+        <div class="col-md-5">
+            <div class="card">
+                <div class="card-header">Top of standings</div>
+                <div class="card-body">
+                    @if (!_topStandings.Any())
+                    {
+                        <div class="text-muted">No games played yet.</div>
+                    }
+                    else
+                    {
+                        <table class="table table-sm mb-0">
+                            <thead><tr><th>#</th><th>Team</th><th>P</th><th>W-D-L</th><th>GD</th><th>Pts</th></tr></thead>
+                            <tbody>
+                                @for (int i = 0; i < _topStandings.Count; i++)
+                                {
+                                    var s = _topStandings[i];
+                                    <tr>
+                                        <td>@(i + 1)</td>
+                                        <td><a href="@($"Teams/{s.TeamId}")">@s.TeamName</a></td>
+                                        <td>@s.Played</td>
+                                        <td>@s.Wins-@s.Draws-@s.Losses</td>
+                                        <td>@(s.GoalDifference > 0 ? "+" : "")@s.GoalDifference</td>
+                                        <td><strong>@s.Points</strong></td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                        <a class="btn btn-sm btn-outline-primary mt-2" href="@($"Leagues/{MinistryId}/Standings")">Full table</a>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject IStandingsService Standings
+@inject IOrgAuthService OrgAuth
+@inject AuthenticationStateProvider Auth
+@code {
+    [Parameter] public int MinistryId { get; set; }
+    private Ministry? _ministry;
+    private List<Game> _upcomingGames = new();
+    private List<TeamStanding> _topStandings = new();
+    private bool _canManage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await Auth.GetAuthenticationStateAsync();
+        var userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _ministry = await db.Ministries
+            .Include(m => m.Organization)
+            .Include(m => m.Teams).ThenInclude(t => t.CoachPerson)
+            .Include(m => m.SubMinistries).ThenInclude(s => s.CoordinatorPerson)
+            .Include(m => m.SubMinistries).ThenInclude(s => s.ServiceSlots)
+            .AsNoTracking()
+            .FirstOrDefaultAsync(m => m.Id == MinistryId);
+
+        if (_ministry is null) return;
+
+        var fromUtc = DateTime.UtcNow;
+        _upcomingGames = await db.Games
+            .Include(g => g.HomeTeam)
+            .Include(g => g.AwayTeam)
+            .Include(g => g.Arena)
+            .Where(g => g.MinistryId == MinistryId
+                && g.StartUtc >= fromUtc
+                && g.Status == GameStatus.Scheduled)
+            .OrderBy(g => g.StartUtc)
+            .Take(8)
+            .AsNoTracking()
+            .ToListAsync();
+
+        _topStandings = (await Standings.CalculateForMinistryAsync(MinistryId)).Take(5).ToList();
+
+        if (!string.IsNullOrEmpty(userId))
+        {
+            _canManage = await OrgAuth.CanManageMinistryAsync(userId, MinistryId);
+        }
+    }
+}

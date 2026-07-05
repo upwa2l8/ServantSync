@@ -1,0 +1,199 @@
+@page "/Teams/{TeamId:int}/Players/{PlayerId:int}/Edit"
+@page "/Teams/{TeamId:int}/Players/New"
+@attribute [Authorize]
+@rendermode InteractiveServer
+
+<PageTitle>@(_isNew ? "New player" : "Edit player")</PageTitle>
+
+<h1>@(_isNew ? "New player" : "Edit player")</h1>
+<StatusMessage Message="@_message" IsError="@_isError" />
+
+@if (_team is null)
+{
+    <p><em>Loading…</em></p>
+}
+else
+{
+    <div class="text-muted mb-3">
+        On <a href="@($"Teams/{TeamId}")">@_team.Name</a> · <a href="@($"Leagues/{_team.MinistryId}")">@_team.Ministry?.Name</a>
+    </div>
+
+    <EditForm Model="_model" OnValidSubmit="Save" FormName="player">
+        <DataAnnotationsValidator />
+        <ValidationSummary />
+
+        <div class="row g-2">
+            <div class="col-md-4">
+                <div class="form-floating mb-3">
+                    <InputText id="first" class="form-control" @bind-Value="_model.FirstName" />
+                    <label for="first">First name</label>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="form-floating mb-3">
+                    <InputText id="last" class="form-control" @bind-Value="_model.LastName" />
+                    <label for="last">Last name</label>
+                </div>
+            </div>
+            <div class="col-md-2">
+                <div class="form-floating mb-3">
+                    <InputNumber id="jersey" class="form-control" @bind-Value="_model.JerseyNumber" />
+                    <label for="jersey">Jersey #</label>
+                </div>
+            </div>
+            <div class="col-md-2">
+                <div class="form-floating mb-3">
+                    <InputText id="pos" class="form-control" @bind-Value="_model.Position" />
+                    <label for="pos">Position</label>
+                </div>
+            </div>
+        </div>
+
+        <div class="form-floating mb-3">
+            <InputDate id="dob" class="form-control" @bind-Value="_model.DateOfBirth" />
+            <label for="dob">Date of birth</label>
+        </div>
+
+        <h6>Primary contact (parent/guardian)</h6>
+        <p class="text-muted small">Coaches use this to call a parent if a player gets hurt. Link to a Person in the system if one exists, or just type the contact info.</p>
+
+        <div class="form-floating mb-3">
+            <select id="contact" class="form-select" @bind="_model.PrimaryContactPersonUserId">
+                <option value="">— none —</option>
+                @foreach (var p in _allPeople)
+                {
+                    <option value="@p.UserId">@p.DisplayName</option>
+                }
+            </select>
+            <label for="contact">Linked Person (login user)</label>
+        </div>
+        <div class="row g-2">
+            <div class="col-md-6">
+                <div class="form-floating mb-3">
+                    <InputText id="phone" class="form-control" @bind-Value="_model.PrimaryContactPhone" />
+                    <label for="phone">Phone</label>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="form-floating mb-3">
+                    <InputText id="email" class="form-control" @bind-Value="_model.PrimaryContactEmail" />
+                    <label for="email">Email</label>
+                </div>
+            </div>
+        </div>
+
+        <div class="form-floating mb-3">
+            <InputTextArea id="notes" class="form-control" style="height: 5rem" @bind-Value="_model.Notes" />
+            <label for="notes">Notes</label>
+        </div>
+
+        <button class="btn btn-primary" type="submit" disabled="@(!_canSubmit)">Save</button>
+        <a class="btn btn-outline-secondary ms-2" href="@($"Teams/{TeamId}")">Cancel</a>
+    </EditForm>
+}
+
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject ITeamService TeamService
+@inject AuthenticationStateProvider Auth
+@inject IOrgAuthService OrgAuth
+@inject NavigationManager Nav
+@code {
+    [Parameter] public int TeamId { get; set; }
+    [Parameter] public int? PlayerId { get; set; }
+    private bool _isNew => PlayerId is null;
+    private Team? _team;
+    private List<Person> _allPeople = new();
+    // EditForm requires the bound model to be a PROPERTY marked with
+    // [SupplyParameterFromForm] — without it the form data is submitted
+    // but never deserialized into the model, so Save gets an empty _model
+    // and DataAnnotationsValidator flags FirstName/LastName as required.
+    // A private field is silently ignored by the form-binding pipeline.
+    // (See Components/Account/Pages/Login.razor for the same comment.)
+    [SupplyParameterFromForm] private PlayerModel _model { get; set; } = new();
+    private string? _message;
+    private bool _isError;
+    private bool _canSubmit;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await Auth.GetAuthenticationStateAsync();
+        var userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        _canSubmit = !string.IsNullOrEmpty(userId) && await OrgAuth.CanManageTeamAsync(userId, TeamId);
+        if (!_canSubmit)
+        {
+            _isError = true;
+            _message = "You don't have permission to manage this team's roster.";
+            return;
+        }
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _team = await db.Teams.Include(t => t.Ministry).AsNoTracking().FirstOrDefaultAsync(t => t.Id == TeamId);
+        _allPeople = await db.People.OrderBy(p => p.LastName).ToListAsync();
+
+        if (!_isNew)
+        {
+            var p = await db.Players.FindAsync(PlayerId!.Value);
+            if (p is null)
+            {
+                _isError = true;
+                _message = "Player not found.";
+                return;
+            }
+            _model = new PlayerModel
+            {
+                FirstName = p.FirstName,
+                LastName = p.LastName,
+                DateOfBirth = p.DateOfBirth,
+                JerseyNumber = p.JerseyNumber,
+                Position = p.Position,
+                PrimaryContactPersonUserId = p.PrimaryContactPersonUserId,
+                PrimaryContactPhone = p.PrimaryContactPhone,
+                PrimaryContactEmail = p.PrimaryContactEmail,
+                Notes = p.Notes,
+            };
+        }
+    }
+
+    private async Task Save()
+    {
+        if (!_canSubmit) return;
+        try
+        {
+            if (_isNew)
+            {
+                await TeamService.AddPlayerAsync(
+                    TeamId, _model.FirstName, _model.LastName,
+                    _model.DateOfBirth, _model.JerseyNumber, _model.Position,
+                    string.IsNullOrEmpty(_model.PrimaryContactPersonUserId) ? null : _model.PrimaryContactPersonUserId,
+                    _model.PrimaryContactPhone, _model.PrimaryContactEmail, _model.Notes);
+            }
+            else
+            {
+                await TeamService.UpdatePlayerAsync(
+                    PlayerId!.Value, _model.FirstName, _model.LastName,
+                    _model.DateOfBirth, _model.JerseyNumber, _model.Position,
+                    string.IsNullOrEmpty(_model.PrimaryContactPersonUserId) ? null : _model.PrimaryContactPersonUserId,
+                    _model.PrimaryContactPhone, _model.PrimaryContactEmail, _model.Notes);
+            }
+            Nav.NavigateTo($"Teams/{TeamId}");
+        }
+        catch (Exception ex)
+        {
+            _isError = true;
+            _message = "Save failed: " + ex.Message;
+        }
+    }
+
+    private class PlayerModel
+    {
+        [Required, StringLength(80)] public string FirstName { get; set; } = "";
+        [Required, StringLength(80)] public string LastName { get; set; } = "";
+        public DateTime? DateOfBirth { get; set; }
+        public int? JerseyNumber { get; set; }
+        [StringLength(80)] public string? Position { get; set; }
+        public string? PrimaryContactPersonUserId { get; set; }
+        [StringLength(40)] public string? PrimaryContactPhone { get; set; }
+        [StringLength(120), EmailAddress] public string? PrimaryContactEmail { get; set; }
+        [StringLength(500)] public string? Notes { get; set; }
+    }
+}

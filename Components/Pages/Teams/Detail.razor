@@ -1,0 +1,203 @@
+@page "/Teams/{TeamId:int}"
+@attribute [Authorize]
+@rendermode InteractiveServer
+
+<PageTitle>@(_team?.Name ?? "Team")</PageTitle>
+
+@if (_team is null)
+{
+    <p><em>Loading…</em></p>
+}
+else
+{
+    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+        <div>
+            <h1 class="mb-0">@_team.Name</h1>
+            <div class="text-muted">
+                <a href="@($"Leagues/{_team.MinistryId}")">@_team.Ministry?.Name</a>
+                · @_team.Ministry?.Organization?.Name
+                · @_team.AgeBracket @_team.Gender
+            </div>
+            @if (_team.CoachPerson is not null)
+            {
+                <div class="text-muted small">Coach: <a href="@($"People/{_team.CoachPersonUserId}")">@_team.CoachPerson.DisplayName</a></div>
+            }
+        </div>
+        <div class="d-flex gap-2 flex-wrap">
+            <a class="btn btn-outline-secondary" href="@($"Leagues/{_team.MinistryId}")">Back to league</a>
+            @if (_canManage)
+            {
+                <a class="btn btn-primary" href="@($"Teams/{TeamId}/Players/New")">+ Add player</a>
+            }
+        </div>
+    </div>
+
+    @if (_isParent)
+    {
+        <div class="alert alert-info py-2 small">You're a primary contact for a player on this team. You can see the roster and schedule; contact info for other players is hidden.</div>
+    }
+
+    <div class="row g-3">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">Roster</div>
+                <div class="card-body">
+                    @if (!_activePlayers.Any())
+                    {
+                        <div class="text-muted">No active players.</div>
+                    }
+                    else
+                    {
+                        <table class="table table-sm">
+                            <thead>
+                                <tr>
+                                    <th>#</th><th>Name</th><th>Pos</th>
+                                    @if (!_isParent) { <th>Contact</th> }
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var p in _activePlayers.OrderBy(p => p.JerseyNumber).ThenBy(p => p.LastName))
+                                {
+                                    <tr>
+                                        <td>@(p.JerseyNumber?.ToString() ?? "—")</td>
+                                        <td>
+                                            @if (_canManage)
+                                            {
+                                                <a href="@($"Teams/{TeamId}/Players/{p.Id}/Edit")">@p.DisplayName</a>
+                                            }
+                                            else
+                                            {
+                                                @p.DisplayName
+                                            }
+                                        </td>
+                                        <td>@(p.Position ?? "—")</td>
+                                        @if (!_isParent)
+                                        {
+                                            <td class="small">
+                                                @if (!string.IsNullOrEmpty(p.PrimaryContactPhone)) { <div>@p.PrimaryContactPhone</div> }
+                                                @if (!string.IsNullOrEmpty(p.PrimaryContactEmail)) { <div>@p.PrimaryContactEmail</div> }
+                                            </td>
+                                        }
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">Upcoming games</div>
+                <div class="card-body">
+                    @if (!_upcomingGames.Any())
+                    {
+                        <div class="text-muted">No upcoming games.</div>
+                    }
+                    else
+                    {
+                        <ul class="list-group list-group-flush">
+                            @foreach (var g in _upcomingGames)
+                            {
+                                var opp = g.HomeTeamId == TeamId ? g.AwayTeam : g.HomeTeam;
+                                var home = g.HomeTeamId == TeamId;
+                                <li class="list-group-item d-flex justify-content-between">
+                                    <a href="@($"Games/{g.Id}")">@(home ? "vs" : "@") @opp.Name</a>
+                                    <span class="text-muted small"><LocalTime Utc="@g.StartUtc" Format="ddd, MMM d h:mm tt" /> · @g.Arena.Name</span>
+                                </li>
+                            }
+                        </ul>
+                    }
+                </div>
+            </div>
+
+            <div class="card mt-3">
+                <div class="card-header">Recent results</div>
+                <div class="card-body">
+                    @if (!_pastGames.Any())
+                    {
+                        <div class="text-muted">No games played yet.</div>
+                    }
+                    else
+                    {
+                        <ul class="list-group list-group-flush">
+                            @foreach (var g in _pastGames)
+                            {
+                                var opp = g.HomeTeamId == TeamId ? g.AwayTeam : g.HomeTeam;
+                                var home = g.HomeTeamId == TeamId;
+                                var us = home ? g.HomeScore : g.AwayScore;
+                                var them = home ? g.AwayScore : g.HomeScore;
+                                var outcome = (us, them) switch
+                                {
+                                    (null, _) or (_, null) => "—",
+                                    (var u, var t) when u > t => "W",
+                                    (var u, var t) when u < t => "L",
+                                    _ => "D",
+                                };
+                                <li class="list-group-item d-flex justify-content-between">
+                                    <span><strong>@outcome</strong> · @(home ? "vs" : "@") @opp.Name @us–@them</span>
+                                    <span class="text-muted small"><LocalTime Utc="@g.StartUtc" Format="MMM d" /></span>
+                                </li>
+                            }
+                        </ul>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject IOrgAuthService OrgAuth
+@inject AuthenticationStateProvider Auth
+@code {
+    [Parameter] public int TeamId { get; set; }
+    private Team? _team;
+    private List<Player> _activePlayers = new();
+    private List<Game> _upcomingGames = new();
+    private List<Game> _pastGames = new();
+    private bool _canManage;
+    private bool _isParent;
+    private string? _userId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await Auth.GetAuthenticationStateAsync();
+        _userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _team = await db.Teams
+            .Include(t => t.Ministry).ThenInclude(m => m.Organization)
+            .Include(t => t.CoachPerson)
+            .Include(t => t.Players)
+            .AsNoTracking()
+            .FirstOrDefaultAsync(t => t.Id == TeamId);
+        if (_team is null) return;
+
+        var now = DateTime.UtcNow;
+        _activePlayers = _team.Players
+            .Where(p => p.LeftUtc == null || p.LeftUtc > now)
+            .ToList();
+
+        var allGames = await db.Games
+            .Include(g => g.HomeTeam)
+            .Include(g => g.AwayTeam)
+            .Include(g => g.Arena)
+            .Where(g => (g.HomeTeamId == TeamId || g.AwayTeamId == TeamId))
+            .OrderByDescending(g => g.StartUtc)
+            .AsNoTracking()
+            .ToListAsync();
+
+        _upcomingGames = allGames.Where(g => g.StartUtc >= now && g.Status == GameStatus.Scheduled)
+            .OrderBy(g => g.StartUtc).Take(8).ToList();
+        _pastGames = allGames.Where(g => g.Status == GameStatus.Played)
+            .OrderByDescending(g => g.StartUtc).Take(8).ToList();
+
+        if (!string.IsNullOrEmpty(_userId))
+        {
+            _canManage = await OrgAuth.CanManageTeamAsync(_userId, TeamId);
+            _isParent = !_canManage && await OrgAuth.IsParentOfAnyPlayerOnTeamAsync(_userId, TeamId);
+        }
+    }
+}

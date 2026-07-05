@@ -1,0 +1,71 @@
+@implements IDisposable
+
+@*
+    Renders a UTC value as the user's browser-detected local time.
+
+    The browser timezone is set once per Blazor circuit by
+    `Components.TimeZoneInitializer` (via the scoped
+    `Services.UserTimeZoneProvider`). During the brief prerender window
+    before that JS round-trip completes, this falls back to the
+    server's `TimeZoneInfo.Local` so the page is never blank. The
+    initializer fires `Provider.RaiseChanged()` after assigning
+    `TimeZoneId` — this component subscribes and re-renders so the
+    fallback swaps out for the user's actual zone on the next tick.
+
+    The `<time datetime="…">` markup is semantic and machine-readable:
+    screen readers and calendar apps pick up the original UTC instant,
+    humans see it shifted to their local zone.
+
+    Default format is "MMM d, h:mm tt" → e.g. "Jan 12, 9:00 AM".
+    Common alternatives:
+      • Format="HH:mm"               → "14:00"
+      • Format="h:mm tt"             → "2:00 PM"
+      • Format="ddd, MMM d h:mm tt"  → "Sun, Jan 12 2:00 PM"
+      • Format="MMM d"               → "Jan 12"
+
+    Pass `Class` to add a Bootstrap class on the `<time>` element — used
+    by the calendar pill to preserve the original `calendar-pill-time`
+    spacing/styling.
+*@
+
+<time datetime="@Utc.ToString("o")" class="@Class">@DisplayLocal</time>
+
+@code {
+    [Parameter, EditorRequired] public DateTime Utc { get; set; }
+    [Parameter] public string Format { get; set; } = "MMM d, h:mm tt";
+    [Parameter] public string? Class { get; set; }
+
+    // Optional — tests or contexts that don't register UserTimeZoneProvider
+    // fall through to the server's TimeZoneInfo.Local.
+    [Inject] private UserTimeZoneProvider? TzProvider { get; set; }
+
+    private string DisplayLocal => Convert(Utc).ToString(Format);
+
+    private DateTime Convert(DateTime utc)
+    {
+        // Many assignment rows are seeded without an explicit UTC marker
+        // even though we always store UTC. Force Unspecified->Utc rather
+        // than letting .ToUniversalTime() shift "Unspecified" values as if
+        // they were server-local (the bug IcsCalendarGenerator already
+        // guards against for the same reason).
+        utc = DateTime.SpecifyKind(utc, DateTimeKind.Utc);
+        var zone = !string.IsNullOrEmpty(TzProvider?.TimeZoneId)
+            ? TimeZoneInfo.FindSystemTimeZoneById(TzProvider.TimeZoneId)
+            : TimeZoneInfo.Local;
+        return TimeZoneInfo.ConvertTimeFromUtc(utc, zone);
+    }
+
+    protected override void OnInitialized()
+    {
+        if (TzProvider is not null)
+            TzProvider.TimeZoneChanged += OnTzChanged;
+    }
+
+    private void OnTzChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        if (TzProvider is not null)
+            TzProvider.TimeZoneChanged -= OnTzChanged;
+    }
+}

@@ -1,0 +1,163 @@
+@page "/Organizations/{Id:int}/Edit"
+@page "/Organizations/New"
+@attribute [Authorize]
+@rendermode InteractiveServer
+
+<PageTitle>@(_isNew ? "New organization" : $"Edit · {_model.Name}")</PageTitle>
+
+<h1>@(_isNew ? "New organization" : "Edit organization")</h1>
+<StatusMessage Message="@_message" IsError="@_isError" />
+
+<EditForm Model="_model" OnValidSubmit="Save" FormName="org">
+    <DataAnnotationsValidator />
+    <ValidationSummary />
+
+    <div class="form-floating mb-3">
+        <InputText id="name" class="form-control" @bind-Value="_model.Name" />
+        <label for="name">Name</label>
+    </div>
+    <div class="form-floating mb-3">
+        <InputTextArea id="desc" class="form-control" style="height: 7rem" @bind-Value="_model.Description" />
+        <label for="desc">Description</label>
+    </div>
+    <div class="form-floating mb-3">
+        <InputText id="addr" class="form-control" @bind-Value="_model.Address" />
+        <label for="addr">Address</label>
+    </div>
+    <div class="form-floating mb-3">
+        <InputText id="email" class="form-control" @bind-Value="_model.ContactEmail" />
+        <label for="email">Contact email</label>
+    </div>
+    <div class="form-floating mb-3">
+        <InputText id="phone" class="form-control" @bind-Value="_model.ContactPhone" />
+        <label for="phone">Contact phone</label>
+    </div>
+
+    <button type="submit" class="btn btn-primary" disabled="@(!_canSubmit)">Save</button>
+    <a class="btn btn-outline-secondary ms-2" href="Organizations">Cancel</a>
+</EditForm>
+
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject NavigationManager Nav
+@inject AuthenticationStateProvider Auth
+@inject IOrgAuthService OrgAuth
+@inject IOrganizationService Orgs
+@code {
+    [Parameter] public int? Id { get; set; }
+    private bool _isNew => Id is null;
+    // EditForm requires the bound model to be a PROPERTY marked with
+    // [SupplyParameterFromForm] — without it the form data is submitted
+    // but never deserialized into the model, so Save gets an empty _model
+    // and DataAnnotationsValidator flags Name as required. A private field
+    // is silently ignored by the form-binding pipeline. (See
+    // Components/Account/Pages/Login.razor for the same comment.)
+    [SupplyParameterFromForm] private OrgModel _model { get; set; } = new();
+    private string? _message;
+    private bool _isError;
+    private bool _canSubmit;
+    private string? _userId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await Auth.GetAuthenticationStateAsync();
+        _userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+
+        // Creating a new org requires Admin in some existing org; editing requires Admin in *this* org.
+        if (_isNew)
+        {
+            _canSubmit = !string.IsNullOrEmpty(_userId)
+                && await OrgAuth.IsAnyOrgAdminAsync(_userId);
+            if (!_canSubmit)
+            {
+                _isError = true;
+                _message = "Only organization administrators can create new organizations.";
+            }
+            return;
+        }
+
+        _canSubmit = !string.IsNullOrEmpty(_userId)
+            && await OrgAuth.IsOrgAdminAsync(_userId, Id!.Value);
+        if (!_canSubmit)
+        {
+            _isError = true;
+            _message = "You don't have administrator rights for this organization.";
+            return;
+        }
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var org = await db.Organizations.FindAsync(Id!.Value);
+        if (org is null)
+        {
+            _isError = true;
+            _message = "Organization not found.";
+            return;
+        }
+        _model = new OrgModel
+        {
+            Name = org.Name,
+            Description = org.Description,
+            Address = org.Address,
+            ContactEmail = org.ContactEmail,
+            ContactPhone = org.ContactPhone,
+        };
+    }
+
+
+    private async Task Save()
+    {
+        if (!_canSubmit)
+        {
+            _isError = true;
+            _message = "You don't have permission to do that.";
+            return;
+        }
+
+        if (_isNew)
+        {
+            // Bootstrap-Admin pattern: the service inserts the Organization row
+            // AND the creator's first OrganizationMembership (Role = Admin)
+            // atomically in a single transaction. Avoids the prior chicken-and-
+            // egg where the creator could create an org but couldn't manage it.
+            var newId = await Orgs.CreateOrgAsync(
+                callerUserId: _userId,
+                name: _model.Name,
+                description: _model.Description,
+                address: _model.Address,
+                contactEmail: _model.ContactEmail,
+                contactPhone: _model.ContactPhone);
+            if (newId is null)
+            {
+                _isError = true;
+                _message = "You don't have administrator rights to create an organization.";
+                return;
+            }
+            Nav.NavigateTo($"Organizations/{newId}");
+            return;
+        }
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var existing = await db.Organizations.FindAsync(Id!.Value);
+        if (existing is null)
+        {
+            _isError = true;
+            _message = "Organization not found.";
+            return;
+        }
+        existing.Name = _model.Name;
+        existing.Description = _model.Description;
+        existing.Address = _model.Address;
+        existing.ContactEmail = _model.ContactEmail;
+        existing.ContactPhone = _model.ContactPhone;
+        await db.SaveChangesAsync();
+        Nav.NavigateTo($"Organizations/{Id}");
+    }
+
+    private class OrgModel
+    {
+        [Required, StringLength(160)] public string Name { get; set; } = "";
+        [StringLength(2000)] public string? Description { get; set; }
+        [StringLength(300)] public string? Address { get; set; }
+        [StringLength(120), EmailAddress] public string? ContactEmail { get; set; }
+        [StringLength(40)] public string? ContactPhone { get; set; }
+    }
+}

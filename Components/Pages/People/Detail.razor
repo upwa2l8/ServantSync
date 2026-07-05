@@ -1,0 +1,183 @@
+@page "/People/{UserId}"
+@attribute [Authorize]
+@rendermode InteractiveServer
+
+<PageTitle>@(_person?.DisplayName ?? "Volunteer")</PageTitle>
+
+@if (!_hasLoaded)
+{
+    <p><em>Loading…</em></p>
+}
+else if (!_canView)
+{
+    <div class="alert alert-warning mt-3">
+        <h4>Not authorized</h4>
+        <p>You don't have access to view this volunteer's information.</p>
+        <p class="mb-0 small">
+            The global People directory is available to organization administrators.
+            Co-volunteers in your orgs can be found on the
+            <a href="Organizations">Organizations</a> page &mdash;
+            open any org you're a member of, then the <strong>Members</strong> tab.
+        </p>
+    </div>
+}
+else if (_person is null)
+{
+    <p><em>Volunteer not found.</em></p>
+}
+else
+{
+    <h1>@_person.DisplayName</h1>
+    <div class="text-muted mb-3">@_person.User.Email</div>
+
+    <ul class="nav nav-tabs" role="tablist">
+        <li class="nav-item"><button class="nav-link @(Tab == "orgs" ? "active" : "")" @onclick='() => Tab = "orgs"'>Organizations</button></li>
+        <li class="nav-item"><button class="nav-link @(Tab == "training" ? "active" : "")" @onclick='() => Tab = "training"'>Training</button></li>
+        <li class="nav-item"><button class="nav-link @(Tab == "schedule" ? "active" : "")" @onclick='() => Tab = "schedule"'>Schedule</button></li>
+    </ul>
+
+    @if (Tab == "orgs")
+    {
+        <table class="table mt-3">
+            <thead><tr><th>Organization</th><th>Role</th></tr></thead>
+            <tbody>
+                @foreach (var m in _person.Memberships)
+                {
+                    <tr>
+                        <td><a href="@($"Organizations/{m.OrganizationId}")">@m.Organization.Name</a></td>
+                        <td>@m.Role</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+    else if (Tab == "training")
+    {
+        if (!_person.TrainingCompletions.Any())
+        {
+            <div class="alert alert-info mt-3">No training recorded yet.</div>
+        }
+        else
+        {
+            <table class="table mt-3">
+                <thead><tr><th>Training</th><th>Completed</th><th>Expires</th><th>Valid?</th></tr></thead>
+                <tbody>
+                    @foreach (var c in _person.TrainingCompletions)
+                    {
+                        var valid = c.IsValid(DateTime.UtcNow);
+                        <tr>
+                            <td><a href="@($"Training/{c.TrainingContentId}")">@c.TrainingContent.Title</a> v@c.TrainingContentVersion</td>
+                            <td>@c.CompletionUtc.ToString("u")</td>
+                            <td>@(c.ExpiresUtc?.ToString("u") ?? "—")</td>
+                            <td>@(valid ? "✅" : "❌")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    }
+    else
+    {
+        @if (!_upcoming.Any())
+        {
+            <div class="alert alert-info mt-3">No upcoming assignments.</div>
+        }
+        else
+        {
+            <table class="table mt-3">
+                <thead><tr><th>When</th><th>Slot</th><th>Ministry</th><th>Status</th></tr></thead>
+                <tbody>
+                    @foreach (var a in _upcoming)
+                    {
+                        <tr>
+                            <td><LocalTime Utc="@a.StartUtc" /> – <LocalTime Utc="@a.EndUtc" /></td>
+                            <td>@a.ServiceSlot.Name</td>
+                            <td>@a.ServiceSlot.Ministry.Name</td>
+                            <td>@a.Status</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    }
+}
+
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject AuthenticationStateProvider Auth
+@inject IOrgAuthService OrgAuth
+@code {
+    [Parameter] public string UserId { get; set; } = "";
+    private Person? _person;
+    private List<Assignment> _upcoming = new();
+    private string Tab { get; set; } = "orgs";
+    // True after OnInitializedAsync has finished so the renderer can show the
+    // "Loading…" placeholder vs. a "Volunteer not found" / "Not authorized"
+    // outcome. Without this, navigating to /People/{bogusId} would show
+    // "Loading…" forever on the gate-denied path.
+    private bool _hasLoaded;
+    // Access-gate result. Default false (deny); set true only when one of
+    // the three allowed rules fires (self / admin-of-shared-org / coach-of-
+    // team-parent). The Person fetch is short-circuited when false so we
+    // don't leak the volunteer's existence to a denied caller beyond the
+    // gate panel.
+    private bool _canView;
+    private string _userId = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await Auth.GetAuthenticationStateAsync();
+        _userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
+
+        // Self access. Identity owns their own profile — they're entitled to
+        // see it regardless of any other organization membership.
+        if (_userId == UserId)
+        {
+            _canView = true;
+        }
+        else if (!string.IsNullOrEmpty(_userId))
+        {
+            // Admin-of-shared-org access: caller is Admin of at least one
+            // org the target is also a member of. Single query joining the
+            // two memberships set.
+            //
+            // Note: Coordinators are intentionally NOT included. The user
+            // requirement is that volunteer's personal info is hidden from
+            // non-admins; Coordinators see the ministry's CoordinatorEmail
+            // and the org's Members tab, but not volunteer profiles. If a
+            // future requirement adds "Coordinator sees the people they
+            // coordinate with", the gate expands from Admin-only to
+            // Admin-or-Coordinator of a shared org.
+            await using var db = await DbFactory.CreateDbContextAsync();
+            _canView = await db.OrganizationMemberships
+                .Where(my =>
+                    my.PersonUserId == _userId
+                    && my.Role == OrganizationRole.Admin
+                    && db.OrganizationMemberships.Any(target =>
+                        target.PersonUserId == UserId
+                        && target.OrganizationId == my.OrganizationId))
+                .AnyAsync();
+        }
+
+        if (!_canView) { _hasLoaded = true; return; }
+
+        await using var db2 = await DbFactory.CreateDbContextAsync();
+        _person = await db2.People
+            .Include(p => p.User)
+            .Include(p => p.Memberships).ThenInclude(m => m.Organization)
+            .Include(p => p.TrainingCompletions).ThenInclude(c => c.TrainingContent)
+            .FirstOrDefaultAsync(p => p.UserId == UserId);
+
+        if (_person is null) { _hasLoaded = true; return; }
+
+        var fromUtc = DateTime.UtcNow;
+        _upcoming = await db2.Assignments
+            .Include(a => a.ServiceSlot).ThenInclude(s => s.Ministry)
+            .Where(a => a.PersonUserId == UserId && a.StartUtc >= fromUtc
+                && a.Status != AssignmentStatus.Cancelled)
+            .OrderBy(a => a.StartUtc)
+            .AsNoTracking()
+            .ToListAsync();
+
+        _hasLoaded = true;
+    }
+}

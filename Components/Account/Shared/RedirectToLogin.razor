@@ -1,0 +1,14 @@
+@code {
+    [Inject] private NavigationManager NavigationManager { get; set; } = default!;
+
+    protected override void OnInitialized()
+    {
+        // Preserve the current path so the user lands back where they were
+        // trying to go after signing in. forceLoad: true ensures the auth
+        // cookie is set before the page re-renders.
+        var returnUrl = NavigationManager.ToBaseRelativePath(NavigationManager.Uri);
+        NavigationManager.NavigateTo(
+            $"Account/Login?returnUrl={Uri.EscapeDataString(returnUrl ?? "/")}",
+            forceLoad: true);
+    }
+}

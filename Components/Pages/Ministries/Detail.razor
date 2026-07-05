@@ -1,0 +1,274 @@
+@page "/Organizations/{OrgId:int}/Ministries/{Id:int}"
+@attribute [Authorize]
+@rendermode InteractiveServer
+
+<PageTitle>@(_ministry?.Name ?? "Ministry")</PageTitle>
+
+@if (!_hasLoaded)
+{
+    <p><em>Loading...</em></p>
+}
+else if (_ministry is null)
+{
+    <div class="alert alert-warning mt-3">
+        <h4>Ministry not found</h4>
+        <p>
+            No ministry matches id <code>@Id</code> in organization <code>@OrgId</code>. Try the
+            <a href="Organizations">organization list</a>.
+        </p>
+    </div>
+}
+else
+{
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+            <h1 class="mb-0">@_ministry.Name</h1>
+            <div class="text-muted">@_ministry.Description</div>
+        </div>
+        <div class="d-flex gap-2">
+            @* Personal-preference toggle. Anyone who's a member of the
+               parent org sees this; out-of-org visitors are redirected to
+               the Not Found panel above before reaching this markup.
+               Coordinators do NOT auto-follow a ministry they manage;
+               explicit opt-in is the contract (mirrors the service gate). *@
+            @if (_isInOrg)
+            {
+                @if (_isInterested)
+                {
+                    <button class="btn btn-outline-secondary" type="button"
+                            @onclick="LeaveThisMinistryAsync"
+                            disabled="@_busyToggle"
+                            title="Stop showing this ministry's open shifts on your Browse page">
+                        @(_busyToggle ? "Leaving..." : "Leave this ministry")
+                    </button>
+                }
+                else
+                {
+                    <button class="btn btn-primary" type="button"
+                            @onclick="JoinThisMinistryAsync"
+                            disabled="@_busyToggle"
+                            title="Show this ministry's open shifts on your Browse page">
+                        @(_busyToggle ? "Joining..." : "Join this ministry")
+                    </button>
+                }
+            }
+            @* Admin-only "Edit ministry" affordance. Server gate on
+               Ministries/Edit.razor enforces the same check; hiding here
+               avoids 403-on-submit UX. *@
+            @if (_canManageOrg)
+            {
+                <a class="btn btn-outline-secondary" href="@($"Organizations/{OrgId}/Ministries/{Id}/Edit")">Edit ministry</a>
+            }
+        </div>
+    </div>
+
+    @* Coordinator card is intentionally always-rendered (per the user
+       requirement that "each coordinator email can be visible"). The name
+       falls back to "-" when no CoordinatorPersonUserId is set; the email
+       / phone come from the ministry's own columns and are visible to any
+       authenticated page visitor. *@
+    <div class="card mb-4">
+        <div class="card-header">Coordinator</div>
+        <div class="card-body">
+            <div><strong>@(_ministry.CoordinatorPerson?.DisplayName ?? "-")</strong></div>
+            <div>@_ministry.CoordinatorEmail &nbsp; <span class="text-muted">@_ministry.CoordinatorPhone</span></div>
+        </div>
+    </div>
+
+    @if (_lastMessage is not null)
+    {
+        <div class="alert @(_lastIsError ? "alert-danger" : "alert-success") py-2 small mb-3">
+            @_lastMessage
+        </div>
+    }
+
+    <div class="d-flex justify-content-between align-items-center mb-2">
+        <h4 class="mb-0">Service slots (volunteer opportunities)</h4>
+        @* Admin-only "+ Add slot" affordance: matching the gate on
+           ServiceSlots/Edit.razor. *@
+        @if (_canManageOrg)
+        {
+            <div class="d-flex gap-2 flex-wrap">
+                <a class="btn btn-sm btn-primary" href="@($"Organizations/{OrgId}/Ministries/{Id}/Roles/New")">+ Add slot</a>
+                <a class="btn btn-sm btn-outline-primary" href="@($"Leagues/{Id}/Teams/New")">+ Add team</a>
+            </div>
+        }
+    </div>
+    @* League-CTA explainer: a ministry becomes a League (i.e. shows up
+       under the Leagues nav / gets standings & games surfaces) the
+       moment it owns at least one <c>Team</c>. Until then the ministry is
+       reachable via this page only, which made the conversion invisible
+       to admins. The explainer turns the implicit state into an explicit
+       one and points the admin at the right button above. *@
+    @if (_canManageOrg && !_ministry.Teams.Any())
+    {
+        <div class="text-muted small mb-2">
+            <span class="bi bi-info-circle me-1" aria-hidden="true"></span>
+            A ministry becomes a <strong>league</strong> (visible on the Leagues page
+            with standings + games + team rosters) the moment it has at least one team.
+            Use <em>+ Add team</em> above to convert it.
+        </div>
+    }
+    @if (!_ministry.ServiceSlots.Any())
+    {
+        <div class="alert alert-info">No service slots yet.</div>
+    }
+    else
+    {
+        <ul class="list-group">
+            @foreach (var s in _ministry.ServiceSlots.OrderBy(s => s.Name))
+            {
+                <li class="list-group-item">
+                    <div class="d-flex justify-content-between">
+                        <a href="@($"Organizations/{OrgId}/Ministries/{Id}/Roles/{s.Id}")">@s.Name</a>
+                        <span class="badge bg-secondary">@s.Assignments.Count scheduled</span>
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(s.Description))
+                    {
+                        <div class="text-muted small">@s.Description</div>
+                    }
+                    <div class="mt-2">
+                        <a class="btn btn-sm btn-outline-primary"
+                           href="@($"Organizations/{OrgId}/Ministries/{Id}/Roles/{s.Id}/Schedule")">Schedule</a>
+                        <a class="btn btn-sm btn-outline-secondary"
+                           href="@($"Organizations/{OrgId}/Ministries/{Id}/Roles/{s.Id}/Edit")">Edit</a>
+                    </div>
+                </li>
+            }
+        </ul>
+    }
+}
+
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject AuthenticationStateProvider Auth
+@inject IOrgAuthService OrgAuth
+@inject IMinistryInterestService MinistryInterest
+@code {
+    [Parameter] public int OrgId { get; set; }
+    [Parameter] public int Id { get; set; }
+    private Ministry? _ministry;
+    // Admin-of-this-org gate, drives Edit + Add-slot affordances. Single
+    // source of truth = OrgAuthService.IsOrgAdminAsync; the same gate is
+    // re-checked server-side by Ministries/Edit.razor and
+    // ServiceSlots/Edit.razor. Default false (deny) until OnInitialized
+    // resolves the user id.
+    private bool _canManageOrg;
+    // True iff the signed-in user is a member of the parent org. Drives
+    // the Join/Leave button visibility AND gates the page itself (a
+    // signed-in user not in the org gets the Not Found panel rather than
+    // this ministry's data — strict per-org sandbox).
+    private bool _isInOrg;
+    // True iff the signed-in user has marked this ministry as
+    // "interested" via MinistryInterestService.JoinAsync. Drives the
+    // button label (Join vs Leave).
+    private bool _isInterested;
+    // True after OnInitializedAsync has completed so the renderer can
+    // distinguish "still loading" from "loaded but no match" / "loaded
+    // but cross-org access refused" without an indefinite spinner.
+    private bool _hasLoaded;
+    private string _userId = "";
+    // Inline alert for the Join/Leave result. Cleared on action entry,
+    // re-set on action exit. Shared with other handlers
+    // (UpdateRole-style pattern) so consistent messaging appears at the
+    // same place on the page.
+    private string? _lastMessage;
+    private bool _lastIsError;
+    private bool _busyToggle;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await Auth.GetAuthenticationStateAsync();
+        _userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+
+        // Server-side cross-org gate: search by (Id, OrganizationId) so
+        // an out-of-org visitor can't even see the ministry's description
+        // by guessing the Id. _ministry stays null and the Not Found
+        // branch in the markup renders.
+        _ministry = await db.Ministries
+            .Include(m => m.CoordinatorPerson)
+            .Include(m => m.ServiceSlots).ThenInclude(s => s.Assignments)
+            .FirstOrDefaultAsync(m => m.Id == Id && m.OrganizationId == OrgId);
+
+        // Cached membership check (used by the Join/Leave button) and
+        // admin gate (Edit + Add-slot) default to false until we resolve
+        // them. Both run only if _userId is non-empty.
+        if (!string.IsNullOrEmpty(_userId))
+        {
+            _canManageOrg = await OrgAuth.IsOrgAdminAsync(_userId, OrgId);
+            _isInOrg = await db.OrganizationMemberships
+                .AnyAsync(m => m.OrganizationId == OrgId && m.PersonUserId == _userId);
+            _isInterested = _isInOrg && await db.MinistryInterests
+                .AnyAsync(i => i.PersonUserId == _userId && i.MinistryId == Id);
+        }
+
+        _hasLoaded = true;
+    }
+
+    private async Task JoinThisMinistryAsync()
+    {
+        _busyToggle = true;
+        _lastMessage = null;
+        try
+        {
+            var result = await MinistryInterest.JoinAsync(_userId, _userId, Id);
+            switch (result)
+            {
+                case MinistryInterestJoinResult.Joined:
+                case MinistryInterestJoinResult.AlreadyJoined:
+                    _isInterested = true;
+                    _lastIsError = false;
+                    _lastMessage = result == MinistryInterestJoinResult.Joined
+                        ? $"You're now following {_ministry?.Name}. Its open shifts will show up on your Browse page."
+                        : "You were already following this ministry.";
+                    break;
+                case MinistryInterestJoinResult.PermissionDenied:
+                    _lastIsError = true;
+                    _lastMessage = "You can only follow ministries in organizations you belong to.";
+                    break;
+                case MinistryInterestJoinResult.MinistryNotFound:
+                    _lastIsError = true;
+                    _lastMessage = "This ministry no longer exists.";
+                    break;
+            }
+        }
+        finally
+        {
+            _busyToggle = false;
+        }
+    }
+
+    private async Task LeaveThisMinistryAsync()
+    {
+        _busyToggle = true;
+        _lastMessage = null;
+        try
+        {
+            var result = await MinistryInterest.LeaveAsync(_userId, _userId, Id);
+            switch (result)
+            {
+                case MinistryInterestLeaveResult.Left:
+                case MinistryInterestLeaveResult.NotInterested:
+                    _isInterested = false;
+                    _lastIsError = false;
+                    _lastMessage = result == MinistryInterestLeaveResult.Left
+                        ? $"You stopped following {_ministry?.Name}. Its open shifts will no longer appear on your Browse page."
+                        : "You weren't following this ministry.";
+                    break;
+                case MinistryInterestLeaveResult.PermissionDenied:
+                    _lastIsError = true;
+                    _lastMessage = "You can only stop following ministries in organizations you belong to.";
+                    break;
+                case MinistryInterestLeaveResult.MinistryNotFound:
+                    _lastIsError = true;
+                    _lastMessage = "This ministry no longer exists.";
+                    break;
+            }
+        }
+        finally
+        {
+            _busyToggle = false;
+        }
+    }
+}

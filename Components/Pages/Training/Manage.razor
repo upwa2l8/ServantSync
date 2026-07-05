@@ -1,0 +1,203 @@
+@page "/Training/Manage"
+@attribute [Authorize]
+@rendermode InteractiveServer
+
+<PageTitle>Manage training</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+        <h1>Training catalog</h1>
+        <div class="text-muted small">
+            Training content you administer. Since round N, training belongs to a single
+            organization — this page shows the union of every catalog you Admin. Volunteers
+            only ever see
+            <em>their</em> outstanding requirements + history on the
+            <a href="Training">/Training</a> page; this is the org-admin edit surface.
+        </div>
+        @if (_managedOrgNames.Count > 0)
+        {
+            <div class="text-muted small mt-1">
+                <strong>Admin of:</strong>
+                @foreach (var name in _managedOrgNames)
+                {
+                    <span class="badge bg-secondary me-1">@name</span>
+                }
+            </div>
+        }
+    </div>
+    <a class="btn btn-primary" href="Training/New">+ New training</a>
+</div>
+
+@if (_denyReason is not null)
+{
+    <div class="alert alert-warning">
+        @_denyReason <a href="Training">Back to my training</a>.
+    </div>
+}
+else if (_contents is null)
+{
+    <p><em>Loading…</em></p>
+}
+else if (!_contents.Any())
+{
+    <div class="alert alert-info">
+        You don't administer any catalog yet — start by creating training in one of the
+        organizations you manage, or ask another admin to grant you Admin rights on their org.
+    </div>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Organization</th>
+                    <th>Title</th><th>Format</th><th>Version</th><th>Required by</th><th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var c in _contents)
+                {
+                    <tr>
+                        <td>
+                            <a href="@($"Organizations/{c.OrganizationId}")">@c.OrganizationName</a>
+                        </td>
+                        <td>
+                            <a href="@($"Training/{c.Id}")">@c.Title</a>
+                            <div class="text-muted small">@c.Description</div>
+                        </td>
+                        <td><span class="badge bg-secondary">@c.Format</span></td>
+                        <td>v@c.Version</td>
+                        <td>
+                            @foreach (var r in c.Requirements)
+                            {
+                                <div class="small">
+                                    @if (r.OrganizationId.HasValue)
+                                    {
+                                        <span class="badge bg-info text-dark">Org</span>
+                                        <a href="@($"Organizations/{r.OrganizationId}")">@r.OrganizationName</a>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-warning text-dark">Slot</span>
+                                        @r.SlotPath
+                                    }
+                                </div>
+                            }
+                        </td>
+                        <td class="text-end">
+                            <a class="btn btn-sm btn-outline-secondary" href="@($"Training/{c.Id}/Edit")">Edit</a>
+                            <a class="btn btn-sm btn-primary" href="@($"Training/{c.Id}/Take")">Take</a>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@inject ITrainingService TrainingService
+@inject AuthenticationStateProvider Auth
+@inject IOrgAuthService OrgAuth
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@code {
+    private List<ContentRow>? _contents;
+    // Per-org admin badges in the header. Computed once per load so the
+    // markup is cheap; mirrors exactly the union-of-managed-orgs the
+    // catalog itself is sourced from.
+    private List<string> _managedOrgNames = new();
+    private bool _authorized;
+    private string? _denyReason;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // No broad try/catch on purpose: if the OrgAuth lookup or the
+        // TrainingContent query throws, Blazor's default error UI is
+        // louder and more diagnostic than a generic yellow alert. The
+        // user-input branches that warrant a polite message
+        // (unauthenticated, not an org admin) are handled inline below
+        // by setting _denyReason — those are the only failure modes
+        // the markup should ever pre-empt.
+        var state = await Auth.GetAuthenticationStateAsync();
+        var userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userId))
+        {
+            _denyReason = "You must be signed in to manage training.";
+            return;
+        }
+        _authorized = await OrgAuth.IsAnyOrgAdminAsync(userId);
+        if (!_authorized)
+        {
+            _denyReason = "Only organization admins can manage the training catalog.";
+            return;
+        }
+
+        // The service does the org-Auth gate inside the SQL itself —
+        // joins through OrganizationMemberships with Role=Admin — so the
+        // page handler doesn't need to enumerate "admin of which orgs"
+        // and pass them in. One round-trip; the page receives only the
+        // catalogs the caller actually owns.
+        var raw = await TrainingService.ListManageableTrainingAsync(userId);
+        _managedOrgNames = raw
+            .Select(c => c.Organization?.Name ?? "(unknown)")
+            .Distinct()
+            .OrderBy(n => n)
+            .ToList();
+
+        // Fold the per-row requirements join into a thin shape to keep
+        // the table render cheap. The managed-orgs join still happens
+        // server-side via EF fix-up.
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _contents = raw.Select(c => new ContentRow
+        {
+            Id = c.Id,
+            OrganizationId = c.OrganizationId,
+            OrganizationName = c.Organization?.Name ?? "(unknown)",
+            Title = c.Title,
+            Format = c.Format,
+            Version = c.Version,
+            Description = c.Description,
+        }).ToList();
+
+        // Bulk-load the requirements so the "Required by" column renders
+        // without an N+1. Single query keyed on the visible content ids.
+        var ids = _contents.Select(c => c.Id).ToHashSet();
+        var reqs = await db.TrainingRequirements
+            .Where(r => ids.Contains(r.TrainingContentId))
+            .Select(r => new ReqRow
+            {
+                TrainingContentId = r.TrainingContentId,
+                OrganizationId = r.OrganizationId,
+                OrganizationName = r.Organization!.Name,
+                ServiceSlotId = r.ServiceSlotId,
+                SlotPath = r.ServiceSlot!.Ministry.Organization.Name + " › "
+                    + r.ServiceSlot.Ministry.Name + " › " + r.ServiceSlot.Name,
+            })
+            .ToListAsync();
+        foreach (var row in _contents)
+        {
+            row.Requirements = reqs.Where(r => r.TrainingContentId == row.Id).ToList();
+        }
+    }
+
+    private class ContentRow
+    {
+        public int Id { get; set; }
+        public int OrganizationId { get; set; }
+        public string OrganizationName { get; set; } = "";
+        public string Title { get; set; } = "";
+        public TrainingFormat Format { get; set; }
+        public int Version { get; set; }
+        public string? Description { get; set; }
+        public List<ReqRow> Requirements { get; set; } = new();
+    }
+
+    private class ReqRow
+    {
+        public int TrainingContentId { get; set; }
+        public int? OrganizationId { get; set; }
+        public string OrganizationName { get; set; } = "";
+        public int? ServiceSlotId { get; set; }
+        public string SlotPath { get; set; } = "";
+    }
+}

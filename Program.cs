@@ -1,0 +1,371 @@
+using Microsoft.AspNetCore.Antiforgery;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.FileProviders;
+using ServantSync.Components;
+using ServantSync.Data;
+using ServantSync.Models;
+using ServantSync.Services;
+
+var builder = WebApplication.CreateBuilder(args);
+
+// ---- Database ----
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
+    ?? "Data Source=servantsync.db";
+
+// Use the factory as the single source of truth for the DbContext configuration.
+// Don't ALSO call AddDbContext<T> with its own options-builder — that registers a
+// second set of IDbContextOptionsConfiguration<T> callbacks (scoped) on top of the
+// factory's ones. The factory ends up asking the root provider for
+// IEnumerable<IDbContextOptionsConfiguration<T>> and trips over the scoped one,
+// throwing "Cannot resolve scoped service from root provider" at startup.
+builder.Services.AddDbContextFactory<ApplicationDbContext>(opts =>
+    opts.UseSqlite(connectionString));
+// Identity's stores (and any other consumer) still need a scoped
+// ApplicationDbContext. Resolve it from the factory so the configuration is
+// shared — the factory owns the options, the DI scope owns the context lifetime.
+builder.Services.AddScoped<ApplicationDbContext>(sp =>
+    sp.GetRequiredService<IDbContextFactory<ApplicationDbContext>>().CreateDbContext());
+
+// ---- Identity ----
+builder.Services.AddIdentity<IdentityUser, IdentityRole>(opts =>
+{
+    opts.SignIn.RequireConfirmedAccount = false;
+    opts.Password.RequireDigit = false;
+    opts.Password.RequireNonAlphanumeric = false;
+    opts.Password.RequireUppercase = false;
+    opts.Password.RequiredLength = 8;
+    // Default password-reset / email-confirmation token lifetime is one day
+    // (DataProtectionTokenProviderOptions.Default). Service can be customized via
+    // opts.Tokens.ProviderMap["ResetPassword"] = new ConsoleResetProvider() etc.
+})
+    .AddEntityFrameworkStores<ApplicationDbContext>()
+    .AddDefaultTokenProviders();
+
+// Email sender — LoggingEmailSender in Development so you can copy the link from
+// the test log; MailKitEmailSender in any other environment reads SMTP details
+// from the "Email" section of appsettings.json (see EmailOptions).
+builder.Services.Configure<EmailOptions>(builder.Configuration.GetSection("Email"));
+// EmailBrandAssets is registered as a SINGLETON (not scoped) — the bytes
+// are loaded once at construction time and cached for the lifetime of the
+// process. Every MailKitEmailSender instance shares the same byte array;
+// re-reading the file per email would burn IOPS for no benefit. Resolving
+// via the host's PhysicalFileProvider so the file lookup matches how
+// wwwroot/img is actually served.
+builder.Services.AddSingleton<IEmailBrandAssets>(sp => new EmailBrandAssets(
+    sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<EmailOptions>>(),
+    sp.GetRequiredService<IFileProvider>(),
+    sp.GetRequiredService<ILogger<EmailBrandAssets>>()));
+if (builder.Environment.IsDevelopment())
+{
+    builder.Services.AddScoped<IEmailSender<IdentityUser>, LoggingEmailSender>();
+}
+else
+{
+    builder.Services.AddScoped<IEmailSender<IdentityUser>, MailKitEmailSender>();
+}
+
+builder.Services.ConfigureApplicationCookie(opts =>
+{
+    opts.LoginPath = "/Account/Login";
+    opts.LogoutPath = "/Account/Logout";
+    opts.AccessDeniedPath = "/Account/AccessDenied";
+});
+
+// ---- Razor / Blazor ----
+builder.Services.AddRazorComponents()
+    .AddInteractiveServerComponents();
+
+// Raise the SignalR message-size limit so the Blazor InputFile component
+// can stream files larger than the 32 KB default. 20 MB to give the
+// SlotDocumentService 10 MB cap real headroom — InputFile adds per-chunk
+// metadata that eats into the message size budget.
+builder.Services.Configure<Microsoft.AspNetCore.SignalR.HubOptions>(o =>
+    o.MaximumReceiveMessageSize = 20 * 1024 * 1024);
+
+// HTTP context access for any code that needs the true scheme/host behind proxies.
+builder.Services.AddHttpContextAccessor();
+
+// ---- Domain services ----
+builder.Services.AddScoped<IAssignmentService, AssignmentService>();
+builder.Services.AddScoped<ITrainingService, TrainingService>();
+builder.Services.AddScoped<IUploadPathProvider, UploadPathProvider>();
+builder.Services.AddScoped<IOrgAuthService, OrgAuthService>();
+builder.Services.AddScoped<ITeamService, TeamService>();
+builder.Services.AddScoped<IGameService, GameService>();
+builder.Services.AddScoped<IStandingsService, StandingsService>();
+builder.Services.AddScoped<ISlotDocumentService, SlotDocumentService>();
+builder.Services.AddScoped<IOrganizationService, OrganizationService>();
+builder.Services.AddScoped<IMemberManagementService, MemberManagementService>();
+builder.Services.AddScoped<IArenaService, ArenaService>();
+builder.Services.AddScoped<IOrganizationMinistryService, OrganizationMinistryService>();
+builder.Services.AddScoped<IMinistryInterestService, MinistryInterestService>();
+builder.Services.AddScoped<ICoordinatorAssignmentsService, CoordinatorAssignmentsService>();
+// Round-AI: self-heal handler. The Take page calls this on every
+// volunteer visit when the content is a local PDF whose TotalPageCount
+// is null — for legacy uploads predating PdfPageCounter's wiring, or
+// for files whose upload-time extension/MIME detection silently
+// missed the .pdf case. See Services/PdfPageCountHealer.cs.
+builder.Services.AddScoped<IPdfPageCountHealer, PdfPageCountHealer>();
+builder.Services.AddScoped<UserTimeZoneProvider>();
+builder.Services.AddScoped<DatabaseSeeder>();
+
+var app = builder.Build();
+
+if (!app.Environment.IsDevelopment())
+{
+    app.UseExceptionHandler("/Error", createScopeForErrors: true);
+    app.UseHsts();
+}
+
+app.UseHttpsRedirection();
+
+// Serve uploaded training files from wwwroot/uploads/training.
+var uploadsRoot = Path.Combine(app.Environment.WebRootPath, "uploads", "training");
+Directory.CreateDirectory(uploadsRoot);
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new PhysicalFileProvider(uploadsRoot),
+    RequestPath = "/uploads/training",
+});
+
+app.UseStaticFiles();
+
+app.UseAuthentication();
+app.UseAuthorization();
+app.UseAntiforgery();
+
+app.MapStaticAssets();
+app.MapRazorComponents<App>()
+    .AddInteractiveServerRenderMode();
+
+// Identity endpoints. Logout is a real form POST; Login + Register are
+// also real form POSTs now (round-AN) — see the round-AN WHY-comment
+// block immediately below the Logout endpoint for the full rationale.
+app.MapPost("/Account/Logout", async (SignInManager<IdentityUser> signIn) =>
+{
+    await signIn.SignOutAsync();
+    return Results.Redirect("/");
+});
+
+// ---- Round-AN: Login + Register endpoints (static SSR form targets) ----
+// THE PROBLEM. The previous Login.razor + Register.razor were
+// `@rendermode InteractiveServer` pages whose OnValidSubmit handlers
+// called SignInManager.PasswordSignInAsync / SignInAsync inside the
+// SignalR-circuit HttpContext. That context's Response had already
+// streamed the initial page render, so cookie writes threw
+//   "Headers are read-only, response has already started."
+// (verbatim, captured at Login.razor:63). Round-AM's per-site
+// FormName-strip was directionally correct but insufficient: the
+// cookie write path can't succeed inside ANY Blazor-Interactive
+// handler. THE FIX. Login.razor + Register.razor are now static-SSR
+// pages posting plain HTML forms to these endpoints; each POST runs
+// against a FRESH HttpContext whose Response hasn't streamed. Open-
+// redirect safety: UrlSafety.IsLocalUrl (same helper the previous
+// Razor pages used). Per-site discipline preserved: do NOT blanket-
+// rewrite the non-cookie-writing Account pages
+// (ForgotPassword / ResetPassword / ChangePassword / Manage). See
+// STATUS.md round-AN for the full triage.
+app.MapPost("/Account/PerformLogin", async (
+    HttpContext ctx,
+    SignInManager<IdentityUser> signIn,
+    IAntiforgery antiforgery) =>
+{
+    await antiforgery.ValidateRequestAsync(ctx);
+    var form = await ctx.Request.ReadFormAsync();
+    var email = form["email"].ToString();
+    var password = form["password"].ToString();
+    // Checkbox presence: browsers send the literal string "on" for
+    // a checked box without a value attribute, which bool.TryParse
+    // rejects. Presence-based check works regardless of value text.
+    var remember = form["remember"].Count > 0;
+    var returnUrl = form["returnUrl"].ToString();
+    var safeTarget = UrlSafety.IsLocalUrl(returnUrl) ? returnUrl : "/";
+
+    var result = await signIn.PasswordSignInAsync(
+        email, password, remember, lockoutOnFailure: false);
+    if (result.Succeeded)
+        return Results.Redirect(safeTarget);
+
+    // `error` = {locked, invalid} — both branches render in the
+    // Login.razor switch-block.
+    var errorToken = result.IsLockedOut ? "locked" : "invalid";
+    return Results.Redirect($"/Account/Login?returnUrl={Uri.EscapeDataString(safeTarget)}&error={errorToken}");
+});
+
+app.MapPost("/Account/PerformRegister", async (
+    HttpContext ctx,
+    UserManager<IdentityUser> users,
+    SignInManager<IdentityUser> signIn,
+    IDbContextFactory<ApplicationDbContext> dbFactory,
+    IAntiforgery antiforgery) =>
+{
+    await antiforgery.ValidateRequestAsync(ctx);
+    var form = await ctx.Request.ReadFormAsync();
+    var firstName = form["firstName"].ToString().Trim();
+    var lastName = form["lastName"].ToString().Trim();
+    var email = form["email"].ToString().Trim();
+    var password = form["password"].ToString();
+    var token = form["token"].ToString().Trim();
+    var orgIdRaw = form["organizationId"].ToString();
+    var returnUrl = form["returnUrl"].ToString();
+
+    // Token resolution mirrors the round-AM HandleRegister logic: a
+    // registration token (admin-issued) wins over the dropdown's
+    // organization choice. If the token didn't match, fall through
+    // to the dropdown. orgId stays null if neither resolves — the
+    // user can register without joining an org.
+    int? orgId = null;
+    if (!string.IsNullOrEmpty(orgIdRaw) && int.TryParse(orgIdRaw, out var parsedOrgId))
+        orgId = parsedOrgId;
+
+    await using var db = await dbFactory.CreateDbContextAsync();
+    if (!string.IsNullOrEmpty(token))
+    {
+        var matched = await db.Organizations
+            .FirstOrDefaultAsync(o => o.RegistrationToken == token);
+        if (matched is not null)
+            orgId = matched.Id;
+    }
+
+    var user = new IdentityUser
+    {
+        UserName = email,
+        Email = email,
+        // SignIn.RequireConfirmedAccount = false in Program.cs means
+        // sign-in succeeds without confirmation; a real deployment
+        // should tighten this together with the LoggingEmailSender's
+        // link confirmation flow.
+        EmailConfirmed = true,
+    };
+    var create = await users.CreateAsync(user, password);
+    if (!create.Succeeded)
+    {
+        var errorMsg = string.Join(" ", create.Errors.Select(e => e.Description));
+        var safeTarget = UrlSafety.IsLocalUrl(returnUrl) ? returnUrl : "/";
+        return Results.Redirect($"/Account/Register?returnUrl={Uri.EscapeDataString(safeTarget)}&error={Uri.EscapeDataString(errorMsg)}");
+    }
+
+    db.People.Add(new Person { UserId = user.Id, FirstName = firstName, LastName = lastName });
+    if (orgId.HasValue)
+    {
+        db.OrganizationMemberships.Add(new OrganizationMembership
+        {
+            PersonUserId = user.Id,
+            OrganizationId = orgId.Value,
+            Role = OrganizationRole.Volunteer,
+        });
+    }
+    await db.SaveChangesAsync();
+
+    await signIn.SignInAsync(user, isPersistent: false);
+    return Results.Redirect(UrlSafety.IsLocalUrl(returnUrl) ? returnUrl : "/");
+});
+
+// ICS subscribe feed for /MySchedule. Auth-gated. Returns text/calendar with
+// the user's assignments in a configurable window. Volunteers subscribe to
+// this in Google / Apple / Outlook to see their schedule alongside everything
+// else on their personal calendar.
+app.MapGet("/MySchedule/ics", async (
+    HttpContext ctx,
+    IDbContextFactory<ApplicationDbContext> dbFactory) =>
+{
+    var userId = ctx.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+    if (string.IsNullOrEmpty(userId)) return Results.Unauthorized();
+
+    var scope = ctx.Request.Query["scope"].ToString();
+    var days = int.TryParse(ctx.Request.Query["days"], out var d) ? Math.Clamp(d, 1, 365) : 90;
+
+    var fromUtc = DateTime.UtcNow;
+    var toUtc = fromUtc.AddDays(days);
+
+    await using var db = await dbFactory.CreateDbContextAsync();
+
+    IQueryable<Assignment> query = db.Assignments
+        .Include(a => a.ServiceSlot).ThenInclude(s => s.Ministry)
+        .Where(a => a.StartUtc >= fromUtc
+            && a.StartUtc < toUtc
+            && a.Status != AssignmentStatus.Cancelled
+            && a.Status != AssignmentStatus.NoShow);
+
+    if (string.Equals(scope, "org", StringComparison.OrdinalIgnoreCase))
+    {
+        var orgIds = await db.OrganizationMemberships
+            .Where(m => m.PersonUserId == userId)
+            .Select(m => m.OrganizationId)
+            .ToListAsync();
+        query = orgIds.Count == 0
+            ? query.Where(a => false)
+            : query.Where(a => orgIds.Contains(a.ServiceSlot.Ministry.OrganizationId));
+    }
+    else
+    {
+        query = query.Where(a => a.PersonUserId == userId);
+    }
+
+    var assignments = await query
+        .OrderBy(a => a.StartUtc)
+        .AsNoTracking()
+        .ToListAsync();
+
+    var events = assignments.Select(a => new IcsEvent
+    {
+        Uid = $"assignment-{a.Id}@servantsync.local",
+        StartUtc = a.StartUtc,
+        EndUtc = a.EndUtc,
+        Summary = $"{a.ServiceSlot.Ministry.Name} \u00b7 {a.ServiceSlot.Name}",
+        Description = string.IsNullOrEmpty(a.Notes) ? null : a.Notes,
+        Location = a.ServiceSlot.Location,
+    });
+
+    var ics = IcsCalendarGenerator.Generate("ServantSync", events, DateTime.UtcNow);
+    return Results.File(
+        System.Text.Encoding.UTF8.GetBytes(ics),
+        contentType: "text/calendar; charset=utf-8",
+        fileDownloadName: "servantsync.ics");
+}).RequireAuthorization();
+
+// Slot-document download endpoint. Auth-gated, membership-gated. The doc
+// must belong to the slot in the URL (defense in depth — a stale link
+// from a different slot is rejected).
+app.MapGet("/slots/{slotId:int}/documents/{docId:int}/download", async (
+    int slotId, int docId,
+    HttpContext ctx,
+    ISlotDocumentService docs,
+    IUploadPathProvider paths,
+    IOrgAuthService orgAuth) =>
+{
+    var userId = ctx.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+    if (string.IsNullOrEmpty(userId)) return Results.Unauthorized();
+
+    // GetAsync eager-loads ServiceSlot → Ministry so the membership check
+    // and the slot-mismatch check both use the same row.
+    var doc = await docs.GetAsync(docId);
+    if (doc is null || doc.ServiceSlotId != slotId) return Results.NotFound();
+
+    var orgId = doc.ServiceSlot.Ministry.OrganizationId;
+    if (await orgAuth.GetRoleAsync(userId, orgId) is null) return Results.Forbid();
+
+    string filePath;
+    try { filePath = paths.GetSlotFileAbsolutePath(slotId, doc.FilePath); }
+    catch { return Results.NotFound(); }
+    if (!File.Exists(filePath)) return Results.NotFound();
+
+    // Stream the file rather than buffering with File.ReadAllBytes so a
+    // future 100 MB+ doc doesn't OOM the server.
+    return Results.File(
+        System.IO.File.OpenRead(filePath),
+        contentType: doc.ContentType ?? "application/octet-stream",
+        fileDownloadName: doc.OriginalFileName);
+}).RequireAuthorization();
+
+// Apply pending migrations, then seed sample data if the database is empty.
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+    await db.Database.MigrateAsync();
+    var seeder = scope.ServiceProvider.GetRequiredService<DatabaseSeeder>();
+    await seeder.SeedAsync();
+}
+
+app.Run();

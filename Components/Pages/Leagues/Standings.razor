@@ -1,0 +1,81 @@
+@page "/Leagues/{MinistryId:int}/Standings"
+@attribute [Authorize]
+@rendermode InteractiveServer
+
+<PageTitle>Standings · @(_ministry?.Name ?? "League")</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+        <h1 class="mb-0">Standings</h1>
+        <div class="text-muted">@_ministry?.Organization?.Name · @_ministry?.Name</div>
+    </div>
+    <a class="btn btn-outline-secondary" href="@($"Leagues/{MinistryId}")">Back to league</a>
+</div>
+
+@if (_rows is null)
+{
+    <p><em>Loading…</em></p>
+}
+else if (!_rows.Any())
+{
+    <div class="alert alert-info">No teams in this league yet.</div>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table table-striped table-hover">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Team</th>
+                    <th class="text-end">Played</th>
+                    <th class="text-end">W</th>
+                    <th class="text-end">D</th>
+                    <th class="text-end">L</th>
+                    <th class="text-end">GF</th>
+                    <th class="text-end">GA</th>
+                    <th class="text-end">GD</th>
+                    <th class="text-end">Pts</th>
+                </tr>
+            </thead>
+            <tbody>
+                @for (int i = 0; i < _rows.Count; i++)
+                {
+                    var r = _rows[i];
+                    <tr class="@(i == 0 ? "table-success" : "")">
+                        <td>@(i + 1)</td>
+                        <td><a href="@($"Teams/{r.TeamId}")">@r.TeamName</a></td>
+                        <td class="text-end">@r.Played</td>
+                        <td class="text-end">@r.Wins</td>
+                        <td class="text-end">@r.Draws</td>
+                        <td class="text-end">@r.Losses</td>
+                        <td class="text-end">@r.GoalsFor</td>
+                        <td class="text-end">@r.GoalsAgainst</td>
+                        <td class="text-end">@(r.GoalDifference > 0 ? "+" : "")@r.GoalDifference</td>
+                        <td class="text-end"><strong>@r.Points</strong></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+    <p class="text-muted small">
+        Points: 3 per win, 1 per draw, 0 per loss. Tiebreakers: goal difference,
+        goals scored, then team name. Only games that were actually played are
+        counted.
+    </p>
+}
+
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject IStandingsService StandingsSvc
+@code {
+    [Parameter] public int MinistryId { get; set; }
+    private Ministry? _ministry;
+    private List<TeamStanding>? _rows;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _ministry = await db.Ministries.Include(m => m.Organization).AsNoTracking().FirstOrDefaultAsync(m => m.Id == MinistryId);
+        _rows = await StandingsSvc.CalculateForMinistryAsync(MinistryId);
+    }
+}

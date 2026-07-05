@@ -1,0 +1,171 @@
+@page "/Organizations/{OrgId:int}/Ministries/{Id:int}/Edit"
+@page "/Organizations/{OrgId:int}/Ministries/New"
+@attribute [Authorize]
+@rendermode InteractiveServer
+
+<PageTitle>@(_isNew ? "New ministry" : "Edit ministry")</PageTitle>
+
+<h1>@(_isNew ? "New ministry" : "Edit ministry")</h1>
+<StatusMessage Message="@_message" IsError="@_isError" />
+
+<EditForm Model="_model" OnValidSubmit="Save" FormName="min">
+    <DataAnnotationsValidator />
+    <ValidationSummary />
+
+    <div class="form-floating mb-3">
+        <InputText id="name" class="form-control" @bind-Value="_model.Name" />
+        <label for="name">Name</label>
+    </div>
+    <div class="form-floating mb-3">
+        <InputTextArea id="desc" class="form-control" style="height: 5rem" @bind-Value="_model.Description" />
+        <label for="desc">Description</label>
+    </div>
+
+    <div class="row g-2">
+        <div class="col-md-6">
+            <label class="form-label">Coordinator</label>
+            <select class="form-select" @bind="_model.CoordinatorPersonUserId">
+                <option value="">— none —</option>
+                @foreach (var p in _members)
+                {
+                    <option value="@p.UserId">@p.DisplayName</option>
+                }
+            </select>
+        </div>
+        <div class="col-md-6">
+            <div class="form-floating">
+                <InputText id="cemail" class="form-control" @bind-Value="_model.CoordinatorEmail" />
+                <label for="cemail">Coordinator email</label>
+            </div>
+        </div>
+    </div>
+    <div class="form-floating mt-2">
+        <InputText id="cphone" class="form-control" @bind-Value="_model.CoordinatorPhone" />
+        <label for="cphone">Coordinator phone</label>
+    </div>
+
+    <div class="mt-3">
+        <button class="btn btn-primary" type="submit" disabled="@(!_canSubmit)">Save</button>
+        <a class="btn btn-outline-secondary ms-2"
+           href="@(_isNew ? $"Organizations/{OrgId}" : $"Organizations/{OrgId}/Ministries/{Id}")">Cancel</a>
+    </div>
+</EditForm>
+
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject NavigationManager Nav
+@inject AuthenticationStateProvider Auth
+@inject IOrgAuthService OrgAuth
+@inject IOrganizationMinistryService MinistryUpsert
+@code {
+    [Parameter] public int OrgId { get; set; }
+    [Parameter] public int? Id { get; set; }
+    private bool _isNew => Id is null;
+    // EditForm requires the bound model to be a PROPERTY marked with
+    // [SupplyParameterFromForm] — without it the form data is submitted
+    // but never deserialized into the model, so Save gets an empty _model
+    // and DataAnnotationsValidator flags Name as required. A private field
+    // is silently ignored by the form-binding pipeline. (See
+    // Components/Account/Pages/Login.razor for the same comment.)
+    [SupplyParameterFromForm] private MinModel _model { get; set; } = new();
+    private List<Person> _members = new();
+    private string? _message;
+    private bool _isError;
+    private bool _canSubmit;
+    // The signed-in user's id cached at OnInitializedAsync so Save() can
+    // forward it to OrganizationMinistryService.UpsertAsync without a
+    // fresh Auth call. Empty string (never null) keeps the gate from
+    // misclassifying an anonymous request as "admin".
+    private string _userId = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await Auth.GetAuthenticationStateAsync();
+        _userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
+        // Tightened from CanManageOrgAsync (Admin OR Coordinator) to
+        // IsOrgAdminAsync (Admin only). Ministry management is now an
+        // Admin-only action; Coordinators can still view ministries
+        // (via the org Detail page) but can't create/edit them.
+        _canSubmit = !string.IsNullOrEmpty(_userId)
+            && await OrgAuth.IsOrgAdminAsync(_userId, OrgId);
+        if (!_canSubmit)
+        {
+            _isError = true;
+            _message = "You don't have permission to manage ministries in this organization.";
+            return;
+        }
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _members = await db.OrganizationMemberships
+            .Where(m => m.OrganizationId == OrgId)
+            .Select(m => m.Person)
+            .OrderBy(p => p.LastName)
+            .ToListAsync();
+
+        if (_isNew) return;
+        var min = await db.Ministries
+            .FirstOrDefaultAsync(m => m.Id == Id!.Value && m.OrganizationId == OrgId);
+        if (min is null)
+        {
+            _isError = true;
+            _message = "Ministry not found.";
+            return;
+        }
+        _model = new MinModel
+        {
+            Name = min.Name,
+            Description = min.Description,
+            CoordinatorPersonUserId = min.CoordinatorPersonUserId,
+            CoordinatorEmail = min.CoordinatorEmail,
+            CoordinatorPhone = min.CoordinatorPhone,
+        };
+    }
+
+
+    private async Task Save()
+    {
+        if (!_canSubmit)
+        {
+            _isError = true;
+            _message = "You don't have permission to do that.";
+            return;
+        }
+
+        // Route through the service so the Admin-only gate lives in one
+        // place. The page still does its own IsOrgAdminAsync gate (defense
+        // in depth: hide the form), but Save re-validates against the
+        // service so a stale page render can't sneak a write through.
+        var result = await MinistryUpsert.UpsertAsync(
+            callerUserId: _userId,
+            organizationId: OrgId,
+            ministryId: Id,
+            name: _model.Name,
+            description: _model.Description,
+            coordinatorPersonUserId: _model.CoordinatorPersonUserId,
+            coordinatorEmail: _model.CoordinatorEmail,
+            coordinatorPhone: _model.CoordinatorPhone);
+
+        switch (result)
+        {
+            case MinistryUpsertResult.Saved:
+                Nav.NavigateTo(_isNew ? $"Organizations/{OrgId}" : $"Organizations/{OrgId}/Ministries/{Id}");
+                return;
+            case MinistryUpsertResult.NotFound:
+                _isError = true;
+                _message = "Ministry not found.";
+                return;
+            case MinistryUpsertResult.PermissionDenied:
+                _isError = true;
+                _message = "You don't have permission to manage ministries in this organization.";
+                return;
+        }
+    }
+
+    private class MinModel
+    {
+        [Required, StringLength(160)] public string Name { get; set; } = "";
+        [StringLength(2000)] public string? Description { get; set; }
+        public string? CoordinatorPersonUserId { get; set; }
+        [StringLength(120), EmailAddress] public string? CoordinatorEmail { get; set; }
+        [StringLength(40)] public string? CoordinatorPhone { get; set; }
+    }
+}

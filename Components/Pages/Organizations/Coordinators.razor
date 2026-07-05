@@ -1,0 +1,418 @@
+@page "/Organizations/{Id:int}/Coordinators"
+@attribute [Authorize]
+@rendermode InteractiveServer
+
+<PageTitle>Coordinators · @(_orgName ?? "Organization")</PageTitle>
+
+<h1>Coordinator dashboard</h1>
+<p class="text-muted">
+    Manage who coordinates every volunteer opportunity in
+    <strong>@(_orgName ?? "this organization")</strong>. Unassigned slots surface at the top so it's clear what still needs to be delegated. Permissions: Admin or Coordinator of this organization.
+    <a href="@($"Organizations/{Id}")">Back to organization</a>
+</p>
+
+@if (!_hasLoaded)
+{
+    <p><em>Loading…</em></p>
+}
+else if (_denied)
+{
+    <div class="alert alert-warning">
+        <h4>You don't have access to this dashboard</h4>
+        <p>Only an organization <strong>Admin</strong> or <strong>Coordinator</strong> can manage slot coordinators.</p>
+        <p><a href="@($"Organizations/{Id}")">Back to organization</a></p>
+    </div>
+}
+else if (_rows is null || _rows.Count == 0)
+{
+    <div class="alert alert-info">
+        <h5>No volunteer opportunities yet</h5>
+        <p>This organization has no service slots to coordinate. <a href="@($"Organizations/{Id}")">Add a slot via a ministry</a>.</p>
+    </div>
+}
+else
+{
+    @* Summary chips up top: how many slots have a coordinator, how
+       many don't, and how many are inactive. Click the "Unassigned"
+       chip to filter the table. *@
+    <div class="d-flex gap-2 flex-wrap mb-3">
+        <button class="btn btn-sm @(_filter == FilterKind.All ? "btn-primary" : "btn-outline-primary")"
+                @onclick="() => _filter = FilterKind.All">
+            All (@_rows.Count)
+        </button>
+        <button class="btn btn-sm @(_filter == FilterKind.Unassigned ? "btn-warning" : "btn-outline-warning")"
+                @onclick="() => _filter = FilterKind.Unassigned">
+            Unassigned (@_unassignedCount)
+        </button>
+        <button class="btn btn-sm @(_filter == FilterKind.Assigned ? "btn-success" : "btn-outline-success")"
+                @onclick="() => _filter = FilterKind.Assigned">
+            Assigned (@_assignedCount)
+        </button>
+        @if (_inactiveCount > 0)
+        {
+            <button class="btn btn-sm @(_filter == FilterKind.Inactive ? "btn-secondary" : "btn-outline-secondary")"
+                    @onclick="() => _filter = FilterKind.Inactive">
+                Inactive (@_inactiveCount)
+            </button>
+        }
+    </div>
+
+    @if (!string.IsNullOrEmpty(_lastMessage))
+    {
+        <div class="alert @(_lastIsError ? "alert-danger" : "alert-success") py-2 small mb-2">
+            @_lastMessage
+        </div>
+    }
+
+    <div class="table-responsive">
+        <table class="table align-middle">
+            <thead>
+                <tr>
+                    <th>Slot</th>
+                    <th>Ministry</th>
+                    <th>Coordinator</th>
+                    <th>Contact</th>
+                    <th class="text-end">Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var row in FilteredRows())
+                {
+                    var isEditing = _editingSlotId == row.SlotId;
+                    <tr class="@(!row.IsSlotActive ? "text-muted" : "")">
+                        <td>
+                            <a href="@($"Organizations/{Id}/Ministries/{row.MinistryId}/Roles/{row.SlotId}")"
+                               class="@(!row.IsSlotActive ? "link-secondary" : "")">
+                                @row.SlotName
+                            </a>
+                            @if (!row.IsSlotActive)
+                            {
+                                <span class="badge text-bg-secondary ms-1">inactive</span>
+                            }
+                        </td>
+                        <td>
+                            <a href="@($"Organizations/{Id}/Ministries/{row.MinistryId}")"
+                               class="@(!row.IsSlotActive ? "link-secondary" : "")">
+                                @row.MinistryName
+                            </a>
+                        </td>
+                        <td>
+                            @if (isEditing)
+                            {
+                                <select class="form-select form-select-sm"
+                                        @bind="_editCoordUserId"
+                                        @bind:after="OnCoordPicked">
+                                    <option value="">— none —</option>
+                                    @foreach (var p in _members)
+                                    {
+                                        <option value="@p.UserId">@p.DisplayName</option>
+                                    }
+                                </select>
+                            }
+                            else if (!string.IsNullOrEmpty(row.CoordinatorDisplayName))
+                            {
+                                <a href="@($"People/{row.CoordinatorUserId}")">@row.CoordinatorDisplayName</a>
+                            }
+                            else
+                            {
+                                <span class="badge text-bg-warning">Unassigned</span>
+                            }
+                        </td>
+                        <td class="small">
+                            @if (isEditing)
+                            {
+                                <input class="form-control form-control-sm mb-1"
+                                       placeholder="Email (optional)"
+                                       @bind="_editEmail" maxlength="120" />
+                                <input class="form-control form-control-sm"
+                                       placeholder="Phone (optional)"
+                                       @bind="_editPhone" maxlength="40" />
+                            }
+                            else
+                            {
+                                @if (!string.IsNullOrWhiteSpace(row.CoordinatorEmail))
+                                {
+                                    <div><span class="bi bi-envelope" aria-hidden="true"></span> <a href="mailto:@row.CoordinatorEmail">@row.CoordinatorEmail</a></div>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(row.CoordinatorPhone))
+                                {
+                                    <div><span class="bi bi-telephone" aria-hidden="true"></span> @row.CoordinatorPhone</div>
+                                }
+                            }
+                        </td>
+                        <td class="text-end">
+                            @if (isEditing)
+                            {
+                                <button class="btn btn-sm btn-primary me-1"
+                                        @onclick="() => SaveEditAsync(row)">Save</button>
+                                <button class="btn btn-sm btn-outline-secondary"
+                                        @onclick="CancelEdit">Cancel</button>
+                            }
+                            else if (_canManage)
+                            {
+                                <button class="btn btn-sm btn-outline-secondary me-1"
+                                        @onclick="() => BeginEdit(row)">Assign / edit</button>
+                                @if (!string.IsNullOrEmpty(row.CoordinatorUserId)
+                                    || !string.IsNullOrWhiteSpace(row.CoordinatorEmail)
+                                    || !string.IsNullOrWhiteSpace(row.CoordinatorPhone))
+                                {
+                                    <button class="btn btn-sm btn-outline-danger"
+                                            @onclick="() => UnassignAsync(row)">Unassign</button>
+                                }
+                            }
+                            else
+                            {
+                                <span class="text-muted small">view-only</span>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject ICoordinatorAssignmentsService CoordinatorSvc
+@inject IOrgAuthService OrgAuth
+@inject AuthenticationStateProvider Auth
+@code {
+    [Parameter] public int Id { get; set; }
+    // Cached org name so the page header reads sensibly before the
+    // coordinator list returns. Loaded once in OnInitializedAsync
+    // alongside the auth check.
+    private string? _orgName;
+    // Cache of sorted, filtered rows. Set by ReloadAsync; filtered
+    // on each render by the FilteredRows() helper.
+    private List<CoordinatorAssignmentRow>? _rows;
+    // Cached counts so the chip buttons render without re-walking
+    // the list every keystroke. Recomputed in ReloadAsync.
+    private int _unassignedCount;
+    private int _assignedCount;
+    private int _inactiveCount;
+    // Filter chip state. Persisted across reloads so the admin can
+    // keep the same lens while refreshing the data after a save.
+    private enum FilterKind { All, Unassigned, Assigned, Inactive }
+    private FilterKind _filter = FilterKind.Unassigned;  // default-on: "what needs attention?"
+    // Org members loaded once for the per-row assign picker. Same
+    // pool the ServiceSlot / Ministry Edit pages use.
+    private List<Person> _members = new();
+    // Cached signed-in user id for the per-row permission gate
+    // (matches the convention used across the rest of the app).
+    private string _userId = "";
+    // True iff the caller is Admin or Coordinator of this org.
+    // Drives both the page-level hide and the per-row Action
+    // affordances (Non-managers see a read-only table).
+    private bool _canManage;
+    // True when the caller is denied entirely — render the "you
+    // don't have access" panel instead of a silent empty list.
+    private bool _denied;
+    // Distinguishes "still waiting on the first query" from
+    // "loaded but no rows" so the renderer can show the right
+    // empty-state (see the @if cascade at the top of the markup).
+    private bool _hasLoaded;
+    // Shared alert state for Assign / Unassign / Save outcomes.
+    // Each handler clears it on entry; only the most recent
+    // outcome shows, matching the Org/Detail page convention.
+    private string? _lastMessage;
+    private bool _lastIsError;
+    // Inline-edit state: when non-null, the row with this SlotId
+    // is showing the assign picker + email/phone inputs. Reset to
+    // null on Save or Cancel. Single-row-at-a-time editing by
+    // design — simultaneous edits to two rows would discard the
+    // first row's typed-but-uncommitted values.
+    private int? _editingSlotId;
+    // Backing fields for the inline editor. Plain fields (not
+    // properties) so the @bind two-way update sticks; values are
+    // seeded from the row on BeginEdit and committed via SaveEditAsync.
+    private string? _editCoordUserId;
+    private string? _editEmail;
+    private string? _editPhone;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await Auth.GetAuthenticationStateAsync();
+        _userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
+
+        // Step 1: load the org + canonical-name + canManage flag in
+        // one open round-trip. If the org doesn't exist (stale URL),
+        // short-circuit with the "not found" panel — don't masquerade
+        // as a permission denial.
+        await using (var db = await DbFactory.CreateDbContextAsync())
+        {
+            var org = await db.Organizations.AsNoTracking()
+                .FirstOrDefaultAsync(o => o.Id == Id);
+            if (org is null)
+            {
+                _denied = true;
+                _hasLoaded = true;
+                return;
+            }
+            _orgName = org.Name;
+        }
+
+        // Step 2: gate on org-tier role. CanManageOrgAsync covers
+        // both Admin and Coordinator per the existing RBAC matrix;
+        // Volunteer-only members see a read-only dashboard (no
+        // Assign/Unassign buttons render, _canManage stays false).
+        _canManage = !string.IsNullOrEmpty(_userId)
+            && await OrgAuth.CanManageOrgAsync(_userId, Id);
+
+        // Step 3: load the org members list once — same pool the
+        // assign picker shows on every row. Empty when the org has
+        // no members yet (the picker renders just the "— none —"
+        // option, which is honest).
+        await using (var db = await DbFactory.CreateDbContextAsync())
+        {
+            _members = await db.OrganizationMemberships
+                .Where(m => m.OrganizationId == Id)
+                .Select(m => m.Person)
+                .OrderBy(p => p.LastName).ThenBy(p => p.FirstName)
+                .ToListAsync();
+        }
+
+        await ReloadAsync();
+        _hasLoaded = true;
+    }
+
+    private async Task ReloadAsync()
+    {
+        _rows = await CoordinatorSvc.ListAsync(Id);
+        if (_rows is null) { _unassignedCount = _assignedCount = _inactiveCount = 0; return; }
+        _unassignedCount = _rows.Count(r => string.IsNullOrEmpty(r.CoordinatorUserId)
+            && string.IsNullOrWhiteSpace(r.CoordinatorEmail)
+            && string.IsNullOrWhiteSpace(r.CoordinatorPhone));
+        _assignedCount = _rows.Count(r => !string.IsNullOrEmpty(r.CoordinatorUserId)
+            || !string.IsNullOrWhiteSpace(r.CoordinatorEmail)
+            || !string.IsNullOrWhiteSpace(r.CoordinatorPhone));
+        _inactiveCount = _rows.Count(r => !r.IsSlotActive);
+    }
+
+    // The chip filter is client-side; the service returns the full
+    // set and we narrow here. Cheap because the org's slot count is
+    // small (single-digit to low-hundreds) and EF serializes them
+    // once per ReloadAsync.
+    private IEnumerable<CoordinatorAssignmentRow> FilteredRows() => _rows switch
+    {
+        null => Enumerable.Empty<CoordinatorAssignmentRow>(),
+        var rows => _filter switch
+        {
+            FilterKind.Unassigned => rows.Where(r => string.IsNullOrEmpty(r.CoordinatorUserId)
+                && string.IsNullOrWhiteSpace(r.CoordinatorEmail)
+                && string.IsNullOrWhiteSpace(r.CoordinatorPhone)),
+            FilterKind.Assigned => rows.Where(r => !string.IsNullOrEmpty(r.CoordinatorUserId)
+                || !string.IsNullOrWhiteSpace(r.CoordinatorEmail)
+                || !string.IsNullOrWhiteSpace(r.CoordinatorPhone)),
+            FilterKind.Inactive => rows.Where(r => !r.IsSlotActive),
+            _ => rows,
+        },
+    };
+
+    private void BeginEdit(CoordinatorAssignmentRow row)
+    {
+        // Single-row editor: cancel any prior editor first so two
+        // rows don't both think they're saving.
+        _editingSlotId = row.SlotId;
+        _editCoordUserId = row.CoordinatorUserId ?? "";
+        _editEmail = row.CoordinatorEmail;
+        _editPhone = row.CoordinatorPhone;
+        _lastMessage = null;
+    }
+
+    private void CancelEdit()
+    {
+        _editingSlotId = null;
+        _editCoordUserId = null;
+        _editEmail = null;
+        _editPhone = null;
+    }
+
+    // When the user picks a coordinator from the dropdown, also
+    // seed the *phone* textbox from the Person row so the admin
+    // doesn't have to retype it for a known org member. Phone is
+    // intentionally the only auto-seeded field: the Person schema
+    // stores Phone (a common coordinator-contact field) but Email
+    // lives on the auth IdentityUser row, which the org-member
+    // pool doesn't eagerly-load. Even if it did, coordinators
+    // routinely prefer a personal/work alias that differs from
+    // their auth email — so the email field is left blank by
+    // design and admins type it. The ??= preserves any value
+    // already typed into the box so admin overrides survive a
+    // dropdown re-selection.
+    private void OnCoordPicked()
+    {
+        if (string.IsNullOrEmpty(_editCoordUserId))
+        {
+            _editEmail = null;
+            _editPhone = null;
+            return;
+        }
+        var p = _members.FirstOrDefault(x => x.UserId == _editCoordUserId);
+        if (p is not null) _editPhone ??= p.Phone;
+    }
+
+    private async Task SaveEditAsync(CoordinatorAssignmentRow row)
+    {
+        if (!_canManage || _editingSlotId != row.SlotId) return;
+        var result = await CoordinatorSvc.AssignAsync(
+            row.SlotId,
+            coordinatorUserId: _editCoordUserId,
+            coordinatorEmail: _editEmail,
+            coordinatorPhone: _editPhone,
+            callerUserId: _userId);
+        await ApplyResultAsync(result, slot: row);
+    }
+
+    private async Task UnassignAsync(CoordinatorAssignmentRow row)
+    {
+        if (!_canManage) return;
+        // Single-click destructive action — UI already shows the
+        // Unassign button only when something is assigned, but
+        // misclicks should still surface a confirmation-style
+        // explainer rather than silently zeroing the row.
+        if (!string.IsNullOrEmpty(row.CoordinatorUserId)
+            || !string.IsNullOrWhiteSpace(row.CoordinatorEmail)
+            || !string.IsNullOrWhiteSpace(row.CoordinatorPhone))
+        {
+            _lastIsError = false;
+            _lastMessage = $"Cleared coordinator from \"{row.SlotName}\".";
+        }
+        var result = await CoordinatorSvc.UnassignAsync(row.SlotId, _userId);
+        // The friendly cleared-coordinator message above is
+        // conditional — keep it only on Updated, otherwise the
+        // caller needs to see the real result.
+        await ApplyResultAsync(result, preferFriendlyOnUpdated: !string.IsNullOrEmpty(row.CoordinatorUserId), slot: row);
+    }
+
+    private async Task ApplyResultAsync(CoordinatorMutationResult result, bool preferFriendlyOnUpdated = false, CoordinatorAssignmentRow? slot = null)
+    {
+        switch (result)
+        {
+            case CoordinatorMutationResult.Updated:
+                _lastIsError = false;
+                if (preferFriendlyOnUpdated && slot is not null)
+                {
+                    _lastMessage = $"Cleared coordinator from \"{slot.SlotName}\".";
+                }
+                else if (slot is not null)
+                {
+                    _lastMessage = $"Updated coordinator for \"{slot.SlotName}\".";
+                }
+                _editingSlotId = null;
+                _editCoordUserId = null;
+                _editEmail = null;
+                _editPhone = null;
+                await ReloadAsync();
+                break;
+            case CoordinatorMutationResult.PermissionDenied:
+                _lastIsError = true;
+                _lastMessage = "You don't have administrator/coordinator rights for this organization.";
+                break;
+            case CoordinatorMutationResult.NotFound:
+                _lastIsError = true;
+                _lastMessage = "That slot isn't in this organization anymore. Refresh and try again.";
+                await ReloadAsync();
+                break;
+        }
+    }
+}

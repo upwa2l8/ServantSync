@@ -1,0 +1,291 @@
+@page "/MySchedule"
+@attribute [Authorize]
+@rendermode InteractiveServer
+
+<PageTitle>My schedule</PageTitle>
+
+<h1>My schedule</h1>
+
+@if (_loading)
+{
+    <p><em>Loading…</em></p>
+}
+else
+{
+    @* ---- Subscribe (.ics) link — works in Google / Apple / Outlook calendar ---- *@
+    <div class="d-flex justify-content-end align-items-center mb-2 gap-2">
+        @* "All" → 90-day substitution (see SubscribeUrl below). The user
+           picked "All" for the on-page view; the feed collapses to 90d
+           because external calendar clients can't ingest unbounded feeds.
+           Surface the substitution here so it isn't a silent discrepancy
+           between the on-page window and the subscribed feed window. *@
+        @if (_toUtc == DateTime.MaxValue || (_toUtc - _fromUtc).TotalDays > 360)
+        {
+            <span class="badge text-bg-warning"
+                  title="External calendar clients can't ingest unbounded feeds, so the subscribed feed is limited to 90 days; the on-page view above is unbounded.">
+                Feed: last 90 days
+            </span>
+        }
+        <a class="btn btn-sm btn-outline-secondary"
+           href="@SubscribeUrl" target="_blank"
+           title="@SubscribeTooltip">
+            \ud83d\udcc5 Subscribe (.ics)
+        </a>
+    </div>
+
+    @* ---- Scope + window + view controls ---- *@
+    <div class="row g-2 mb-3">
+        <div class="col-md-4">
+            <label class="form-label small text-muted">Scope</label>
+            <div class="btn-group btn-group-sm d-block" role="group" aria-label="Scope">
+                <button type="button" class="btn @(_scope == ScopeMode.Mine ? "btn-primary" : "btn-outline-primary")"
+                        @onclick="async () => { _scope = ScopeMode.Mine; await Reload(); }">
+                    My assignments
+                </button>
+                <button type="button" class="btn @(_scope == ScopeMode.Org ? "btn-primary" : "btn-outline-primary")"
+                        @onclick="async () => { _scope = ScopeMode.Org; await Reload(); }"
+                        disabled="@(_myOrgIds.Count == 0)"
+                        title="@(_myOrgIds.Count == 0 ? "You're not a member of any organization yet." : "Show every assignment in any of your organizations.")">
+                    All in my orgs (@_myOrgIds.Count)
+                </button>
+            </div>
+        </div>
+        <div class="col-md-5">
+            <DateRangeChips InitialMode="DateRangeChips.RangeMode.Next30"
+                            FromUtc="_fromUtc" ToUtc="_toUtc"
+                            OnRangeChanged="OnRangeChanged" />
+        </div>
+        <div class="col-md-3">
+            <label class="form-label small text-muted">View</label>
+            <div class="btn-group btn-group-sm d-block" role="group" aria-label="View">
+                <button type="button" class="btn @(_view == ViewMode.List ? "btn-primary" : "btn-outline-primary")"
+                        @onclick="() => _view = ViewMode.List">List</button>
+                <button type="button" class="btn @(_view == ViewMode.Calendar ? "btn-primary" : "btn-outline-primary")"
+                        @onclick="() => _view = ViewMode.Calendar">Calendar</button>
+            </div>
+        </div>
+    </div>
+
+    @if (_scope == ScopeMode.Org && _myOrgIds.Count > 0)
+    {
+        <div class="alert alert-info py-2 small">
+            Showing assignments for every member of @_myOrgIds.Count organization@(_myOrgIds.Count == 1 ? "" : "s")
+            you're part of. This helps you see what other volunteers are doing in case you need to swap.
+        </div>
+    }
+
+    @if (_view == ViewMode.Calendar)
+    {
+        @if (!_calendarEvents.Any())
+        {
+            <div class="alert alert-info">Nothing on the schedule in this window.</div>
+        }
+        else
+        {
+            <AssignmentCalendar Events="_calendarEvents" AnchorDate="_anchorDate"
+                                AnchorDateChanged="d => _anchorDate = d" />
+        }
+    }
+    else
+    {
+        <h4 class="mt-2">Upcoming assignments</h4>
+        @if (!_assignments.Any())
+        {
+            <div class="alert alert-info">
+                Nothing on the schedule. Find a <a href="Organizations">ministry</a> to volunteer with.
+            </div>
+        }
+        else
+        {
+            <table class="table">
+                <thead><tr>                            <th>When</th><th>Where</th><th>Slot</th><th>Status</th></tr></thead>
+                <tbody>
+                    @foreach (var a in _assignments)
+                    {
+                        <tr>                                        <td><LocalTime Utc="@a.StartUtc" /> – <LocalTime Utc="@a.EndUtc" /></td>
+                            <td>@(a.ServiceSlot.Location ?? a.ServiceSlot.Ministry.Name)</td>
+                            <td>@a.ServiceSlot.Ministry.Name · @a.ServiceSlot.Name</td>
+                            <td>
+                                <span class="badge bg-@AssignmentStatusUi.ColorFor(a.Status)">@a.Status</span>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    }
+
+    <h4 class="mt-4">Outstanding training</h4>
+    @if (!_outstanding.Any())
+    {
+        <div class="alert alert-success">All caught up.</div>
+    }
+    else
+    {
+        <ul class="list-group">
+            @foreach (var r in _outstanding)
+            {
+                <li class="list-group-item d-flex justify-content-between">
+                    <span>
+                        <a href="@($"Training/{r.TrainingContentId}")">@r.Title</a>
+                        <span class="badge bg-secondary ms-2">@r.Scope</span>
+                    </span>
+                </li>
+            }
+        </ul>
+    }
+}
+
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject IAssignmentService AssignmentService
+@inject ITrainingService TrainingService
+@inject AuthenticationStateProvider Auth
+@code {
+    private enum ViewMode { List, Calendar }
+    private enum ScopeMode { Mine, Org }
+
+    private bool _loading = true;
+    private ViewMode _view = ViewMode.List;
+    private ScopeMode _scope = ScopeMode.Mine;
+    private string? _userId;
+    private List<int> _myOrgIds = new();
+    private DateTime _fromUtc = DateTime.UtcNow;
+    private DateTime _toUtc = DateTime.UtcNow.AddDays(30);
+    private DateTime _anchorDate = new(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1);
+
+    private List<Assignment> _assignments = new();
+    private List<CalendarEvent> _calendarEvents = new();
+    private List<OutstandingRow> _outstanding = new();
+
+    private string SubscribeUrl
+    {
+        get
+        {
+            var scope = _scope == ScopeMode.Org ? "org" : "mine";
+            var days = Math.Clamp((int)Math.Round((_toUtc - _fromUtc).TotalDays), 1, 365);
+            // "All" range (365d, DateTime.MaxValue, or anything > 360d) is
+            // collapsed to 90 days for the feed. The visible chip is
+            // unchanged so the on-page view passes through to the chip
+            // control. The substitution is announced to the user via the
+            // "Feed: last 90 days" badge above and the SubscribeTooltip.
+            if (days >= 360) days = 90;
+            return $"/MySchedule/ics?scope={scope}&days={days}";
+        }
+    }
+
+    // Tooltip on the Subscribe button mirrors the badge so hover-only
+    // users (no tabs/keyboard) still see the substitution warning.
+    // Falls back to the default "Subscribe" tooltip when the feed
+    // window matches the on-page window.
+    private string SubscribeTooltip
+    {
+        get
+        {
+            var days = Math.Round((_toUtc - _fromUtc).TotalDays);
+            if (days >= 360)
+                return "Subscribe to see the NEXT 90 DAYS in Google / Apple / Outlook " +
+                       "(on-page view is unbounded; feeds are limited to 90 days because external clients can't ingest unlimited events).";
+            return "Subscribe in Google / Apple / Outlook to see this schedule in your personal calendar.";
+        }
+    }
+
+    protected override async Task OnParametersSetAsync() => await Reload();
+
+    private async Task OnRangeChanged((DateTime From, DateTime To) range)
+    {
+        _fromUtc = range.From;
+        _toUtc = range.To;
+        _anchorDate = _fromUtc.Year < 1900
+            ? new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1)
+            : new DateTime(_fromUtc.Year, _fromUtc.Month, 1);
+        await Reload();
+    }
+
+    private async Task Reload()
+    {
+        _loading = true;
+        try
+        {
+            var state = await Auth.GetAuthenticationStateAsync();
+            _userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            if (string.IsNullOrEmpty(_userId))
+            {
+                _assignments = new();
+                _calendarEvents = new();
+                _outstanding = new();
+                _myOrgIds = new();
+                return;
+            }
+
+            await using var db = await DbFactory.CreateDbContextAsync();
+
+            _myOrgIds = await db.OrganizationMemberships
+                .Where(m => m.PersonUserId == _userId)
+                .Select(m => m.OrganizationId)
+                .Distinct()
+                .ToListAsync();
+
+            IQueryable<Assignment> query = db.Assignments
+                .Include(a => a.Person)
+                .Include(a => a.ServiceSlot).ThenInclude(s => s.Ministry)
+                .Where(a => a.StartUtc >= _fromUtc
+                    && a.StartUtc < _toUtc
+                    && a.Status != AssignmentStatus.Cancelled);
+
+            query = _scope switch
+            {
+                ScopeMode.Mine => query.Where(a => a.PersonUserId == _userId),
+                ScopeMode.Org  => _myOrgIds.Count == 0
+                    ? query.Where(a => false)
+                    : query.Where(a => _myOrgIds.Contains(a.ServiceSlot.Ministry.OrganizationId)),
+                _              => query,
+            };
+
+            _assignments = await query
+                .OrderBy(a => a.StartUtc)
+                .AsNoTracking()
+                .ToListAsync();
+
+            _calendarEvents = _assignments.Select(a => new CalendarEvent
+            {
+                Id = a.Id,
+                StartUtc = a.StartUtc,
+                EndUtc = a.EndUtc,
+                Title = _scope == ScopeMode.Mine
+                    ? $"{a.ServiceSlot.Ministry.Name} · {a.ServiceSlot.Name}"
+                    : $"{a.Person.DisplayName} · {a.ServiceSlot.Name}",
+                Subtitle = a.ServiceSlot.Ministry.Name,
+                Location = a.ServiceSlot.Location,
+                Status = a.Status.ToString(),
+                StatusColor = AssignmentStatusUi.ColorFor(a.Status),
+                Href = $"Organizations/{a.ServiceSlot.Ministry.OrganizationId}/Ministries/{a.ServiceSlot.MinistryId}/Roles/{a.ServiceSlotId}",
+            }).ToList();
+
+            // Outstanding training: across the user's orgs + every slot
+            // they currently hold a non-cancelled assignment on. The
+            // service-side aggregate replaces the previous per-org
+            // foreach loop so the rule lives in one place; the slot
+            // scoping kicks in automatically here (a volunteer's
+            // "outstanding" list expands the moment they're scheduled
+            // into a slot that has its own training requirement).
+            var reqs = await TrainingService.FindMyOutstandingRequirementsAsync(_userId!);
+            _outstanding = reqs.Select(r => new OutstandingRow
+            {
+                TrainingContentId = r.TrainingContentId,
+                Title = r.TrainingContent.Title,
+                Scope = r.Scope,
+            }).ToList();
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private class OutstandingRow
+    {
+        public int TrainingContentId { get; set; }
+        public string Title { get; set; } = "";
+        public string Scope { get; set; } = "";
+    }
+}
