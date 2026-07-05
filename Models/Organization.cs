@@ -25,6 +25,28 @@ public class Organization
     [StringLength(40)]
     public string? ContactPhone { get; set; }
 
+    /// <summary>
+    /// Optional per-org IANA timezone id (e.g. "America/Chicago"). When set,
+    /// the organization has implicitly declared "all of my coordinators and
+    /// my service-slot times should be interpreted in this zone". Round-AV
+    /// uses this as the fallback for <c>LocalTime</c> rendering — after
+    /// <c>UserTimeZoneProvider</c> (browser-detected) fails to resolve the
+    /// user's clock, we shift to org-tz, then finally to server local.
+    /// Canonical consumer: <c>Components.Shared.LocalTime</c>'s
+    /// <c>FallbackTimeZoneId</c> parameter.
+    ///
+    /// Seeded <c>NULL</c>: legacy orgs continue to defer to the prerender
+    /// server-local fallback (the prior round-N behavior); admins set this
+    /// via the timezone picker on <c>Components/Pages/Organizations/Edit.razor</c>.
+    ///
+    /// Width: <c>StringLength(64)</c> is generous — the longest IANA zone in
+    /// the public tz database is currently <c>"America/Argentina/ComodRivadavia"</c>
+    /// at 41 chars, so 64 is a safe upper bound that future timezone
+    /// additions won't outgrow.
+    /// </summary>
+    [StringLength(64)]
+    public string? TimeZoneId { get; set; }
+
     public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
 
     /// <summary>
