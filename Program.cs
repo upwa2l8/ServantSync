@@ -76,6 +76,21 @@ builder.Services.ConfigureApplicationCookie(opts =>
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
+// DI-registered cascading authentication state. Routes.razor also wraps the
+// Router in <CascadingAuthenticationState> manually, but the markup-only
+// wrapper has a known .NET 9 quirk: during the prerender → interactive
+// rehydration of pages with `@rendermode InteractiveServer`, a fresh
+// <AuthorizeView> instantiation can miss the cascade and throw
+//   "Authorization requires a cascading parameter of type
+//    Task<AuthenticationState>. Consider using CascadingAuthenticationState
+//    to supply this."
+// The DI service injects the provider at a lower level than the markup
+// wrapper, so it survives the render-mode boundary transition and is the
+// canonical .NET 9 fix. Keeping the markup wrapper too — two layers of
+// cascade is harmless (closest-wins), and the markup one is the safety net
+// if a future contributor removes the DI call without realizing why.
+builder.Services.AddCascadingAuthenticationState();
+
 // Raise the SignalR message-size limit so the Blazor InputFile component
 // can stream files larger than the 32 KB default. 20 MB to give the
 // SlotDocumentService 10 MB cap real headroom — InputFile adds per-chunk
