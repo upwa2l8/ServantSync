@@ -23,6 +23,16 @@ public class CalendarEvent
     /// </summary>
     public int? ArenaId { get; set; }
 
+    /// <summary>
+    /// Round-FR-2.3b: true for events that originate from an in-person
+    /// training session (not a regular ServiceSlot assignment). The
+    /// AssignmentCalendar renders a small "training" badge on the pill
+    /// so training events don't visually compete with regular shifts.
+    /// Default false so callers that don't set it (the existing
+    /// Dashboard / MySchedule / Open callers) keep their current shape.
+    /// </summary>
+    public bool IsTraining { get; set; }
+
     /// <summary>Hover text: Title — HH:mm–HH:mm · Location. Safe to render as a Razor attribute value.</summary>
     public string Tooltip
     {

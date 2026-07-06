@@ -47,6 +47,21 @@
                         <a href="@ev.Href" class="calendar-pill badge bg-@ev.StatusColor text-decoration-none"
                            title="@ev.Tooltip">
                             <LocalTime Utc="@ev.StartUtc" Format="HH:mm" Class="calendar-pill-time" />@ev.Title
+                            @* Round-FR-2.3b: training-event badge so a
+                               training session doesn't visually compete
+                               with regular assignments on the same day.
+                               Renders as a small inline pill after the
+                               title; the link itself is unchanged.
+                               NOTE (round 2): no event source currently
+                               emits IsTraining=true — wired in a future
+                               round when the training-session feed is
+                               added to the call sites that populate
+                               `Events`. Until then this branch is
+                               intentionally unreachable. *@
+                            @if (ev.IsTraining)
+                            {
+                                <span class="badge bg-info ms-1" style="font-size: 0.6rem;">training</span>
+                            }
                         </a>
                     }
                     @if (cell.MoreCount > 0)
@@ -105,13 +120,24 @@
                         .Select(x => x.Ev)
                         .ToList();
                     <div class="week-cell">
-                        @foreach (var ev in hourEvents)
-                        {
-                            <a href="@ev.Href" class="calendar-pill badge bg-@ev.StatusColor text-decoration-none"
-                               title="@ev.Tooltip">
-                                <LocalTime Utc="@ev.StartUtc" Format="HH:mm" Class="calendar-pill-time" />@(ev.EndUtc.Hour > ev.StartUtc.Hour ? "→" : "")<LocalTime Utc="@ev.EndUtc" Format="HH:mm" />@ev.Title
-                            </a>
-                        }
+                    @foreach (var ev in hourEvents)
+                    {
+                        <a href="@ev.Href" class="calendar-pill badge bg-@ev.StatusColor text-decoration-none"
+                           title="@ev.Tooltip">
+                            <LocalTime Utc="@ev.StartUtc" Format="HH:mm" Class="calendar-pill-time" />@(ev.EndUtc.Hour > ev.StartUtc.Hour ? "→" : "")<LocalTime Utc="@ev.EndUtc" Format="HH:mm" />@ev.Title
+                            @* Round-FR-2.3b: training-event badge so
+                               a training session doesn't visually
+                               compete with regular assignments in the
+                               week-grid. Mirrors the month-view pill
+                               above. NOTE (round 2): same dead-code
+                               warning as the month view — no event
+                               source emits IsTraining=true yet. *@
+                            @if (ev.IsTraining)
+                            {
+                                <span class="badge bg-info ms-1" style="font-size: 0.6rem;">training</span>
+                            }
+                        </a>
+                    }
                     </div>
                 }
             }

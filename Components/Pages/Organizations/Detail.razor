@@ -374,6 +374,19 @@ else
             {
                 <h6>Org-wide training required for every volunteer</h6>
                 <OrgTrainingEditor OrganizationId="Id" />
+                @* Round-FR-2.3 entry point: a sibling link to the
+                   in-person scheduled sessions list for THIS org. The
+                   OrgTrainingEditor governs required content; the
+                   sessions list governs actual scheduled events. Two
+                   distinct concerns, both belong on this tab. The
+                   same _isOrgManager gate hides the link for
+                   non-managers; the destination page re-checks
+                   CanManageOrgAsync server-side. *@
+                <hr class="my-3" />
+                <a class="btn btn-outline-primary"
+                   href="@($"Organizations/{Id}/Training/Sessions")">
+                    In-person training sessions →
+                </a>
             }
         </div>
     }

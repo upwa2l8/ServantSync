@@ -1,0 +1,194 @@
+@page "/Organizations/{OrgId:int}/Training/Sessions"
+@attribute [Authorize]
+@rendermode InteractiveServer
+
+<PageTitle>In-person training sessions</PageTitle>
+
+@if (_loading)
+{
+    <p><em>Loading…</em></p>
+}
+else if (_org is null)
+{
+    <div class="alert alert-warning mt-3">
+        <h4>Organization not found</h4>
+        <p>No organization matches id <code>@OrgId</code>. Try the <a href="Organizations">organization list</a>.</p>
+    </div>
+}
+else
+{
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+            <h1 class="mb-0">In-person training sessions</h1>
+            <div class="text-muted small">
+                Scheduled in-person training events for <strong>@_org.Name</strong>.
+                Volunteers can sign up; coordinators/admins can create + mark attendance.
+            </div>
+        </div>
+        @* Coord/Admin-only. The CreateAsync service call re-gates on the
+           same check (defense in depth) but hiding the button avoids a
+           403-on-submit UX for a plain volunteer who lands here. *@
+        @if (_canManage)
+        {
+            <a class="btn btn-primary" href="@($"Organizations/{OrgId}/Training/Sessions/New")">+ New session</a>
+        }
+    </div>
+
+    @* Tab strip: Upcoming (next 60 days, Scheduled only) vs Past
+       (Completed/Cancelled or end-time-passed). Matches the
+       TrainingSessionService split exactly. *@
+    <ul class="nav nav-tabs" role="tablist">
+        <li class="nav-item">
+            <button class="nav-link @(Tab == "upcoming" ? "active" : "")" @onclick='() => Tab = "upcoming"'>
+                Upcoming <span class="badge bg-secondary ms-1">@_upcoming.Count</span>
+            </button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link @(Tab == "past" ? "active" : "")" @onclick='() => Tab = "past"'>
+                Past <span class="badge bg-secondary ms-1">@_past.Count</span>
+            </button>
+        </li>
+    </ul>
+
+    <div class="mt-3">
+        @if (Tab == "upcoming")
+        {
+            @if (!_upcoming.Any())
+            {
+                <div class="alert alert-info">
+                    No upcoming sessions. @if (_canManage)
+                    {
+                        <span><a href="@($"Organizations/{OrgId}/Training/Sessions/New")">Schedule one</a>.</span>
+                    }
+                </div>
+            }
+            else
+            {
+                // Positional args — keep in sync with the RenderFragment
+                // signature in @code (sessions, canManage, orgId).
+                @SessionListTable(_upcoming, _canManage, OrgId)
+            }
+        }
+        else
+        {
+            @if (!_past.Any())
+            {
+                <div class="alert alert-info">No past sessions yet.</div>
+            }
+            else
+            {
+                // Positional args — keep in sync with the RenderFragment
+                // signature in @code (sessions, canManage, orgId).
+                @SessionListTable(_past, _canManage, OrgId)
+            }
+        }
+    </div>
+}
+
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject AuthenticationStateProvider Auth
+@inject IOrgAuthService OrgAuth
+@inject ITrainingSessionService SessionService
+@code {
+    [Parameter] public int OrgId { get; set; }
+    private Organization? _org;
+    private List<TrainingSession> _upcoming = new();
+    private List<TrainingSession> _past = new();
+    private bool _canManage;
+    private bool _loading = true;
+    private string Tab { get; set; } = "upcoming";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await Auth.GetAuthenticationStateAsync();
+        var userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _org = await db.Organizations.FirstOrDefaultAsync(o => o.Id == OrgId);
+        if (_org is null || string.IsNullOrEmpty(userId))
+        {
+            _loading = false;
+            return;
+        }
+        _canManage = await OrgAuth.CanManageOrgAsync(userId, OrgId);
+        _upcoming = await SessionService.ListUpcomingAsync(OrgId);
+        // 1-year lookback for the Past tab covers the realistic
+        // window coordinators care about (longer backlogs land in
+        // exported reports, not this page).
+        _past = await SessionService.ListPastAsync(OrgId, DateTime.UtcNow.AddYears(-1));
+        _loading = false;
+    }
+
+    /// <summary>
+    /// Shared table for upcoming + past sessions. Extracted so the two
+    /// tab branches in the parent markup don't repeat the row layout.
+    /// </summary>
+    private RenderFragment SessionListTable(List<TrainingSession> sessions, bool canManage, int orgId) => __builder =>
+    {
+        <div class="table-responsive">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>When</th>
+                        <th>Title</th>
+                        <th>Location</th>
+                        <th>Training</th>
+                        <th>Status</th>
+                        <th>Roster</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var s in sessions)
+                    {
+                        <tr>
+                            <td>
+                                <LocalTime Utc="@s.StartUtc" />
+                                <div class="text-muted small">to <LocalTime Utc="@s.EndUtc" Format="HH:mm" /></div>
+                            </td>
+                            <td>
+                                <a href="@($"Organizations/{orgId}/Training/Sessions/{s.Id}")">
+                                    <strong>@s.Title</strong>
+                                </a>
+                                @if (!string.IsNullOrEmpty(s.Description))
+                                {
+                                    <div class="text-muted small">@s.Description</div>
+                                }
+                            </td>
+                            <td>@s.Location</td>
+                            <td>
+                                @if (s.TrainingContent is not null)
+                                {
+                                    <a href="@($"Training/{s.TrainingContent.Id}")">@s.TrainingContent.Title</a>
+                                }
+                                else
+                                {
+                                    <span class="text-muted small">General orientation</span>
+                                }
+                            </td>
+                            <td>
+                                <span class="badge @StatusClass(s.Status)">@s.Status</span>
+                            </td>
+                            <td>
+                                <span class="text-muted small">@s.Attendees.Count attendee@(s.Attendees.Count == 1 ? "" : "s")</span>
+                            </td>
+                            <td class="text-end">
+                                @if (canManage && s.Status == TrainingSessionStatus.Scheduled)
+                                {
+                                    <a class="btn btn-sm btn-outline-secondary" href="@($"Organizations/{orgId}/Training/Sessions/{s.Id}/Edit")">Edit</a>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    };
+
+    private static string StatusClass(TrainingSessionStatus status) => status switch
+    {
+        TrainingSessionStatus.Scheduled => "bg-primary",
+        TrainingSessionStatus.Completed => "bg-success",
+        TrainingSessionStatus.Cancelled => "bg-secondary",
+        _ => "bg-secondary",
+    };
+}

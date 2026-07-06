@@ -1,0 +1,267 @@
+@page "/Organizations/{OrgId:int}/Training/Sessions/{Id:int}/Edit"
+@attribute [Authorize]
+@rendermode InteractiveServer
+
+<PageTitle>Edit training session</PageTitle>
+
+<h1>Edit training session</h1>
+<StatusMessage Message="@_message" IsError="@_isError" />
+
+@if (!_authChecked)
+{
+    <p class="text-muted">Loading permissions…</p>
+}
+
+<EditForm Model="_model" OnValidSubmit="Save" FormName="training-session-edit">
+    @* Same form-mount discipline as New.razor and Training/Edit.razor. *@
+    <DataAnnotationsValidator />
+    <ValidationSummary />
+    <fieldset disabled="@(!_authChecked || !_canSubmit)">
+
+        <div class="form-floating mb-3">
+            <InputText id="title" class="form-control" @bind-Value="_model.Title" />
+            <label for="title">Title</label>
+        </div>
+
+        <div class="form-floating mb-3">
+            <InputTextArea id="desc" class="form-control" style="height: 5rem" @bind-Value="_model.Description" />
+            <label for="desc">Description (optional)</label>
+        </div>
+
+        <div class="form-floating mb-3">
+            <InputText id="location" class="form-control" @bind-Value="_model.Location" />
+            <label for="location">Location</label>
+        </div>
+
+        <div class="row g-2 mb-3">
+            <div class="col-md-4">
+                <label class="form-label">Start (your local time)</label>
+                <input type="datetime-local" class="form-control" @bind="_model.StartLocal" @bind:format="yyyy-MM-ddTHH:mm" />
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">End (your local time)</label>
+                <input type="datetime-local" class="form-control" @bind="_model.EndLocal" @bind:format="yyyy-MM-ddTHH:mm" />
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Max attendees (optional)</label>
+                <input type="number" min="1" class="form-control" @bind="_model.MaxAttendees" />
+            </div>
+        </div>
+
+        <div class="form-floating mb-3">
+            <select class="form-select" @bind="_model.TrainingContentId">
+                <option value="">— General orientation (no specific training) —</option>
+                @foreach (var c in _orgTraining)
+                {
+                    <option value="@c.Id">@c.Title</option>
+                }
+            </select>
+            <label>Linked training content (optional)</label>
+        </div>
+
+        <div class="mt-3 d-flex justify-content-between align-items-center">
+            <div>
+                <button class="btn btn-primary" type="submit">Save changes</button>
+                <a class="btn btn-outline-secondary ms-2" href="@($"Organizations/{OrgId}/Training/Sessions/{Id}")">Cancel</a>
+            </div>
+            @* Cancel-session: separate from "Cancel the edit form" so the
+               intent is unambiguous. The ConfirmDialog pre-empts the
+               destructive click; same pattern as ServiceSlots/Detail.razor. *@
+            @if (_canSubmit && _status == TrainingSessionStatus.Scheduled)
+            {
+                <button class="btn btn-outline-danger" type="button" @onclick="() => _confirmingCancel = true">
+                    Cancel session
+                </button>
+            }
+        </div>
+    </fieldset>
+</EditForm>
+
+<ConfirmDialog Visible="_confirmingCancel"
+               Title="Cancel this session?"
+               ConfirmText="Yes, cancel"
+               CancelText="Keep session"
+               ConfirmButtonClass="btn-danger"
+               Busy="@_busy"
+               OnConfirm="PerformCancel"
+               OnCancel="() => _confirmingCancel = false">
+    <p>This marks the session as <strong>Cancelled</strong>. Volunteer sign-ups are blocked; coordinator edits and attendance marks are also blocked. Audit-trail attendees stay on the roster (mark attendance post-cancellation for late arrivals).</p>
+    @if (_session is not null)
+    {
+        <p class="mb-0"><strong>@_session.Title</strong> — <LocalTime Utc="@_session.StartUtc" /></p>
+    }
+</ConfirmDialog>
+
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject ITrainingSessionService SessionService
+@inject ITrainingService TrainingService
+@inject AuthenticationStateProvider Auth
+@inject IOrgAuthService OrgAuth
+@inject NavigationManager Nav
+@code {
+    [Parameter] public int OrgId { get; set; }
+    [Parameter] public int Id { get; set; }
+    [SupplyParameterFromForm] private SessionModel _model { get; set; } = new();
+    private string? _message;
+    private bool _isError;
+    private bool _canSubmit;
+    private bool _authChecked;
+    private bool _busy;
+    private bool _confirmingCancel;
+    private TrainingSession? _session;
+    private TrainingSessionStatus _status;
+    private List<ContentOption> _orgTraining = new();
+    private string _userId = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await Auth.GetAuthenticationStateAsync();
+        _userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
+        if (string.IsNullOrEmpty(_userId))
+        {
+            _isError = true;
+            _message = "Sign in to edit a training session.";
+            _authChecked = true;
+            return;
+        }
+        _canSubmit = await OrgAuth.CanManageOrgAsync(_userId, OrgId);
+        if (!_canSubmit)
+        {
+            _isError = true;
+            _message = "Only coordinators or admins of this organization can edit training sessions.";
+            _authChecked = true;
+            return;
+        }
+        _session = await SessionService.GetAsync(Id);
+        if (_session is null || _session.OrganizationId != OrgId)
+        {
+            _isError = true;
+            _message = "Session not found.";
+            _canSubmit = false;
+            _authChecked = true;
+            return;
+        }
+        _status = _session.Status;
+        if (_status != TrainingSessionStatus.Scheduled)
+        {
+            // Completed/Cancelled sessions are audit-trail artifacts; the
+            // service refuses to edit them with AlreadyCompleted /
+            // AlreadyCancelled. Surface the same message up front so the
+            // user doesn't get a confusing EditAsync round-trip failure.
+            _isError = true;
+            _message = $"This session is {_status} and can't be edited.";
+            _canSubmit = false;
+            _authChecked = true;
+            return;
+        }
+        // Seed the form with the persisted values. UTC → local so the
+        // datetime-local input shows the wall-clock the user expects.
+        _model = new SessionModel
+        {
+            Title = _session.Title,
+            Description = _session.Description,
+            Location = _session.Location,
+            StartLocal = _session.StartUtc.ToLocalTime(),
+            EndLocal = _session.EndUtc.ToLocalTime(),
+            MaxAttendees = _session.MaxAttendees,
+            TrainingContentId = _session.TrainingContentId?.ToString(),
+        };
+        _orgTraining = (await TrainingService.ListOrgTrainingAsync(OrgId))
+            .Select(c => new ContentOption { Id = c.Id, Title = c.Title })
+            .ToList();
+        _authChecked = true;
+    }
+
+    private async Task Save()
+    {
+        if (!_canSubmit) return;
+        var startUtc = _model.StartLocal.ToUniversalTime();
+        var endUtc = _model.EndLocal.ToUniversalTime();
+        int? contentId = string.IsNullOrEmpty(_model.TrainingContentId) ? null : int.Parse(_model.TrainingContentId);
+
+        var result = await SessionService.EditAsync(
+            Id, _model.Title,
+            string.IsNullOrWhiteSpace(_model.Description) ? null : _model.Description,
+            _model.Location, startUtc, endUtc, _model.MaxAttendees,
+            contentId, _userId);
+
+        switch (result)
+        {
+            case TrainingSessionMutationResult.Succeeded:
+                Nav.NavigateTo($"Organizations/{OrgId}/Training/Sessions/{Id}");
+                break;
+            case TrainingSessionMutationResult.ValidationFailed:
+                _isError = true;
+                _message = "Please check the inputs: title and location are required, end must be after start, max attendees must be positive, and shrinking capacity below the current roster isn't allowed.";
+                break;
+            case TrainingSessionMutationResult.AlreadyCancelled:
+            case TrainingSessionMutationResult.AlreadyCompleted:
+                _isError = true;
+                _message = "This session is no longer editable.";
+                break;
+            case TrainingSessionMutationResult.PermissionDenied:
+                _isError = true;
+                _message = "You don't have permission to do that.";
+                break;
+            case TrainingSessionMutationResult.NotFound:
+                // Session was deleted (or moved to a different org)
+                // between OnInitializedAsync and Save(). The
+                // OnInitialized gate normally catches this, but a
+                // concurrent delete by another admin could race in.
+                _isError = true;
+                _message = "This session no longer exists. It may have been deleted.";
+                break;
+        }
+    }
+
+    private async Task PerformCancel()
+    {
+        _busy = true;
+        try
+        {
+            var result = await SessionService.CancelAsync(Id, _userId);
+            switch (result)
+            {
+                case TrainingSessionMutationResult.Succeeded:
+                    _confirmingCancel = false;
+                    Nav.NavigateTo($"Organizations/{OrgId}/Training/Sessions/{Id}");
+                    break;
+                case TrainingSessionMutationResult.AlreadyCompleted:
+                    _isError = true;
+                    _message = "This session was already completed.";
+                    _confirmingCancel = false;
+                    break;
+                case TrainingSessionMutationResult.AlreadyCancelled:
+                    _confirmingCancel = false;
+                    Nav.NavigateTo($"Organizations/{OrgId}/Training/Sessions/{Id}");
+                    break;
+                case TrainingSessionMutationResult.PermissionDenied:
+                    _isError = true;
+                    _message = "You don't have permission to do that.";
+                    _confirmingCancel = false;
+                    break;
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private class ContentOption
+    {
+        public int Id { get; set; }
+        public string Title { get; set; } = "";
+    }
+
+    private class SessionModel
+    {
+        [Required, StringLength(200)] public string Title { get; set; } = "";
+        [StringLength(2000)] public string? Description { get; set; }
+        [Required, StringLength(200)] public string Location { get; set; } = "";
+        public DateTime StartLocal { get; set; }
+        public DateTime EndLocal { get; set; }
+        public int? MaxAttendees { get; set; }
+        public string? TrainingContentId { get; set; }
+    }
+}

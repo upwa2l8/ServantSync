@@ -178,6 +178,62 @@ else
             }
         </div>
     }
+
+    @* Round-FR-2.3c: coord/admin "Mark as completed by a coordinator"
+       affordance. Calls ITrainingService.MarkSingleCompleteAsync
+       (FR-2.2 service) which writes a TrainingCompletion row with
+       CompletionSource=CoordinatorManualSingle + MarkedCompleteByUserId
+       + ManualCompletionNotes (the audit-trail triple). Bypasses the
+       engagement-eligibility gate entirely (decision Q6) — the marker
+       is asserting out-of-band competence. Notes REQUIRED (decision
+       Q5). The form posts to a per-volunteer picker so a coord can
+       mark any org member, not just themselves. Only rendered for
+       Admin/Coordinator of the content's org (the service re-gates
+       server-side). *@
+    @if (_canMarkManually)
+    {
+        <div class="card mt-4 border-warning-subtle">
+            <div class="card-header"><h6 class="mb-0">Mark as completed by a coordinator</h6></div>
+            <div class="card-body">
+                <p class="text-muted small mb-2">
+                    For cases where a volunteer has demonstrated competence outside the
+                    online flow (in-person walkthrough, prior-experience waiver, etc.).
+                    Requires a non-empty note so the audit trail distinguishes this from
+                    a self-paced online completion.
+                </p>
+                <div class="row g-2 align-items-end">
+                    <div class="col-md-5">
+                        <label class="form-label small text-muted">Volunteer (org member)</label>
+                        <select class="form-select" @bind="_manualUserId">
+                            <option value="">— pick a volunteer —</option>
+                            @foreach (var m in _orgMembersForManual)
+                            {
+                                <option value="@m.UserId">@m.DisplayName</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-5">
+                        <label class="form-label small text-muted">Note (required)</label>
+                        <input class="form-control" @bind="_manualNote" placeholder="e.g. walked through the safety checklist in person on 2026-07-06" />
+                    </div>
+                    <div class="col-md-2">
+                        <button class="btn btn-warning w-100" @onclick="MarkManuallyAsync"
+                                disabled="@(!CanMarkManually)">
+                            @(_savingManual ? "Saving…" : "Mark complete")
+                        </button>
+                    </div>
+                </div>
+                @if (_manualError is not null)
+                {
+                    <div class="alert alert-danger py-2 small mt-2 mb-0">@_manualError</div>
+                }
+                @if (_manualResult is not null)
+                {
+                    <div class="alert alert-success py-2 small mt-2 mb-0">@_manualResult</div>
+                }
+            </div>
+        </div>
+    }
 }
 
 @inject IDbContextFactory<ApplicationDbContext> DbFactory
@@ -186,6 +242,7 @@ else
 @inject AuthenticationStateProvider Auth
 @inject NavigationManager Nav
 @inject IPdfPageCountHealer PdfHealer
+@inject IOrgAuthService OrgAuth
 @implements IAsyncDisposable
 @code {
     [Parameter] public int Id { get; set; }
@@ -364,6 +421,22 @@ else
                     await TrainingService.SyncActivityAsync(userId, Id, new TrainingActivitySync());
                     _eligibility = await TrainingService.CheckEligibilityAsync(userId, Id);
                 }
+
+                // Round-FR-2.3c: compute the manual-mark affordance's
+                // visibility + preload the org-members picker. Same
+                // gate as TrainingSessionService.MarkAttendeesCompleteAsync
+                // (Admin or Coordinator of the content's org). The
+                // service re-gates server-side; the load is just the
+                // dropdown options.
+                _canMarkManually = await OrgAuth.CanManageOrgAsync(userId, _content.OrganizationId);
+                if (_canMarkManually)
+                {
+                    _orgMembersForManual = await db.People
+                        .Where(p => p.Memberships.Any(m => m.OrganizationId == _content.OrganizationId))
+                        .OrderBy(p => p.LastName).ThenBy(p => p.FirstName)
+                        .AsNoTracking()
+                        .ToListAsync();
+                }
             }
         }
     }
@@ -496,5 +569,83 @@ else
     {
         _dotNetRef?.Dispose();
         _dotNetRef = null;
+    }
+
+    // ─── Round-FR-2.3c: admin "Mark as completed by a coordinator" ───
+    // Bypasses the engagement-eligibility gate via the FR-2.2
+    // service's MarkSingleCompleteAsync — the marker asserts
+    // out-of-band competence (decision Q6). Notes REQUIRED (decision
+    // Q5). The picker lists every org member of the content's
+    // owning org so a coord can mark any of them, not just
+    // themselves. The completed completion row carries the
+    // audit-trail source (CoordinatorManualSingle) + the marker's
+    // user id + the note.
+
+    private bool _canMarkManually;
+    private string _manualUserId = "";
+    private string _manualNote = "";
+    private string? _manualError;
+    private string? _manualResult;
+    private bool _savingManual;
+    private List<Person> _orgMembersForManual = new();
+
+    private bool CanMarkManually =>
+        !_savingManual
+        && !string.IsNullOrEmpty(_manualUserId)
+        && !string.IsNullOrWhiteSpace(_manualNote)
+        && _content is not null;
+
+    private async Task MarkManuallyAsync()
+    {
+        if (_content is null || !CanMarkManually) return;
+        _savingManual = true;
+        _manualError = null;
+        _manualResult = null;
+        try
+        {
+            var markerId = await CurrentUserId() ?? "";
+            if (string.IsNullOrEmpty(markerId))
+            {
+                _manualError = "Couldn't determine the current user.";
+                return;
+            }
+            var result = await TrainingService.MarkSingleCompleteAsync(
+                _content.Id, _manualUserId, markerId, _manualNote);
+            switch (result)
+            {
+                case TrainingCompletionResult.ManualMarkRecorded:
+                    _manualResult = "Marked complete. The completion row carries the audit-trail source (CoordinatorManualSingle) and your note.";
+                    _manualUserId = "";
+                    _manualNote = "";
+                    break;
+                case TrainingCompletionResult.ManualMarkNotesRequired:
+                    _manualError = "A non-empty note is required.";
+                    break;
+                case TrainingCompletionResult.ManualMarkPermissionDenied:
+                    _manualError = "You don't have permission to mark completion for this org.";
+                    break;
+                case TrainingCompletionResult.NotInOrg:
+                    _manualError = "That volunteer isn't a member of this training's organization.";
+                    break;
+                case TrainingCompletionResult.ContentNotFound:
+                    _manualError = "This training is no longer available.";
+                    break;
+                case TrainingCompletionResult.InsufficientEngagement:
+                    // Service can't return this for the manual path
+                    // (the gate is bypassed) but the enum is shared —
+                    // surface a friendly fallback in case the contract
+                    // ever changes.
+                    _manualError = "Unexpected engagement-gate result. Contact an admin.";
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            _manualError = ex.Message;
+        }
+        finally
+        {
+            _savingManual = false;
+        }
     }
 }

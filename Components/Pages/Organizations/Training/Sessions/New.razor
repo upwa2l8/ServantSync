@@ -1,0 +1,218 @@
+@page "/Organizations/{OrgId:int}/Training/Sessions/New"
+@attribute [Authorize]
+@rendermode InteractiveServer
+
+<PageTitle>New training session</PageTitle>
+
+<h1>New training session</h1>
+<StatusMessage Message="@_message" IsError="@_isError" />
+
+@if (!_authChecked)
+{
+    <p class="text-muted">Loading permissions…</p>
+}
+
+<EditForm Model="_model" OnValidSubmit="Save" FormName="training-session-new">
+    @* Same form-mount discipline as Training/Edit.razor (round-AF):
+       FormName restored, EditForm is always-mounted, internal
+       <fieldset disabled> gates on _canSubmit. The @if (!_authChecked)
+       sentinel above shows the loading state until the
+       OnInitializedAsync terminal; once _authChecked flips, the
+       fieldset enables (or stays disabled) in a single re-render. *@
+    <DataAnnotationsValidator />
+    <ValidationSummary />
+    <fieldset disabled="@(!_authChecked || !_canSubmit)">
+
+        <div class="row g-2 mb-3">
+            <div class="col-md-8">
+                <div class="form-floating">
+                    <InputText id="title" class="form-control" @bind-Value="_model.Title" />
+                    <label for="title">Title</label>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Status</label>
+                <div class="form-control-plaintext">
+                    <span class="badge bg-primary">Scheduled</span>
+                    <span class="text-muted small ms-2">(created as Scheduled)</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="form-floating mb-3">
+            <InputTextArea id="desc" class="form-control" style="height: 5rem" @bind-Value="_model.Description" />
+            <label for="desc">Description (optional)</label>
+        </div>
+
+        <div class="form-floating mb-3">
+            <InputText id="location" class="form-control" @bind-Value="_model.Location" />
+            <label for="location">Location</label>
+        </div>
+
+        <div class="row g-2 mb-3">
+            <div class="col-md-4">
+                <label class="form-label">Start (your local time)</label>
+                <input type="datetime-local" class="form-control" @bind="_model.StartLocal" @bind:format="yyyy-MM-ddTHH:mm" />
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">End (your local time)</label>
+                <input type="datetime-local" class="form-control" @bind="_model.EndLocal" @bind:format="yyyy-MM-ddTHH:mm" />
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Max attendees (optional)</label>
+                <input type="number" min="1" class="form-control" @bind="_model.MaxAttendees" />
+                <div class="form-text">Leave blank for no capacity limit.</div>
+            </div>
+        </div>
+
+        <div class="form-floating mb-3">
+            <select class="form-select" @bind="_model.TrainingContentId">
+                <option value="">— General orientation (no specific training) —</option>
+                @foreach (var c in _orgTraining)
+                {
+                    <option value="@c.Id">@c.Title</option>
+                }
+            </select>
+            <label>Linked training content (optional)</label>
+            <div class="form-text">If set, marking attendance also writes a TrainingCompletion for the linked content.</div>
+        </div>
+
+        <div class="mt-3">
+            <button class="btn btn-primary" type="submit">Create session</button>
+            <a class="btn btn-outline-secondary ms-2" href="@($"Organizations/{OrgId}/Training/Sessions")">Cancel</a>
+        </div>
+    </fieldset>
+</EditForm>
+
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject ITrainingSessionService SessionService
+@inject ITrainingService TrainingService
+@inject AuthenticationStateProvider Auth
+@inject IOrgAuthService OrgAuth
+@inject NavigationManager Nav
+@code {
+    [Parameter] public int OrgId { get; set; }
+    [SupplyParameterFromForm] private SessionModel _model { get; set; } = new();
+    private string? _message;
+    private bool _isError;
+    private bool _canSubmit;
+    private bool _authChecked;
+    private List<ContentOption> _orgTraining = new();
+    private string _userId = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await Auth.GetAuthenticationStateAsync();
+        _userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
+        if (string.IsNullOrEmpty(_userId))
+        {
+            _isError = true;
+            _message = "Sign in to create a training session.";
+            _authChecked = true;
+            return;
+        }
+        // Coord/Admin of THIS org. Same gate TrainingSessionService
+        // .CreateAsync re-applies server-side.
+        _canSubmit = await OrgAuth.CanManageOrgAsync(_userId, OrgId);
+        if (!_canSubmit)
+        {
+            _isError = true;
+            _message = "Only coordinators or admins of this organization can create training sessions.";
+            _authChecked = true;
+            return;
+        }
+        // Linked-content dropdown: only show the org's own catalog.
+        // ITrainingService.ListOrgTrainingAsync enforces the per-org
+        // scope server-side; we get a flat list to render in the
+        // <select> without N+1.
+        _orgTraining = (await TrainingService.ListOrgTrainingAsync(OrgId))
+            .Select(c => new ContentOption { Id = c.Id, Title = c.Title })
+            .ToList();
+        _authChecked = true;
+    }
+
+    private async Task Save()
+    {
+        if (!_canSubmit)
+        {
+            _isError = true;
+            _message = "You don't have permission to do that.";
+            return;
+        }
+        // Convert the local datetime inputs to UTC. The browser-timezone
+        // is best-effort (the input doesn't carry a TZ); the server's
+        // DateTime.ToUniversalTime() assumes the LOCAL frame the user
+        // typed in matches the user's actual frame, which is the
+        // same heuristic every other Create form on this app uses.
+        var startUtc = _model.StartLocal.ToUniversalTime();
+        var endUtc = _model.EndLocal.ToUniversalTime();
+        int? contentId = string.IsNullOrEmpty(_model.TrainingContentId) ? null : int.Parse(_model.TrainingContentId);
+
+        var result = await SessionService.CreateAsync(
+            organizationId: OrgId,
+            title: _model.Title,
+            description: string.IsNullOrWhiteSpace(_model.Description) ? null : _model.Description,
+            location: _model.Location,
+            startUtc: startUtc,
+            endUtc: endUtc,
+            maxAttendees: _model.MaxAttendees,
+            trainingContentId: contentId,
+            callerUserId: _userId);
+
+        switch (result)
+        {
+            case TrainingSessionMutationResult.Succeeded:
+                // Reload to get the assigned id; in practice the service
+                // already persisted it but the method signature doesn't
+                // return the new id. The simplest round-trip: re-list the
+                // upcoming sessions and pick the most recently-created
+                // one. Acceptable for the rare case where two admins
+                // race-create (they'd land on their own new row anyway).
+                var upcoming = await SessionService.ListUpcomingAsync(OrgId);
+                var newest = upcoming.OrderByDescending(s => s.Id).FirstOrDefault();
+                if (newest is not null)
+                {
+                    Nav.NavigateTo($"Organizations/{OrgId}/Training/Sessions/{newest.Id}");
+                }
+                else
+                {
+                    Nav.NavigateTo($"Organizations/{OrgId}/Training/Sessions");
+                }
+                break;
+            case TrainingSessionMutationResult.ValidationFailed:
+                _isError = true;
+                _message = "Please check the inputs: title and location are required, end must be after start, max attendees must be positive.";
+                break;
+            case TrainingSessionMutationResult.PermissionDenied:
+                _isError = true;
+                _message = "You don't have permission to do that.";
+                break;
+            case TrainingSessionMutationResult.NotFound:
+                // Cross-org linked training content: the dropdown only
+                // lists THIS org's content, so this branch is effectively
+                // unreachable in normal use, but a stale token or a
+                // concurrent deletion would land here. Surface a
+                // generic failure rather than failing silently.
+                _isError = true;
+                _message = "The linked training content was not found. Please refresh and try again.";
+                break;
+        }
+    }
+
+    private class ContentOption
+    {
+        public int Id { get; set; }
+        public string Title { get; set; } = "";
+    }
+
+    private class SessionModel
+    {
+        [Required, StringLength(200)] public string Title { get; set; } = "";
+        [StringLength(2000)] public string? Description { get; set; }
+        [Required, StringLength(200)] public string Location { get; set; } = "";
+        public DateTime StartLocal { get; set; } = DateTime.Now.AddDays(7);
+        public DateTime EndLocal { get; set; } = DateTime.Now.AddDays(7).AddHours(1);
+        public int? MaxAttendees { get; set; }
+        public string? TrainingContentId { get; set; }
+    }
+}

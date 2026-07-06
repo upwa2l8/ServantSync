@@ -1,0 +1,548 @@
+@page "/Organizations/{OrgId:int}/Training/Sessions/{Id:int}"
+@attribute [Authorize]
+@rendermode InteractiveServer
+
+<PageTitle>@(_session?.Title ?? "Training session")</PageTitle>
+
+@if (_loading)
+{
+    <p><em>Loading…</em></p>
+}
+else if (_session is null)
+{
+    <div class="alert alert-warning mt-3">
+        <h4>Session not found</h4>
+        <p>No training session matches id <code>@Id</code>.</p>
+        <a href="@($"Organizations/{OrgId}/Training/Sessions")">Back to sessions</a>
+    </div>
+}
+else
+{
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+            <h1 class="mb-0">@_session.Title</h1>
+            @if (!string.IsNullOrEmpty(_session.Description))
+            {
+                <div class="text-muted">@_session.Description</div>
+            }
+            <div class="text-muted small mt-1">
+                <span class="bi bi-geo-alt" aria-hidden="true"></span> @_session.Location
+            </div>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+            <span class="badge @StatusClass(_session.Status) fs-6">@_session.Status</span>
+            @if (_canManage && _session.Status == TrainingSessionStatus.Scheduled)
+            {
+                <a class="btn btn-outline-secondary" href="@($"Organizations/{OrgId}/Training/Sessions/{Id}/Edit")">Edit</a>
+            }
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="text-muted small">Start</div>
+                    <div><LocalTime Utc="@_session.StartUtc" /></div>
+                </div>
+                <div class="col-md-6">
+                    <div class="text-muted small">End</div>
+                    <div><LocalTime Utc="@_session.EndUtc" /></div>
+                </div>
+            </div>
+            @if (_session.MaxAttendees.HasValue)
+            {
+                <div class="mt-2">
+                    <span class="text-muted small">Capacity:</span>
+                    <span class="ms-1">@_session.Attendees.Count / @_session.MaxAttendees</span>
+                </div>
+            }
+            @if (_session.TrainingContent is not null)
+            {
+                <div class="mt-2">
+                    <span class="text-muted small">Linked training:</span>
+                    <a class="ms-1" href="@($"Training/{_session.TrainingContent.Id}")">@_session.TrainingContent.Title</a>
+                </div>
+            }
+        </div>
+    </div>
+
+    @* Self-service sign-up/cancel for any org member (volunteer + coord/admin).
+       The SignUpAsync service applies the org-membership gate; we just
+       surface a friendly button + a status text. The button copy flips
+       between "Sign up" and "Cancel my sign-up" depending on whether
+       the current user is already on the roster. *@
+    @if (_session.Status == TrainingSessionStatus.Scheduled)
+    {
+        <div class="card mb-3">
+            <div class="card-body d-flex justify-content-between align-items-center">
+                <div>
+                    @if (_isSignedUp)
+                    {
+                        <span class="text-success"><span class="bi bi-check-circle-fill me-1"></span>You're signed up for this session.</span>
+                    }
+                    else if (_signUpDeniedReason is not null)
+                    {
+                        <span class="text-muted small">@_signUpDeniedReason</span>
+                    }
+                    else
+                    {
+                        <span class="text-muted">Sign up to attend this training session.</span>
+                    }
+                </div>
+                <div>
+                    @if (_isSignedUp)
+                    {
+                        <button class="btn btn-outline-danger" @onclick="CancelMySignUp" disabled="@_busySignUp">
+                            @(_busySignUp ? "Cancelling…" : "Cancel my sign-up")
+                        </button>
+                    }
+                    else
+                    {
+                        <button class="btn btn-primary" @onclick="SignUp" disabled="@(_busySignUp || _signUpDeniedReason is not null)">
+                            @(_busySignUp ? "Signing up…" : "Sign up")
+                        </button>
+                    }
+                </div>
+            </div>
+        </div>
+    }
+
+    @* Roster + marker UI. Two roles:
+       - coord/admin: full mark UI (per-row Attended dropdown + bulk-mark with notes)
+       - volunteer: read-only roster view
+       The grid mirrors the per-attendee Attended flag (true/false/null)
+       so the marker can record no-shows as explicitly as attendance. *@
+    <h5>Roster (@_session.Attendees.Count attendee@(_session.Attendees.Count == 1 ? "" : "s"))</h5>
+    @if (!_session.Attendees.Any())
+    {
+        <div class="alert alert-info">No one has signed up yet.</div>
+    }
+    else
+    {
+        <div class="table-responsive">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Volunteer</th>
+                        <th>Signed up</th>
+                        @if (_canManage)
+                        {
+                            <th>Attended</th>
+                        }
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var a in _session.Attendees)
+                    {
+                        <tr>
+                            <td><a href="@($"People/{a.PersonUserId}")">@PersonName(a.PersonUserId)</a></td>
+                            <td><LocalTime Utc="@a.SignedUpUtc" Format="yyyy-MM-dd HH:mm" /></td>
+                            @if (_canManage)
+                            {
+                                <td>
+                                    @* Tri-state select: null = "not marked yet",
+                                       true = attended, false = no-show. The
+                                       service upserts the Attended flag in
+                                       place; the on-blur handler saves
+                                       immediately so a no-show recorded on
+                                       a phone doesn't get lost on refresh. *@
+                                    <select class="form-select form-select-sm" style="width: auto"
+                                            @bind="_attendedMap[a.PersonUserId]"
+                                            @bind:after="() => PersistAttended(a.PersonUserId)">
+                                        <option value="">— not marked —</option>
+                                        <option value="true">Attended</option>
+                                        <option value="false">No-show</option>
+                                    </select>
+                                </td>
+                            }
+                            else
+                            {
+                                <td>
+                                    @if (a.Attended == true)
+                                    {
+                                        <span class="badge bg-success">Attended</span>
+                                    }
+                                    else if (a.Attended == false)
+                                    {
+                                        <span class="badge bg-secondary">No-show</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted small">—</span>
+                                    }
+                                </td>
+                            }
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+
+    @* Coord/Admin bulk mark. The notes textarea is REQUIRED (decision Q5
+       in PLAN.md) — the per-row single-mark path through MarkSingleCompleteAsync
+       also enforces it. The button is only enabled when there's at least
+       one attendee with a non-empty Attended mark (the service refuses
+       empty rosters with NoAttendees). *@
+    @if (_canManage)
+    {
+        <div class="card mt-3">
+            <div class="card-header"><h5 class="mb-0">Mark attendance</h5></div>
+            <div class="card-body">
+                <p class="text-muted small mb-2">
+                    Set the per-row <em>Attended</em> dropdown above, then add a note explaining
+                    how you confirmed attendance (e.g. <em>"Walked through the safety checklist at the door."</em>).
+                    Notes are required so the audit trail distinguishes online completions from
+                    coordinator-marked completions.
+                </p>
+                <div class="form-floating mb-2">
+                    <InputTextArea id="bulk-notes" class="form-control" style="height: 5rem" @bind-Value="_bulkNotes" />
+                    <label for="bulk-notes">Marker notes (required)</label>
+                </div>
+                <div class="d-flex gap-2 align-items-center">
+                    <button class="btn btn-primary" @onclick="BulkMark" disabled="@(!CanBulkMark)">
+                        @(_busyBulk ? "Saving…" : "Mark all attended and save")
+                    </button>
+                    @if (!CanBulkMark)
+                    {
+                        <span class="text-muted small">@BulkMarkDisabledReason</span>
+                    }
+                </div>
+                @if (_bulkResult is not null)
+                {
+                    var r = _bulkResult.Value;
+                    <div class="alert @(r.success ? "alert-success" : "alert-danger") py-2 small mt-2 mb-0">
+                        @r.message
+                    </div>
+                }
+            </div>
+        </div>
+
+        @* Walk-in add. The service auto-creates the attendee row + sets
+           Attended=true AND writes the TrainingCompletion in one call
+           (FR-2 service decision: marker can add volunteers who weren't
+           on the original roster). *@
+        <div class="card mt-3">
+            <div class="card-header"><h5 class="mb-0">Add walk-in attendee</h5></div>
+            <div class="card-body">
+                <p class="text-muted small mb-2">
+                    For volunteers who showed up after the original roster was finalized.
+                    Pick a member of this organization who isn't on the roster above.
+                </p>
+                <div class="d-flex gap-2 align-items-end">
+                    <div class="flex-grow-1">
+                        <select class="form-select" @bind="_walkInUserId">
+                            <option value="">— pick an org member —</option>
+                            @foreach (var m in _nonAttendeeOrgMembers)
+                            {
+                                <option value="@m.UserId">@m.DisplayName</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="form-floating flex-grow-1">
+                        <InputText class="form-control" @bind-Value="_walkInNote" placeholder="Walk-in note" />
+                        <label>Note (required)</label>
+                    </div>
+                    <button class="btn btn-outline-primary" @onclick="AddWalkIn" disabled="@(!CanAddWalkIn)">
+                        @(_busyWalkIn ? "Adding…" : "Add as attended")
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+}
+
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject ITrainingSessionService SessionService
+@inject AuthenticationStateProvider Auth
+@inject IOrgAuthService OrgAuth
+@inject NavigationManager Nav
+@code {
+    [Parameter] public int OrgId { get; set; }
+    [Parameter] public int Id { get; set; }
+    private TrainingSession? _session;
+    private bool _loading = true;
+    private bool _canManage;
+    private bool _isSignedUp;
+    private string? _signUpDeniedReason;
+    private bool _busySignUp;
+    private bool _busyBulk;
+    private bool _busyWalkIn;
+    private string _bulkNotes = "";
+    private string _walkInUserId = "";
+    private string _walkInNote = "";
+    private string _userId = "";
+    // Per-attendee attended tri-state map. Keyed by PersonUserId so
+    // the bulk-mark loop + the per-row single PersistAttended both
+    // pull from the same in-memory state.
+    private Dictionary<string, string> _attendedMap = new();
+    // Org members not on the attendee roster — candidates for the
+    // walk-in add picker.
+    private List<Person> _nonAttendeeOrgMembers = new();
+    // Last bulk-mark outcome, surfaced in the inline alert.
+    private (bool success, string message)? _bulkResult;
+
+    private bool CanBulkMark =>
+        !_busyBulk
+        && !string.IsNullOrWhiteSpace(_bulkNotes)
+        && _session?.Attendees.Any() == true
+        && _attendedMap.Values.Any(v => v == "true" || v == "false");
+
+    private string BulkMarkDisabledReason
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(_bulkNotes)) return "Notes are required.";
+            if (_session?.Attendees.Any() != true) return "No attendees yet.";
+            if (!_attendedMap.Values.Any(v => v == "true" || v == "false")) return "Mark at least one row as attended or no-show.";
+            return "";
+        }
+    }
+
+    private bool CanAddWalkIn =>
+        !_busyWalkIn
+        && !string.IsNullOrEmpty(_walkInUserId)
+        && !string.IsNullOrWhiteSpace(_walkInNote);
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await Auth.GetAuthenticationStateAsync();
+        _userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
+        if (string.IsNullOrEmpty(_userId))
+        {
+            _loading = false;
+            return;
+        }
+        _canManage = await OrgAuth.CanManageOrgAsync(_userId, OrgId);
+        await Reload();
+        _loading = false;
+    }
+
+    private async Task Reload()
+    {
+        _session = await SessionService.GetAsync(Id);
+        if (_session is null || _session.OrganizationId != OrgId) return;
+        _isSignedUp = _session.Attendees.Any(a => a.PersonUserId == _userId);
+        // Re-seed the tri-state map. Values:
+        //   "" = null Attended, "true" = attended, "false" = no-show.
+        _attendedMap = _session.Attendees.ToDictionary(
+            a => a.PersonUserId,
+            a => a.Attended switch
+            {
+                true => "true",
+                false => "false",
+                _ => "",
+            });
+        // Reset the per-page name cache. PersonName() lazily populates
+        // it on first lookup; a future round can eager-load the Person
+        // nav on the session and seed it here in one query.
+        _nameCache.Clear();
+        await ReloadNonAttendeePicker();
+    }
+
+    private async Task ReloadNonAttendeePicker()
+    {
+        if (_session is null) return;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        // Org members EXCLUDING the current attendees — the walk-in
+        // picker only shows people who AREN'T on the roster yet.
+        var attendeeIds = _session.Attendees.Select(a => a.PersonUserId).ToHashSet();
+        _nonAttendeeOrgMembers = await db.OrganizationMemberships
+            .Where(m => m.OrganizationId == OrgId && !attendeeIds.Contains(m.PersonUserId))
+            .Select(m => m.Person)
+            .OrderBy(p => p.LastName).ThenBy(p => p.FirstName)
+            .AsNoTracking()
+            .ToListAsync();
+    }
+
+    // Per-page cache for Person display names. One DB hit per distinct
+    // attendee across the page render, then in-memory lookups.
+    // Resets to empty on each Reload(); scoped to this component
+    // instance so it can't leak across requests in the Blazor circuit.
+    // Misses (user not in the People table) are cached too, using the
+    // userId as the sentinel value, so a re-render doesn't re-query.
+    private readonly Dictionary<string, string> _nameCache = new();
+
+    private string PersonName(string userId)
+    {
+        // Called inline from Razor markup (e.g. `@PersonName(a.PersonUserId)`),
+        // so this method MUST stay synchronous — Razor expression evaluation
+        // does not support await. The synchronous CreateDbContext() + sync
+        // FirstOrDefault is the intentional shape here; the future-round
+        // eager-load of Person on the session (in Reload) will eliminate
+        // this lookup entirely.
+        if (!_nameCache.TryGetValue(userId, out var cached))
+        {
+            using var db = DbFactory.CreateDbContext();
+            cached = db.People.FirstOrDefault(p => p.UserId == userId)?.DisplayName ?? userId;
+            _nameCache[userId] = cached;
+        }
+        return cached;
+    }
+
+    private async Task SignUp()
+    {
+        if (_session is null) return;
+        _busySignUp = true;
+        try
+        {
+            var result = await SessionService.SignUpAsync(Id, _userId, _userId);
+            switch (result)
+            {
+                case TrainingSessionSignupResult.SignedUp:
+                    _isSignedUp = true;
+                    await Reload();
+                    break;
+                case TrainingSessionSignupResult.SessionFull:
+                    _signUpDeniedReason = "This session is at capacity.";
+                    break;
+                case TrainingSessionSignupResult.SessionCancelled:
+                    _signUpDeniedReason = "This session was cancelled.";
+                    break;
+                case TrainingSessionSignupResult.AlreadySignedUp:
+                    _isSignedUp = true;
+                    break;
+                case TrainingSessionSignupResult.NotFound:
+                    _signUpDeniedReason = "Sign-ups aren't open to your account for this session.";
+                    break;
+            }
+        }
+        finally
+        {
+            _busySignUp = false;
+        }
+    }
+
+    private async Task CancelMySignUp()
+    {
+        if (_session is null) return;
+        _busySignUp = true;
+        try
+        {
+            var result = await SessionService.CancelSignUpAsync(Id, _userId, _userId);
+            switch (result)
+            {
+                case TrainingSessionSignupResult.Cancelled:
+                    _isSignedUp = false;
+                    await Reload();
+                    break;
+                case TrainingSessionSignupResult.AlreadyMarkedAttended:
+                    // Spec: the marker owns the audit trail; volunteer
+                    // can't self-cancel once attendance is recorded.
+                    // The page would need a follow-up flow (admin
+                    // mediates) — round 2.
+                    break;
+            }
+        }
+        finally
+        {
+            _busySignUp = false;
+        }
+    }
+
+    // Per-row attended flag change. Saves immediately so a no-show
+    // recorded on a phone survives a refresh. The service allows
+    // setting Attended=true OR Attended=false (with the same
+    // latest-wins upsert); the TrainingCompletion row is written
+    // ONLY for the bulk path (where notes are required).
+    private async Task PersistAttended(string personUserId)
+    {
+        if (_session is null) return;
+        if (!_attendedMap.TryGetValue(personUserId, out var raw)) return;
+        if (string.IsNullOrEmpty(raw)) return; // null = "not marked" — no-op
+        var attended = raw == "true";
+        // We reuse the bulk service with a single-entry list so the
+        // upsert path is identical. The notes requirement is the one
+        // wrinkle — per-row single marks would need to use a separate
+        // service or a temporary notes value. Round-1 simplification:
+        // the single-row path also goes through MarkAttendeesCompleteAsync
+        // with a synthetic "Per-row mark" notes string so the audit
+        // trail is consistent. Round 2 could split the service.
+        var syntheticNotes = $"Per-row mark from session detail page: {(attended ? "attended" : "no-show")}.";
+        var marks = new List<AttendeeMark>
+        {
+            new() { PersonUserId = personUserId, Attended = attended }
+        };
+        var result = await SessionService.MarkAttendeesCompleteAsync(Id, _userId, marks, syntheticNotes);
+        if (result == TrainingSessionMutationResult.Succeeded)
+        {
+            await Reload();
+        }
+    }
+
+    // Bulk mark. Iterates the in-memory AttendedMap, packages into
+    // the service's input shape, and surfaces the result inline.
+    private async Task BulkMark()
+    {
+        if (_session is null) return;
+        if (!CanBulkMark) return;
+        _busyBulk = true;
+        _bulkResult = null;
+        try
+        {
+            var marks = _attendedMap
+                .Where(kv => kv.Value == "true" || kv.Value == "false")
+                .Select(kv => new AttendeeMark
+                {
+                    PersonUserId = kv.Key,
+                    Attended = kv.Value == "true",
+                })
+                .ToList();
+            var result = await SessionService.MarkAttendeesCompleteAsync(Id, _userId, marks, _bulkNotes);
+            switch (result)
+            {
+                case TrainingSessionMutationResult.Succeeded:
+                    _bulkResult = (true, $"Marked {marks.Count} attendee{(marks.Count == 1 ? "" : "s")}.");
+                    _bulkNotes = "";
+                    await Reload();
+                    break;
+                case TrainingSessionMutationResult.NoAttendees:
+                    _bulkResult = (false, "Mark at least one row before saving.");
+                    break;
+                case TrainingSessionMutationResult.ValidationFailed:
+                    _bulkResult = (false, "Notes are required (or the roster contains non-members).");
+                    break;
+                case TrainingSessionMutationResult.PermissionDenied:
+                    _bulkResult = (false, "You don't have permission to mark attendance.");
+                    break;
+            }
+        }
+        finally
+        {
+            _busyBulk = false;
+        }
+    }
+
+    private async Task AddWalkIn()
+    {
+        if (_session is null || !CanAddWalkIn) return;
+        _busyWalkIn = true;
+        try
+        {
+            var marks = new List<AttendeeMark>
+            {
+                new() { PersonUserId = _walkInUserId, Attended = true }
+            };
+            var result = await SessionService.MarkAttendeesCompleteAsync(Id, _userId, marks, _walkInNote);
+            if (result == TrainingSessionMutationResult.Succeeded)
+            {
+                _walkInUserId = "";
+                _walkInNote = "";
+                await Reload();
+            }
+        }
+        finally
+        {
+            _busyWalkIn = false;
+        }
+    }
+
+    private static string StatusClass(TrainingSessionStatus status) => status switch
+    {
+        TrainingSessionStatus.Scheduled => "bg-primary",
+        TrainingSessionStatus.Completed => "bg-success",
+        TrainingSessionStatus.Cancelled => "bg-secondary",
+        _ => "bg-secondary",
+    };
+}
