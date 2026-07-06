@@ -54,6 +54,19 @@ design.
   model with SHA-256 hash + 30-day expiry; the re-parent is a single
   `UPDATE People SET UserId = @new, IsStub = 0`. Tightly coupled to
   Round-FR-2 (the manual-mark flow is what unlocks stub duty-assignment).
+- **Round-FR-4: public feature request form (anyone can submit)** — see
+  [`PLAN.md` → Feature requests → Round-FR-4](PLAN.md#round-fr-4-public-feature-request-form-anyone-can-submit).
+  Public form at `/feedback` (no login required) where anyone — visitor,
+  volunteer, coordinator, curious passerby — can submit a feature
+  request. Spec adds a `FeatureRequest` model + `FeatureRequestStatus`
+  enum (`New` / `UnderReview` / `Planned` / `Completed` / `Declined` /
+  `Duplicate`); SystemAdmin triage queue at `/SystemAdmin/FeatureRequests`;
+  3-layer anti-spam (honeypot + IP rate limit + optional email
+  confirmation in round 2); auto-notify SystemAdmins via the existing
+  `MailKitEmailSender` pipeline. Closes the feedback loop with the
+  other queued specs: admins can mark inbound requests as *"tracked
+  in Round-FR-2"* (the `LinkedSpecAnchor` column) so submitters see
+  their idea has been heard even before any code ships.
 
 ## Where we are
 
