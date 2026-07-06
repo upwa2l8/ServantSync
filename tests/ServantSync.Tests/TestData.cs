@@ -180,6 +180,39 @@ public static class TestData
             CoachPersonUserId = coachUserId,
         });
 
+    /// <summary>
+    /// Round-AY Player helper. All optional fields default to null so a
+    /// caller only specifies what the test cares about; <paramref name="leftUtc"/>
+    /// drives the "active" filter pin in
+    /// <c>ITeamService.ListActivePlayersWithContactsAsync</c> (left-null
+    /// is active now, left-in-past is excluded, left-in-future is still
+    /// active today). Tests should use <see cref="EnsureIdentityUser"/>
+    /// directly when they need a synthetic primary-contact FK target.
+    /// </summary>
+    public static Player Player(
+        IDbContextFactory<ApplicationDbContext> factory,
+        int teamId,
+        string firstName = "Test",
+        string lastName = "Player",
+        string? primaryContactPersonUserId = null,
+        string? primaryContactPhone = null,
+        string? primaryContactEmail = null,
+        int? jerseyNumber = null,
+        string? position = null,
+        DateTime? leftUtc = null) =>
+        Save(factory, () => new Player
+        {
+            TeamId = teamId,
+            FirstName = firstName,
+            LastName = lastName,
+            PrimaryContactPersonUserId = primaryContactPersonUserId,
+            PrimaryContactPhone = primaryContactPhone,
+            PrimaryContactEmail = primaryContactEmail,
+            JerseyNumber = jerseyNumber,
+            Position = position,
+            LeftUtc = leftUtc,
+        });
+
     public static Arena Arena(IDbContextFactory<ApplicationDbContext> factory, int orgId, string name = "Field 1") =>
         Save(factory, () => new Arena
         {

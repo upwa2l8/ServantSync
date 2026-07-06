@@ -1,0 +1,167 @@
+@page "/Teams/{TeamId:int}/Signups"
+@attribute [Authorize]
+@rendermode InteractiveServer
+
+<PageTitle>Parents &middot; @(_team?.Name ?? "Team")</PageTitle>
+
+@if (!_hasLoaded)
+{
+    <p><em>Loading…</em></p>
+}
+else if (!_canView)
+{
+    @* Round-AY: gate failure message. Coaches (Team.CoachPersonUserId
+       delegates via CanManageTeamAsync) and Admins/Coordinators of the
+       parent org + the ministry coordinator + slot-tier coordinators see
+       this. SystemAdmin can see this page as well — strictly visibility-
+       only; they cannot edit the underlying Player.PrimaryContact* fields,
+       only read the rendered roster. The "missing team + missing
+       permission" signal is intentionally conflated — a wrong-teamId
+       guess and an unauthorized-but-correct guess both fall through to
+       the "Not authorized" panel below because _canView=false in both
+       cases. Privacy: don't leak cross-org existence via a "Team not
+       found" panel. *@
+    <div class="alert alert-warning mt-3">
+        <h4>Not authorized</h4>
+        <p>You don't have permission to view the parent contacts for this team.</p>
+        <p class="mb-0 small">
+            Team coaches, ministry coordinators, and organization administrators
+            (plus SystemAdmin platform administrators) can see the parent
+            contact list. To view a specific parent's profile from your own
+            team page, use the link on the team detail's roster.
+        </p>
+    </div>
+}
+else
+{
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+            <h1 class="mb-0">Parents &middot; @_team!.Name</h1>
+            <div class="text-muted">
+                @_activePlayers.Count active player@(_activePlayers.Count == 1 ? "" : "s") on the current roster.
+                &middot; <a href="@($"Teams/{TeamId}")">Back to team</a>
+            </div>
+        </div>
+    </div>
+
+    @if (!_activePlayers.Any())
+    {
+        <div class="alert alert-info">
+            No active players on this team's roster yet. Once a coach adds a player
+            with a primary-contact link, that parent's info surfaces here.
+        </div>
+    }
+    else
+    {
+        <div class="table-responsive">
+            <table class="table align-middle">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Player</th>
+                        <th>Pos</th>
+                        <th>Parent / guardian</th>
+                        <th>Contact</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var p in _activePlayers)
+                    {
+                        <tr>
+                            <td>@(p.JerseyNumber?.ToString() ?? "—")</td>
+                            <td>@p.DisplayName</td>
+                            <td>@(p.Position ?? "—")</td>
+                            <td>
+                                @if (p.PrimaryContactPerson is not null)
+                                {
+                                    <a href="@($"People/{p.PrimaryContactPersonUserId}")">@p.PrimaryContactPerson.DisplayName</a>
+                                }
+                                else
+                                {
+                                    <span class="text-muted">— not linked —</span>
+                                }
+                            </td>
+                            <td class="small">
+                                @if (!string.IsNullOrEmpty(p.PrimaryContactPhone))
+                                {
+                                    <div>@p.PrimaryContactPhone</div>
+                                }
+                                @if (!string.IsNullOrEmpty(p.PrimaryContactEmail))
+                                {
+                                    <div>@p.PrimaryContactEmail</div>
+                                }
+                                @if (string.IsNullOrEmpty(p.PrimaryContactPhone) && string.IsNullOrEmpty(p.PrimaryContactEmail))
+                                {
+                                    <span class="text-muted">—</span>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+}
+
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject IOrgAuthService OrgAuth
+@inject ITeamService TeamService
+@inject AuthenticationStateProvider Auth
+@code {
+    [Parameter] public int TeamId { get; set; }
+    private Team? _team;
+    private List<Player> _activePlayers = new();
+    // Two-tier gate: IsSystemAdminAsync OR CanManageTeamAsync. Default
+    // false (deny) until OnInitializedAsync resolves both checks. Both
+    // branches are short-circuited for callers that don't need a Per-
+    // org check (SystemAdmin skips the EF round-trip entirely).
+    private bool _canView;
+    // Same _hasLoaded discipline as the parallel ministries/Signups
+    // and Teams/Detail patterns: distinguish "still loading" from a
+    // definitive outcome (not found / not authorized / no players)
+    // so navigation never shows a spinner indefinitely.
+    private bool _hasLoaded;
+    private string _userId = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await Auth.GetAuthenticationStateAsync();
+        _userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+
+        // Bare-team fetch on this DbContext (just the Ministry nav for
+        // a potential future "back to league" link, which the existing
+        // Detail page also uses). The cross-team defense here is
+        // redundant with the gate (CanManageTeamAsync grants are
+        // team-scoped), but the FirstOrDefaultAsync(t.Id == TeamId)
+        // lookup keeps a wrong-teamId guess from rendering a confusing
+        // "no such team" panel — wrong ids fall through to the Not
+        // authorized panel above (still privacy-friendly: doesn't
+        // reveal whether the team exists).
+        _team = await db.Teams
+            .Include(t => t.Ministry)
+            .AsNoTracking()
+            .FirstOrDefaultAsync(t => t.Id == TeamId);
+        if (_team is null) { _hasLoaded = true; return; }
+
+        // Per-page OR widening (mirrors Ministries/Signups.razor) keeps
+        // CanManageTeamAsync strictly per-team scoped: a SystemAdmin
+        // caller who isn't a coach or org Admin still passes here, but
+        // cannot mutate any Player rows (no edit affordances on this
+        // page; the existing per-org edit gates elsewhere remain
+        // unchanged).
+        if (!string.IsNullOrEmpty(_userId))
+        {
+            _canView = await OrgAuth.IsSystemAdminAsync(_userId)
+                || await OrgAuth.CanManageTeamAsync(_userId, TeamId);
+        }
+
+        if (_canView)
+        {
+            _activePlayers = await TeamService.ListActivePlayersWithContactsAsync(TeamId);
+        }
+
+        _hasLoaded = true;
+    }
+}

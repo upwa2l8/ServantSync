@@ -23,11 +23,11 @@ else
                 <div class="text-muted small">Coach: <a href="@($"People/{_team.CoachPersonUserId}")">@_team.CoachPerson.DisplayName</a></div>
             }
         </div>
-        <div class="d-flex gap-2 flex-wrap">
-            <a class="btn btn-outline-secondary" href="@($"Leagues/{_team.MinistryId}")">Back to league</a>
+        <div class="d-flex gap-2 flex-wrap">                <a class="btn btn-outline-secondary" href="@($"Leagues/{_team.MinistryId}")">Back to league</a>
             @if (_canManage)
             {
                 <a class="btn btn-primary" href="@($"Teams/{TeamId}/Players/New")">+ Add player</a>
+                <a class="btn btn-outline-secondary" href="@($"Teams/{TeamId}/Signups")">View parents</a>
             }
         </div>
     </div>
