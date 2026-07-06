@@ -1,9 +1,25 @@
 # ServantSync
 
+![ServantSync marketing lockup](wwwroot/img/servantsync-marketing.svg)
+
 A multi-organization volunteer-scheduling platform built on Blazor Server +
 ASP.NET Core Identity + EF Core / SQLite. Designed to serve churches first
 and to be extensible to other scheduling use cases (sports leagues, on-call
 rotas, conference staffing) without a schema rewrite.
+
+The two brand assets in this repo are intentionally complementary:
+
+  * `wwwroot/img/servantsync-marketing.svg` — the typographic wordmark above.
+    Marketing surface only (README, splash page, email signatures). Transparent
+    canvas, brand-purple gradient, composes on dark or light backgrounds. NOT
+    used as the navbar/favicon.
+  * `wwwroot/img/servantsync-mark.svg` — the existing heart-shaped two-figure
+    mark with sync arcs. The product brand: navbar, favicon, apple-touch-icon.
+    Same brand-purple + amber-rose gradient (cool ↔ warm duality).
+
+No religious symbols in either asset by design (no crosses, no liturgical
+ornamentation) so the wordmark composes well on secular surfaces like
+on-call rotas and conference staffing, not just church contexts.
 
 ## Documentation map
 
