@@ -18,6 +18,12 @@ public class ApplicationDbContext : IdentityDbContext<IdentityUser>
     }
 
     public DbSet<Person> People => Set<Person>();
+    // Round-FR-3: claim tokens that link a stub Person to a real
+    // IdentityUser at /Account/Register?claim=… time. Operational,
+    // not audit — cascades on Person delete (a token for a deleted
+    // Person is useless). See Models/PersonClaimToken.cs for the
+    // full lifecycle + design rationale.
+    public DbSet<PersonClaimToken> PersonClaimTokens => Set<PersonClaimToken>();
     public DbSet<Organization> Organizations => Set<Organization>();
     public DbSet<OrganizationMembership> OrganizationMemberships => Set<OrganizationMembership>();
     public DbSet<Ministry> Ministries => Set<Ministry>();
@@ -55,6 +61,34 @@ public class ApplicationDbContext : IdentityDbContext<IdentityUser>
                 .HasForeignKey<Person>(p => p.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
             b.HasIndex(p => p.LastName);
+            // Round-FR-3: non-unique index on Email for the email-match
+            // secondary claim flow at /Account/Register. Two stubs can
+            // legitimately share an email (explicit edge case in the
+            // FR-3 spec — Register warns + refuses to auto-link on
+            // collision), so the index is non-unique. SQLite allows
+            // multiple NULLs to coexist, so pre-FR-3 People (whose
+            // Email is NULL) are not affected.
+            b.HasIndex(p => p.Email);
+        });
+
+        // ---- PersonClaimToken (round-FR-3) ----
+        // Operational record — cascades on Person delete (a token for
+        // a deleted Person is useless; matches every other Person FK
+        // in the codebase). TokenHash is the lookup key for the
+        // claim path and is unique by index even though SHA-256
+        // collision resistance already implies uniqueness — the index
+        // enforces the application's "one active token hash per
+        // system" invariant at the DB layer too. CreatedByUserId is
+        // a plain string with no FK nav (audit-trail-preserves-actor
+        // pattern from SystemAdminGrantAudit + TrainingSession).
+        modelBuilder.Entity<PersonClaimToken>(b =>
+        {
+            b.HasOne(t => t.Person)
+                .WithMany()
+                .HasForeignKey(t => t.PersonUserId)
+                .OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(t => t.TokenHash).IsUnique();
+            b.Property(t => t.TokenHash).HasMaxLength(64);
         });
 
         // ---- Organization ----
