@@ -239,19 +239,28 @@ internal static class EmailBranding
 {
     /// <summary>
     /// Wrap <paramref name="innerHtml"/> in the brand shell. The header
-    /// band carries the cid-attached mark IF the brand asset has bytes;
-    /// otherwise a textual "ServantSync" wordmark is rendered so the
-    /// recipient always sees SOMETHING that tags the message. The
-    /// footer carries the org name + canonical ServantSync URL.
+    /// band carries the cid-attached mark IF the brand asset has bytes
+    /// (i.e. <see cref="EmailOptions.BrandImagePath"/> is set to a
+    /// resolvable file); otherwise the typographic marketing wordmark
+    /// is rendered as styled text in the brand purple. The typographic
+    /// text is the new default — see BRANDING.md "Email brand" for the
+    /// rationale (the marketing wordmark is text by design, so a text
+    /// representation is the canonical email-friendly form). The footer
+    /// carries the org name only; the breadth tagline moved up under
+    /// the wordmark in the header band.
     /// </summary>
     public static string WrapHtmlBody(IEmailBrandAssets brand, string orgName, string subject, string innerHtml)
     {
-        // Brand line: image when bytes present, plain text otherwise.
-        // We don't conditionally emit <img> with a broken src — many
-        // clients flag a broken-image placeholder as suspicious.
+        // Brand line: image when bytes present, typographic text
+        // otherwise. We don't conditionally emit <img> with a broken
+        // src — many clients flag a broken-image placeholder as
+        // suspicious. The text fallback is the new default (empty
+        // BrandImagePath); the cid image is an override for
+        // deployments that want a visual mark.
         var brandLine = brand.LogoBytes is { Length: > 0 }
             ? $"<img src=\"cid:{brand.ContentId}\" alt=\"{System.Net.WebUtility.HtmlEncode(orgName)}\" width=\"120\" height=\"120\" style=\"display:block;border:0;outline:none;text-decoration:none\">"
-            : $"<div style=\"font-size:24px;font-weight:800;letter-spacing:-0.4px;color:#3730a3;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif\">{System.Net.WebUtility.HtmlEncode(orgName)}</div>";
+            : $"<div style=\"font-size:28px;font-weight:800;letter-spacing:-0.5px;color:#3730a3;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;-ms-text-size-adjust:100%;-webkit-text-size-adjust:100%\">ServantSync</div>" +
+              $"<div style=\"font-size:14px;font-weight:400;color:#6b6b6b;margin-top:4px;line-height:1.4\">Volunteer coordination, in sync.</div>";
 
         // Outlook-friendly nested-table layout. Inline styles only so the
         // email survives Gmail's stripping of <head>/<style> blocks.
@@ -284,8 +293,7 @@ internal static class EmailBranding
           </tr>
           <tr>
             <td style=""padding:24px 0 0 0;border-top:1px solid #e6e6f0;font-size:13px;color:#6b6b6b"">
-              <strong>{System.Net.WebUtility.HtmlEncode(orgName)}</strong><br>
-              Volunteer coordination, in sync.
+              <strong>{System.Net.WebUtility.HtmlEncode(orgName)}</strong>
             </td>
           </tr>
         </table>

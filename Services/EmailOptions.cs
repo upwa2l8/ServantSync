@@ -18,21 +18,34 @@ public class EmailOptions
     /// <summary>
     /// File-relative path under the web root pointing at the brand mark
     /// used as the cid-attached inline image in every branded email body.
-    /// Default is the PNG-version of the brand mark shipped under
-    /// <c>wwwroot/img/</c> — see BRANDING.md for the asset inventory.
-    /// Override only if you've re-rasterized the mark and saved it under
-    /// a non-default path; the resolver requires the bytes to exist or
-    /// the sender degrades to "no inline logo" (warning logged).
+    /// Default is <c>""</c> (empty) — the email uses the typographic
+    /// text wordmark in the header band instead of a rasterized image.
+    /// The marketing wordmark is a typographic lockup by design (see
+    /// BRANDING.md "Two assets, two roles"), so text is the canonical
+    /// representation: it survives every email client including
+    /// Outlook's Word-based renderer, requires no PNG generation tool,
+    /// and carries the brand without depending on a cid image that some
+    /// clients block.
+    ///
+    /// Set this to a path under <c>wwwroot/</c> (e.g.
+    /// <c>"img/servantsync-marketing.png"</c>) to re-enable the cid
+    /// image path; the resolver will read it via
+    /// <see cref="Microsoft.Extensions.FileProviders.IFileProvider"/> and
+    /// fall back to text if the file is missing. The cid image is
+    /// preserved as an override for deployments that want a visual mark
+    /// in the email header.
     /// </summary>
-    public string BrandImagePath { get; set; } = "img/servantsync-mark.png";
+    public string BrandImagePath { get; set; } = "";
 
     /// <summary>
-    /// Content-ID used to wire the cid-attached image into the HTML body.
-    /// The HTML references it as <c>cid:{BrandImageContentId}</c>; the
-    /// MIME multipart attaches the bytes under the same identifier.
-    /// Override only if a downstream integration expects a different id
-    /// — the default <c>servantsync-mark</c> is what BRANDING.md commits
-    /// to.
+    /// Content-ID used to wire the cid-attached image into the HTML body
+    /// (only when <see cref="BrandImagePath"/> is non-empty and resolves
+    /// to a readable file). The HTML references it as
+    /// <c>cid:{BrandImageContentId}</c>; the MIME multipart attaches
+    /// the bytes under the same identifier. Default
+    /// <c>servantsync-mark</c> matches the pre-text-default contract
+    /// from BRANDING.md; override only if a downstream integration
+    /// expects a different id.
     /// </summary>
     public string BrandImageContentId { get; set; } = "servantsync-mark";
 }

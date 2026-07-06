@@ -88,7 +88,67 @@ public class MailKitEmailSenderTests
         var htmlText = msg.HtmlBody;
         Assert.NotNull(htmlText);
         Assert.DoesNotContain("cid:servantsync-mark", htmlText);
-        Assert.Contains("ServantSync Test", htmlText);
+        // The wordmark line in the header (closing </div> matched
+        // so the assertion can't be satisfied by the org-name
+        // substring in the footer — e.g. "ServantSync Test").
+        Assert.Contains(">ServantSync</div>", htmlText);
+    }
+
+    [Fact]
+    public void BuildMessage_HtmlBody_RendersTextWordmark_WhenBrandAbsent()
+    {
+        // Round-EMAIL-BRAND: the default brand path is empty (text
+        // wordmark, no cid image). The marketing wordmark is
+        // typographic by design — see BRANDING.md "Email brand" —
+        // so a styled-text "ServantSync" in brand-purple IS the
+        // wordmark and survives every email client including
+        // Outlook's Word-based renderer.
+        var brand = new EmailBrandAssets(
+            logoBytes: null!,
+            contentType: "image/png",
+            contentId: "servantsync-mark",
+            relativePath: "test");
+
+        var msg = MailKitEmailSender.BuildMessage(
+            DefaultOptions(), brand, "alice@test", "Test", "<p>Hi</p>");
+
+        var htmlText = msg.HtmlBody;
+        Assert.NotNull(htmlText);
+        // Wordmark text is present.
+        Assert.Contains(">ServantSync<", htmlText);
+        // Brand-purple color from the coolSide / 0% token (#3730a3).
+        Assert.Contains("#3730a3", htmlText);
+        // Breadth tagline moved up under the wordmark in the header.
+        Assert.Contains("Volunteer coordination, in sync.", htmlText);
+        // No cid reference (text path only).
+        Assert.DoesNotContain("cid:", htmlText);
+    }
+
+    [Fact]
+    public void BuildMessage_TextBody_OmitsWordmarkMarkup_WhenBrandAbsent()
+    {
+        // The text-only alt body must NOT carry the HTML wordmark
+        // markup (no <div style=...> leaking into the text part) and
+        // must NOT carry the tagline as styled-HTML (the tagline is
+        // part of the brand line, not a body sentence). The stripper
+        // produces a clean text body with the org name and a banner
+        // — that's all the text-mode reader needs.
+        var brand = new EmailBrandAssets(
+            logoBytes: null!,
+            contentType: "image/png",
+            contentId: "servantsync-mark",
+            relativePath: "test");
+
+        var msg = MailKitEmailSender.BuildMessage(
+            DefaultOptions(), brand, "alice@test", "Test", "<p>Hi</p>");
+
+        var textBody = msg.TextBody;
+        Assert.NotNull(textBody);
+        // No HTML tag survivors.
+        Assert.DoesNotContain("<div", textBody);
+        Assert.DoesNotContain("#3730a3", textBody);
+        // Org name still appears (it's the banner source).
+        Assert.Contains("ServantSync Test", textBody!);
     }
 
     [Fact]
