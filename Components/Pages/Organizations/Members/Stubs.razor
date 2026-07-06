@@ -1,0 +1,412 @@
+@page "/Organizations/{Id:int}/Members/Stubs"
+@attribute [Authorize]
+@* Per-page InteractiveServer directive (round-AF). The form is
+   conditional inside the Stubs.razor page (rotate confirm + token
+   reveal modals), so we need an interactive circuit; this page mounts
+   the circuit itself because MainLayout deliberately has no
+   rendermode. The 202 .NET 9 layout-level cascade would crash on
+   `RenderFragment` parameter serialization. *@
+@rendermode InteractiveServer
+
+<PageTitle>Stub members · @(_orgName ?? "Organization")</PageTitle>
+
+@if (!_hasLoaded)
+{
+    <p><em>Loading…</em></p>
+}
+else if (_org is null)
+{
+    <div class="alert alert-warning mt-3">
+        <h4>Organization not found</h4>
+        <p>No organization matches id <code>@Id</code>. Try the
+        <a href="Organizations">organization list</a>.</p>
+    </div>
+}
+else if (!_canManage)
+{
+    @* Defense-in-depth UI gate (matches the AddStub pattern +
+       Organizations/Detail.razor + Ministries/Edit.razor). Server-side
+       PersonService.ListStubsAsync / RotateClaimTokenAsync re-gate on
+       IsOrgAdminAsync, so a forged URL doesn't expose the row table. *@
+    <div class="alert alert-danger mt-3">
+        <h4>Permission denied</h4>
+        <p>Only organization <strong>Admins</strong> can view and manage stub members.</p>
+        <a href="@($"Organizations/{Id}")" class="btn btn-outline-secondary">← Back to organization</a>
+    </div>
+}
+else
+{
+    <nav aria-label="breadcrumb" class="mb-2">
+        <ol class="breadcrumb mb-0">
+            <li class="breadcrumb-item"><a href="Organizations">Organizations</a></li>
+            <li class="breadcrumb-item"><a href="@($"Organizations/{Id}")">@_org.Name</a></li>
+            <li class="breadcrumb-item active" aria-current="page">Stub members</li>
+        </ol>
+    </nav>
+
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h1 class="h3 mb-0">Stub members (@(_stubs?.Count ?? 0))</h1>
+        <div>
+            <a class="btn btn-primary" href="@($"Organizations/{Id}/Members/AddStub")">+ Add stub manually</a>
+            <a class="btn btn-outline-secondary ms-1" href="@($"Organizations/{Id}")">← Back to organization</a>
+        </div>
+    </div>
+
+    <p class="text-muted small">
+        Stub members are volunteers manually added by an admin who haven't yet
+        registered an account. Each stub has a <em>claim token</em> the volunteer
+        uses to link their existing record (memberships, assignments, training
+        completions) to a newly-created account. Tokens auto-expire after 30
+        days; rotate to extend or to invalidate a token that's already been
+        shared.
+    </p>
+
+    @if (_stubs is null)
+    {
+        <p><em>Loading stub list…</em></p>
+    }
+    else if (_stubs.Count == 0)
+    {
+        <div class="alert alert-info">
+            <strong>No stub members yet.</strong>
+            <a href="@($"Organizations/{Id}/Members/AddStub")">Add the first one →</a>
+        </div>
+    }
+    else
+    {
+        <div class="table-responsive">
+            <table class="table table-sm align-middle">
+                <thead>
+                    <tr>
+                        <th scope="col">Name</th>
+                        <th scope="col">Email</th>
+                        <th scope="col">Token status</th>
+                        <th scope="col">Token expires</th>
+                        <th scope="col">Last claim / rotate</th>
+                        <th scope="col" class="text-end">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var s in _stubs)
+                    {
+                        <tr>
+                            <td>
+                                <strong>@s.DisplayName</strong>
+                            </td>
+                            <td>
+                                @if (!string.IsNullOrEmpty(s.Email))
+                                {
+                                    @s.Email
+                                }
+                                else
+                                {
+                                    <span class="text-muted">—</span>
+                                }
+                            </td>
+                            <td>
+                                @TokenStatusBadge(s)
+                            </td>
+                            <td>
+                                @if (s.TokenExpiresUtc.HasValue)
+                                {
+                                    @s.TokenExpiresUtc.Value.ToString("yyyy-MM-dd")
+                                }
+                                else
+                                {
+                                    <span class="text-muted">—</span>
+                                }
+                            </td>
+                            <td>
+                                @if (s.ClaimedUtc.HasValue)
+                                {
+                                    <span title="UTC">
+                                        @s.ClaimedUtc.Value.ToString("yyyy-MM-dd HH:mm 'UTC'")
+                                    </span>
+                                }
+                                else
+                                {
+                                    <span class="text-muted">—</span>
+                                }
+                            </td>
+                            <td class="text-end">
+                                <button class="btn btn-sm btn-outline-warning" type="button"
+                                        @onclick="() => RequestRotate(s.PersonUserId, s.DisplayName)"
+                                        title="Generate a new claim token. The old token (if any) becomes invalid immediately.">
+                                    Rotate token
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+
+    if (!string.IsNullOrEmpty(_errorMessage))
+    {
+        <div class="alert alert-danger py-2 small mt-3">@_errorMessage</div>
+    }
+}
+
+@* ─── CONFIRM ROTATE ─── *@
+@* Two-step rotation: this confirm modal asks "yes, rotate?" before
+   the service call; on success, it dismisses itself and the
+   one-time-reveal modal (below) opens with the new token. Uses the
+   shared ConfirmDialog component (same component Organizations/Detail.razor
+   and ServiceSlots/Detail.razor already use) for keyboard / aria /
+   backdrop parity. *@
+<ConfirmDialog Visible="@(_confirmRotateUserId is not null)"
+               Title="@($"Rotate claim token for {_confirmRotateName}?")"
+               ConfirmText="@(_busyRotate ? "Rotating…" : "Yes, rotate")"
+               CancelText="Cancel"
+               ConfirmButtonClass="btn-warning"
+               Busy="_busyRotate"
+               OnConfirm="ConfirmRotateAsync"
+               OnCancel="CancelRotate">
+    <p>The previous claim token (if any) will become invalid immediately. A new
+    token will be generated and shown once. Any in-flight handoff to the
+    volunteer that uses the old token will fail with "already claimed".</p>
+    <p class="mb-0">Continue?</p>
+</ConfirmDialog>
+
+@* ─── ONE-TIME TOKEN REVEAL ─── *@
+@* Custom inline modal (not ConfirmDialog): reveal needs a single
+   "Done" button + the token copy/print affordances, not the
+   confirm/cancel pair. The new raw token is set by ConfirmRotateAsync
+   on the success branch and cleared by CloseOneTimeReveal (Done
+   button or Esc / backdrop). Pattern-mirrors the one-time reveal in
+   AddStub.razor (same Bootstrap modal + Clipboard-API JS interop
+   + same-broad-but-non-fatal catch on older browsers). *@
+@if (_rotatedToken is not null)
+{
+    <div class="modal fade show d-block" tabindex="0"
+         style="background-color: rgba(0,0,0,0.5);"
+         role="dialog"
+         aria-modal="true"
+         aria-labelledby="rot-token-title"
+         @onkeydown="HandleRevealKeyDown"
+         @onclick="HandleRevealBackdrop">
+        <div class="modal-dialog modal-dialog-centered" @onclick:stopPropagation="true">
+            <div class="modal-content">
+                <div class="modal-header bg-warning-subtle">
+                    <h5 class="modal-title" id="rot-token-title">
+                        New claim token for @_rotatedName
+                    </h5>
+                </div>
+                <div class="modal-body">
+                    <p class="small mb-2">
+                        <strong>Shown once.</strong> The previous token is now invalid.
+                        Copy or print the new token and hand it to <strong>@_rotatedName</strong>
+                        in person.
+                    </p>
+                    <div class="input-group mb-3">
+                        <input class="form-control font-monospace" readonly
+                               value="@_rotatedToken" />
+                        <button class="btn btn-outline-primary" type="button"
+                                @onclick="CopyRotated">
+                            @(_copiedRotated ? "Copied" : "Copy")
+                        </button>
+                    </div>
+                    <label class="form-label small text-uppercase mb-1">Claim URL</label>
+                    <p class="small mb-0">
+                        <code class="small">@BuildClaimUrl(_rotatedToken)</code>
+                    </p>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" type="button" @onclick="CloseOneTimeReveal">Done</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@* Static-SSR-friendly CSS-only print rule. Hidden by default; visible
+   only when the user hits the browser's Print button (or the
+   AddStub page's 🖨 button uses window.print()). Without this, a
+   "print" action would dump the full page chrome (sidebar + nav +
+   12-other-table cells). The tightened visible-row count is the
+   same approach Bootstrap docs recommend for printable tables. *@
+<style>
+@@media print {
+    .sidebar, .top-row, .breadcrumb, .btn, .modal { display: none !important; }
+    .alert { border: 1px solid #ccc !important; }
+}
+</style>
+
+@inject IPersonService PersonSvc
+@inject IOrgAuthService OrgAuth
+@inject AuthenticationStateProvider Auth
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@code {
+    [Parameter] public int Id { get; set; }
+
+    private bool _hasLoaded;
+    private Organization? _org;
+    private string _orgName = "";
+    // Same admin-gate shape as AddStub.razor + Organizations/Detail.razor
+    // Members tab: OrgAuth gated on IsOrgAdminAsync at OnInitialized.
+    private bool _canManage;
+    private string _userId = "";
+    private List<StubListItem>? _stubs;
+
+    // ─── Rotate flow state ───
+    // Stage 1 (UI confirm): non-null personUserId means the ConfirmDialog
+    // is visible and ConfirmRotateAsync is wired. _confirmRotateName
+    // drives the dialog title. Cleared by CancelRotate or
+    // ConfirmRotateAsync (which on success moves to _rotatedToken).
+    private string? _confirmRotateUserId;
+    private string _confirmRotateName = "";
+    private bool _busyRotate;
+    // Stage 2 (token reveal): non-null raw token → the reveal modal is
+    // visible. Set by ConfirmRotateAsync on Succeeded, cleared by
+    // CloseOneTimeReveal. Distinct from _confirmRotateUserId because
+    // the user sees one modal at a time, not both.
+    private string? _rotatedToken;
+    private string _rotatedName = "";
+    private bool _copiedRotated;
+
+    // Inline error from a failed rotate (rare; the gate prevents most).
+    // Cleared on every RequestRotate entry + on confirm modal close.
+    private string? _errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await Auth.GetAuthenticationStateAsync();
+        _userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _org = await db.Organizations.FindAsync(Id);
+        if (_org is not null) _orgName = _org.Name;
+        _canManage = !string.IsNullOrEmpty(_userId) && _org is not null
+            && await OrgAuth.IsOrgAdminAsync(_userId, Id);
+        if (_canManage)
+        {
+            await ReloadAsync();
+        }
+        _hasLoaded = true;
+    }
+
+    private async Task ReloadAsync()
+    {
+        _stubs = await PersonSvc.ListStubsAsync(Id, _userId);
+    }
+
+    // Render a status badge based on the (HasActiveToken, ClaimedUtc)
+    // triple. HasActiveToken wins because it represents the live state
+    // of the most-recently-minted token. ClaimedUtc is shown only when
+    // no active token is present (consumed / rotated / expired /
+    // never-minted).
+    private RenderFragment TokenStatusBadge(StubListItem s) => s.HasActiveToken
+        ? @<span class="badge text-bg-success">Active</span>
+        : s.ClaimedUtc.HasValue
+            ? @<span class="badge text-bg-secondary">Consumed or rotated</span>
+            : @<span class="badge text-bg-warning">No active token</span>;
+
+    private void RequestRotate(string personUserId, string displayName)
+    {
+        _confirmRotateUserId = personUserId;
+        _confirmRotateName = displayName;
+        _rotatedToken = null;
+        _errorMessage = null;
+    }
+
+    private void CancelRotate()
+    {
+        _confirmRotateUserId = null;
+        _confirmRotateName = "";
+    }
+
+    private async Task ConfirmRotateAsync()
+    {
+        if (_confirmRotateUserId is null) return;
+        _busyRotate = true;
+        _errorMessage = null;
+        try
+        {
+            var outcome = await PersonSvc.RotateClaimTokenAsync(
+                organizationId: Id,
+                personUserId: _confirmRotateUserId,
+                callerUserId: _userId);
+            switch (outcome.Result)
+            {
+                case TokenRotationResult.Succeeded:
+                    _rotatedToken = outcome.RawToken;
+                    _rotatedName = _confirmRotateName;
+                    _confirmRotateUserId = null;
+                    _copiedRotated = false;
+                    // Refresh the list so the row's badge flips back to
+                    // Active with the new expiry, and the row's claim
+                    // timestamp updates to the rotation moment (the old
+                    // token's ClaimedUtc is now set, per the service
+                    // contract encoded in PersonServiceTests).
+                    await ReloadAsync();
+                    break;
+                case TokenRotationResult.PermissionDenied:
+                    _confirmRotateUserId = null;
+                    _errorMessage = "You don't have administrator rights for this organization.";
+                    break;
+                case TokenRotationResult.NotFound:
+                    _confirmRotateUserId = null;
+                    _errorMessage = "That stub member no longer exists.";
+                    break;
+                case TokenRotationResult.NotAStub:
+                    _confirmRotateUserId = null;
+                    _errorMessage = "That person isn't a stub — real accounts don't have claim tokens.";
+                    break;
+                case TokenRotationResult.NoActiveToken:
+                    // Per service contract this is NOT returned from
+                    // rotation (rotation can mint a fresh token); listed
+                    // for completeness if a future round adds that branch.
+                    _confirmRotateUserId = null;
+                    _errorMessage = "No active token to rotate (system error).";
+                    break;
+            }
+        }
+        finally
+        {
+            _busyRotate = false;
+        }
+    }
+
+    private async Task CopyRotated()
+    {
+        if (string.IsNullOrEmpty(_rotatedToken)) return;
+        _copiedRotated = false;
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", _rotatedToken);
+            _copiedRotated = true;
+        }
+        catch
+        {
+            // Older browsers / non-secure-context reject the Clipboard API.
+            // The readonly <input> is still select-and-copyable manually.
+        }
+    }
+
+    private void CloseOneTimeReveal()
+    {
+        _rotatedToken = null;
+        _rotatedName = "";
+        _copiedRotated = false;
+    }
+
+    private async Task HandleRevealKeyDown(KeyboardEventArgs e)
+    {
+        if (_rotatedToken is not null && (e.Key == "Escape" || e.Code == "Escape"))
+            CloseOneTimeReveal();
+    }
+
+    private async Task HandleRevealBackdrop()
+    {
+        if (_rotatedToken is not null) CloseOneTimeReveal();
+    }
+
+    // BuildClaimUrl — same shape as AddStub.razor's BuildClaimUrl.
+    private string BuildClaimUrl(string token)
+    {
+        var baseUri = Nav.BaseUri.TrimEnd('/');
+        return $"{baseUri}/Account/Register?claim={Uri.EscapeDataString(token)}";
+    }
+}

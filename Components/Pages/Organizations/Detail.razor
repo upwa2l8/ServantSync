@@ -150,7 +150,28 @@ else
     else if (Tab == "members")
     {
         <div class="mt-3">
-            <h6>Add a member</h6>
+            @* Add-member header row. The "+ Add manually" button (admin
+               only) takes the admin to the FR-3 stub-create flow:
+               Components/Pages/Organizations/Members/AddStub.razor. The
+               inline EditForm below handles adding an EXISTING real
+               Person as a member of THIS org (the MemberManagementService
+               AddAsync path). Two distinct concerns — "add an existing
+               account as a member" vs "create a stub placeholder for a
+               not-yet-registered volunteer" — so two distinct affordances.
+               The cost of confusing them is high (a stub-vs-real mixup
+               leaks identities into the wrong table) so the headers are
+               explicit. *@
+            <div class="d-flex justify-content-between align-items-end mb-2">
+                <h6 class="mb-0">Add a member</h6>
+                @if (_canAddMember)
+                {
+                    <a class="btn btn-sm btn-outline-primary"
+                       href="@($"Organizations/{Id}/Members/AddStub")"
+                       title="Add a volunteer who doesn't yet have an account. You'll get a one-time claim token to hand off in person; when they sign up, the token links their existing memberships / assignments / training to the new account.">
+                        + Add manually (stub)
+                    </a>
+                }
+            </div>
             @if (!_canAddMember)
             {
                 // Read-only view for non-Admins. The server gate inside
@@ -279,6 +300,83 @@ else
                     @_lastMessage
                 </div>
             }
+
+            @* ─── FR-3.3 stub members sub-section (admin only) ─── *@
+            @* Conceptually distinct from the real-member list above:
+               stubs have no usable login (placeholder IdentityUser locked
+               out forever), so per-row Promote / Remove / Role-dropdown
+               patterns don't apply. They have their own concern —
+               the claim-token lifecycle — which lives on the dedicated
+               /Organizations/{id}/Members/Stubs page. This sub-section
+               intentionally surfaces only a glance-friendly preview
+               (≤5 rows, soonest-expiring first) so an admin who only
+               checks this tab sees something actionable ("Bob's token
+               expires Tuesday — better rotate today") without having to
+               navigate away. Full list + per-row Rotate UI on the
+               dedicated page. *@
+            @if (_canAddMember)
+            {
+                <hr class="my-4" />
+                <div class="d-flex justify-content-between align-items-end mb-2">
+                    <h6 class="mb-0">Stub members (@(_stubPreview?.Count ?? 0))</h6>
+                    <a class="btn btn-sm btn-outline-primary"
+                       href="@($"Organizations/{Id}/Members/Stubs")"
+                       title="Manage manually-added volunteers who haven't yet registered an account. Rotate claim tokens, view full list.">
+                        Manage stub members →
+                    </a>
+                </div>
+                @if (_stubPreview is null)
+                {
+                    <p class="text-muted small mb-0"><em>Loading stub list…</em></p>
+                }
+                else if (_stubPreview.Count == 0)
+                {
+                    <p class="text-muted small mb-0">
+                        No stub members yet. Click <strong>+ Add manually</strong> above to create one — you'll get a one-time claim token to hand off to the volunteer in person.
+                    </p>
+                }
+                else
+                {
+                    @* Glance-sized preview (≤5). Sorted soonest-active-token-first
+                       so an expiring-token warning lands on top. The full
+                       list lives on /Members/Stubs. *@
+                    <ul class="list-group mt-2">
+                        @foreach (var s in _stubPreview.OrderBy(s => s.TokenExpiresUtc ?? DateTime.MaxValue).Take(5))
+                        {
+                            <li class="list-group-item d-flex justify-content-between align-items-center py-2">
+                                <div>
+                                    <strong>@s.DisplayName</strong>
+                                    <span class="text-muted small ms-2">
+                                        @if (s.HasActiveToken && s.TokenExpiresUtc.HasValue)
+                                            {
+                                                @:token expires @s.TokenExpiresUtc.Value.ToString("yyyy-MM-dd")
+                                            }
+                                            else if (s.ClaimedUtc.HasValue)
+                                            {
+                                                @:last claim/rotate @s.ClaimedUtc.Value.ToString("yyyy-MM-dd")
+                                            }
+                                            else
+                                            {
+                                                @:no active token
+                                            }
+                                    </span>
+                                </div>
+                                <a class="btn btn-sm btn-outline-secondary"
+                                   href="@($"Organizations/{Id}/Members/Stubs")">
+                                    Manage
+                                </a>
+                            </li>
+                        }
+                    </ul>
+                    @if (_stubPreview.Count > 5)
+                    {
+                        <p class="text-muted small mt-2 mb-0">
+                            Showing 5 of @_stubPreview.Count stubs.
+                            <a href="@($"Organizations/{Id}/Members/Stubs")">See all →</a>
+                        </p>
+                    }
+                }
+            }
         </div>
     }
     else if (Tab == "arenas")
@@ -400,6 +498,13 @@ else
 @inject IMemberManagementService Members
 @inject IArenaService Arenas
 @inject IOrganizationService Orgs
+@* FR-3.3: stub-preview on the Members tab. The full manage surface
+   lives on /Organizations/{id}/Members/Stubs (separate page); this
+   list is a glance for the natural "who is still pending" question
+   an admin asks on this tab. Admin-gated by the service identically
+   to the dedicated page; reload fires alongside the real-members
+   Reload() in OnInitialized. *@
+@inject IPersonService People
 @code {
     [Parameter] public int Id { get; set; }
     private Organization? _org;
@@ -410,6 +515,13 @@ else
     // [SupplyParameterFromForm] — see Organizations/Edit.razor for rationale.
     [SupplyParameterFromForm] private ArenaModel _arenaModel { get; set; } = new();
     private bool _showAddArena;
+    // FR-3.3: stub-preview cache. Populated in Reload() if _canAddMember
+    // is true (server re-checks via PersonService.ListStubsAsync; null on
+    // a transient DB error so the badge in the Members tab still renders
+    // a "Loading…" line rather than crashing the page). Sort + filter
+    // happens at render time (OrderBy(...).Take(5)) so the cache stays
+    // a single POST-shape.
+    private List<StubListItem>? _stubPreview;
     // Admin-only. ALL membership writes (add/promote/demote/remove) and
     // administrative actions (add arena, add ministry) are gated on this.
     // MemberManagementService / ArenaService / OrganizationMinistryService
@@ -559,6 +671,20 @@ else
 
         _allPeople = await db.People.OrderBy(p => p.LastName).ToListAsync();
         _orgArenas = await db.Arenas.Where(a => a.OrganizationId == Id).OrderBy(a => a.Name).AsNoTracking().ToListAsync();
+        // FR-3.3: fetch the stub preview only if the caller is an Admin
+        // (the service re-gates; the local gate avoids a wasted call +
+        // avoids leaking the "Loading stub list…" affordance to a
+        // non-admin viewer who never sees the sub-section anyway).
+        // ListStubsAsync returns empty for non-admin callers without
+        // throwing, so the local check is purely a UX-side optimization.
+        if (_canAddMember)
+        {
+            _stubPreview = await People.ListStubsAsync(Id, _userId);
+        }
+        else
+        {
+            _stubPreview = null;
+        }
     }
 
     private async Task AddArena()

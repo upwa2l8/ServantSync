@@ -28,7 +28,24 @@
    write succeeds. *@
 
 @* Code-status banner. We show ONE of three states in this slot: *@
-@if (_autoJoinOrg is not null)
+@* Code-status banner. We show ONE of four states in this slot: *@
+@if (_claimStubName is not null)
+{
+    @* Round-FR-3.3 (this): claim-token banner. Blue (alert-info) because
+       there's nothing for the user to confirm — they're claiming an
+       account they already have a token for. The banner names the stub
+       so the volunteer can sanity-check ("yes, that's me — Sara Smith
+       from the head-of-Greeters handoff") before submitting. Reducing
+       surprise when their existing training + assignments reappear on
+       the dashboard after registration is half the value of the whole
+       FR-3 effort. *@
+    <div class="alert alert-info py-2 small">
+        You're claiming <strong>@_claimStubName</strong>'s volunteer record. After you
+        register, their existing memberships, assignments, and training will be linked
+        to your new account.
+    </div>
+}
+else if (_autoJoinOrg is not null)
 {
     <div class="alert alert-info py-2 small">
         You'll be joining <strong>@_autoJoinOrg.Name</strong> as a volunteer after registering.
@@ -52,6 +69,15 @@ else if (_codeWasProvided)
 
 <form method="post" action="/Account/PerformRegister">
     <input type="hidden" name="token" value="@(Token ?? "")" />
+    @* Round-FR-3.3 (this): claim-token hidden field. The PerformRegister
+       endpoint reads `claim` and, if present, calls
+       PersonService.ClaimStubAsync after SignInAsync. The field
+       value is the raw Base64Url 43-char token — the volunteer never
+       sees it because it's hidden; only the BANNER above (which shows
+       the resolved stub name) is user-visible. If the token is empty
+       or whitespace, the endpoint skips the claim call entirely so
+       normal registrations are unaffected. *@
+    <input type="hidden" name="claim" value="@(Claim ?? "")" />
     <input type="hidden" name="returnUrl" value="@(ReturnUrl ?? "/")" />
     <input type="hidden" name="__RequestVerificationToken" value="@Antiforgery.GetAndStoreTokens(HttpContext).RequestToken" />
 
@@ -107,11 +133,22 @@ else if (_codeWasProvided)
     [SupplyParameterFromQuery(Name = "token")] public string? Token { get; set; }
     [SupplyParameterFromQuery(Name = "orgId")] public int? OrgIdQuery { get; set; }
     [SupplyParameterFromQuery(Name = "error")] public string? Error { get; set; }
+    // Round-FR-3.3 (this): the ?claim={token} query param. Round-tripped
+    // into the PerformRegister POST as a hidden field; resolved here at
+    // page-load to display the "claiming X's record" banner by name.
+    [SupplyParameterFromQuery(Name = "claim")] public string? Claim { get; set; }
     [CascadingParameter] private HttpContext HttpContext { get; set; } = default!;
 
     private Organization? _autoJoinOrg;
     private bool _codeWasProvided;
     private List<Organization> _orgsForDropdown = new();
+    // Round-FR-3.3 (this): resolved stub name for the banner. Computed
+    // at OnInitializedAsync from the claim token's hash + expiry. We
+    // resolve ONLY for display (so the banner can name the volunteer
+    // the user is about to claim); the actual hash-match validation
+    // happens server-side in PerformRegister (defense in depth: a
+    // tampered token here just shows no banner; the server rejects it).
+    private string? _claimStubName;
 
     protected override async Task OnInitializedAsync()
     {
@@ -138,5 +175,53 @@ else if (_codeWasProvided)
             .OrderBy(o => o.Name)
             .Select(o => new Organization { Id = o.Id, Name = o.Name })
             .ToListAsync();
+
+        // Round-FR-3.3 (this): resolve the claim-banner name. We hash
+        // the inbound token and look it up against active+unexpired
+        // PersonClaimToken rows. We pre-compute the SHA-256 here so
+        // decoding failures (malformed token sent by accident) cleanly
+        // render as "no banner" instead of crashing the page; the
+        // server-side CheckClaimsAsync in PersonService.ClaimStubAsync
+        // is the authoritative validator. Round-tripped through the same
+        // helper PersonService uses internally (the static
+        // ComputeTokenHash helper), so the page banner and the
+        // service's accept/reject are consistent.
+        if (!string.IsNullOrWhiteSpace(Claim))
+        {
+            try
+            {
+                var hash = ComputeClaimTokenHash(Claim.Trim());
+                var stub = await (
+                    from t in db.PersonClaimTokens
+                    join p in db.People on t.PersonUserId equals p.UserId
+                    where t.TokenHash == hash
+                       && t.ClaimedUtc == null
+                       && t.ExpiresUtc > DateTime.UtcNow
+                    select p.DisplayName
+                ).FirstOrDefaultAsync();
+                _claimStubName = stub;
+            }
+            catch
+            {
+                // Malformed token (invalid Base64Url): silently render no
+                // banner. Server-side ClaimStubAsync will reject the
+                // attempt with InvalidToken and the user will see an
+                // error on the post.
+                _claimStubName = null;
+            }
+        }
+    }
+
+    // Helper: SHA-256 of the raw 32-byte token, lowercase hex (64).
+    // Mirrors the format PersonService uses to populate TokenHash on
+    // token mint + the lookup hash it compares against in
+    // ClaimStubAsync. Page-side copy so we don't need to dependency-
+    // inject IPersonService into a Razor page that otherwise doesn't
+    // need it; the construct is documented in PersonService.cs.
+    private static string ComputeClaimTokenHash(string rawToken)
+    {
+        var bytes = Microsoft.AspNetCore.WebUtilities.WebEncoders.Base64UrlDecode(rawToken);
+        var hash = System.Security.Cryptography.SHA256.HashData(bytes);
+        return System.BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
     }
 }

@@ -52,6 +52,24 @@ public class PageAccessTests : SqliteTestBase
         NullLogger<SlotManagementService>.Instance);
 
     /// <summary>
+    /// Round-FR-3.3 helper: PersonService factory identical to the
+    /// PersonServiceTests.NewService shape. Needs the real
+    /// <see cref="SqliteTestBase.UserManager"/> because
+    /// CreateStubAsync / ClaimStubAsync / RotateClaimTokenAsync all
+    /// touch the Identity user table (placeholder IdentityUser mint,
+    /// password-hash checks, etc.). Uses the real <see cref="OrgAuthService"/>
+    /// so the gate the test asserts is the production gate, not a
+    /// shim — important because PersonService re-checks the gate on
+    /// every method and a shim-meddling gate would silently let
+    /// non-admin callers slip through.
+    /// </summary>
+    private PersonService NewPersonService() => new(
+        Factory,
+        UserManager,
+        new OrgAuthService(Factory),
+        NullLogger<PersonService>.Instance);
+
+    /// <summary>
     /// Single shared "seed org" with one of each role plus a target person
     /// that isn't a member. Reused across every test so setup overhead
     /// stays small.
@@ -448,5 +466,141 @@ public class PageAccessTests : SqliteTestBase
 
         await using var db2 = await Factory.CreateDbContextAsync();
         Assert.False(await db2.ServiceSlots.AnyAsync(s => s.Name == "Sneak Across"));
+    }
+
+    // ─── Round-FR-3.3: stub-management admin gates ─────────────────────────
+    // Three new admin-only methods landing in round-FR-3.3 (Components/Pages/
+    // Organizations/Members/AddStub.razor + Members/Stubs.razor + Detail.razor
+    // stub-preview sub-section). All three are gated on IsOrgAdminAsync of
+    // the target org. Tests below assert the negative matrix; the
+    // Admin-positive paths are exercised in PersonServiceTests.
+    //
+    // The "foreign OrgAdmin" coefficient in each test is critical: a
+    // bug that lets cross-org Admins rotate / list stubs in another org
+    // would be invisible to a same-org gate-flip test but easy to
+    // catch here. PageAccessTests' job is the negative matrix for the
+    // page-routed affordances; the per-service suite's positive tests
+    // stay green as the gate reference.
+
+    [Fact]
+    public async Task AddStub_GateDeniesCoordinatorAndVolunteer_AndForeignOrgAdmin()
+    {
+        var (orgA, _, coordinatorId, volunteerId, _) = SeedOrgWithRoles("Org A");
+        // Foreign OrgAdmin pin: a second admin in Org B proves the
+        // cross-org branch of the gate (foreign-OrgAdmin is treated
+        // identically to non-admin).
+        var (_, _, otherAdminId, _, _) = SeedOrgWithRoles("Org B");
+
+        var svc = NewPersonService();
+
+        var coordResult = await svc.CreateStubAsync(
+            organizationId: orgA.Id,
+            firstName: "Coord", lastName: "Attempt",
+            email: null, phone: null,
+            callerUserId: coordinatorId);
+        var volResult = await svc.CreateStubAsync(
+            organizationId: orgA.Id,
+            firstName: "Vol", lastName: "Attempt",
+            email: null, phone: null,
+            callerUserId: volunteerId);
+        var foreignResult = await svc.CreateStubAsync(
+            organizationId: orgA.Id,
+            firstName: "Foreign", lastName: "Attempt",
+            email: null, phone: null,
+            callerUserId: otherAdminId);
+
+        Assert.Equal(StubCreationResult.PermissionDenied, coordResult.Result);
+        Assert.Equal(StubCreationResult.PermissionDenied, volResult.Result);
+        Assert.Equal(StubCreationResult.PermissionDenied, foreignResult.Result);
+
+        // Pin no-inserts: PermissionDenied must NOT have leaked a stub
+        // row + placeholder IdentityUser + token row into the DB. A
+        // future refactor that fires the CreateStubAsync body BEFORE
+        // the gate would mint IdentityUsers and trip these assertions.
+        await using var db = await Factory.CreateDbContextAsync();
+        Assert.False(await db.People.AnyAsync(p => p.FirstName == "Coord"
+            && p.LastName == "Attempt" && p.IsStub));
+        Assert.False(await db.People.AnyAsync(p => p.FirstName == "Vol"
+            && p.LastName == "Attempt" && p.IsStub));
+        Assert.False(await db.People.AnyAsync(p => p.FirstName == "Foreign"
+            && p.LastName == "Attempt" && p.IsStub));
+        Assert.False(await db.PersonClaimTokens.AnyAsync());
+    }
+
+    [Fact]
+    public async Task RotateClaimToken_GateDeniesCoordinatorAndVolunteer_AndForeignOrgAdmin()
+    {
+        var (orgA, _, coordinatorId, volunteerId, _) = SeedOrgWithRoles("Org A");
+        var (_, _, otherAdminId, _, _) = SeedOrgWithRoles("Org B");
+
+        var svc = NewPersonService();
+
+        // Seed a stub in Org A so rotation has a target. Mirrors the
+        // minimal shape PersonServiceTests.SeedStubWithToken builds,
+        // minus the cryptographic token bits (the gate refuses before
+        // any hash check, so a raw new Person is sufficient to test
+        // the gate).
+        var stubPerson = TestData.Person(Factory, "Sara", "Stub");
+        TestData.Membership(Factory, stubPerson.UserId, orgA.Id, OrganizationRole.Volunteer);
+        using (var db = Factory.CreateDbContext())
+        {
+            var p = db.People.First(p => p.UserId == stubPerson.UserId);
+            p.IsStub = true;
+            db.SaveChanges();
+        }
+
+        var coordResult = await svc.RotateClaimTokenAsync(
+            organizationId: orgA.Id,
+            personUserId: stubPerson.UserId,
+            callerUserId: coordinatorId);
+        var volResult = await svc.RotateClaimTokenAsync(
+            organizationId: orgA.Id,
+            personUserId: stubPerson.UserId,
+            callerUserId: volunteerId);
+        var foreignResult = await svc.RotateClaimTokenAsync(
+            organizationId: orgA.Id,
+            personUserId: stubPerson.UserId,
+            callerUserId: otherAdminId);
+
+        Assert.Equal(TokenRotationResult.PermissionDenied, coordResult.Result);
+        Assert.Equal(TokenRotationResult.PermissionDenied, volResult.Result);
+        Assert.Equal(TokenRotationResult.PermissionDenied, foreignResult.Result);
+
+        // Pin no-token-add: PermissionDenied must NOT have leaked a
+        // new PersonClaimToken row. A future refactor that runs the
+        // rotation body before the gate would mint a fresh token for
+        // a non-admin caller and trip this assertion.
+        await using var db2 = await Factory.CreateDbContextAsync();
+        Assert.False(await db2.PersonClaimTokens.AnyAsync());
+    }
+
+    [Fact]
+    public async Task ListStubs_GateDeniesCoordinatorAndVolunteer_AndForeignOrgAdmin()
+    {
+        var (orgA, _, coordinatorId, volunteerId, _) = SeedOrgWithRoles("Org A");
+        var (_, _, otherAdminId, _, _) = SeedOrgWithRoles("Org B");
+
+        var svc = NewPersonService();
+
+        // Seed a stub in Org A so the list isn't trivially empty
+        // (the admin-positive path in PersonServiceTests already
+        // exercises the empty + non-empty cases; this test only
+        // covers the gate refusal).
+        var stubPerson = TestData.Person(Factory, "Sara", "Stub");
+        TestData.Membership(Factory, stubPerson.UserId, orgA.Id, OrganizationRole.Volunteer);
+        using (var db = Factory.CreateDbContext())
+        {
+            var p = db.People.First(p => p.UserId == stubPerson.UserId);
+            p.IsStub = true;
+            db.SaveChanges();
+        }
+
+        var coordResult = await svc.ListStubsAsync(orgA.Id, coordinatorId);
+        var volResult = await svc.ListStubsAsync(orgA.Id, volunteerId);
+        var foreignResult = await svc.ListStubsAsync(orgA.Id, otherAdminId);
+
+        Assert.Empty(coordResult);
+        Assert.Empty(volResult);
+        Assert.Empty(foreignResult);
     }
 }

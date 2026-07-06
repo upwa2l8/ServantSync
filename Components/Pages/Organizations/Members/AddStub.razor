@@ -1,0 +1,358 @@
+@page "/Organizations/{Id:int}/Members/AddStub"
+@attribute [Authorize]
+@* Per the round-AF per-page discipline: the page must own its render-mode.
+   The MainLayout deliberately has no @rendermode (the layout's @Body is a
+   RenderFragment that can't be serialized across a render-mode boundary).
+   Pages that need interactivity on this site carry the
+   `@rendermode InteractiveServer` directive themselves. Same form recipe
+   is used in Organizations/Edit.razor + Organizations/Detail.razor +
+   Ministries/Edit.razor. *@
+@rendermode InteractiveServer
+@using System.ComponentModel.DataAnnotations
+
+<PageTitle>Add stub member · @(_orgName ?? "Organization")</PageTitle>
+
+@if (!_hasLoaded)
+{
+    <p><em>Loading…</em></p>
+}
+else if (_org is null)
+{
+    <div class="alert alert-warning mt-3">
+        <h4>Organization not found</h4>
+        <p>No organization matches id <code>@Id</code>. Try the
+        <a href="Organizations">organization list</a>.</p>
+    </div>
+}
+else if (!_canAddMember)
+{
+    @* Mirror Detail.razor's role-gated pattern: even if the caller
+       forges the URL with an org id, the page refuses to render the
+       form. Server-side PersonService.CreateStubAsync re-gates on the
+       same IsOrgAdminAsync check, so this UI gate is defense-in-depth
+       rather than security-critical. *@
+    <div class="alert alert-danger mt-3">
+        <h4>Permission denied</h4>
+        <p>Only organization <strong>Admins</strong> can add manually-entered stub members.</p>
+        <a href="@($"Organizations/{Id}")" class="btn btn-outline-secondary">← Back to organization</a>
+    </div>
+}
+else if (_claimToken is not null)
+{
+    @* ─── ONE-TIME TOKEN REVEAL ─── *@
+    @* The raw claim token is returned by PersonService.CreateStubAsync
+       ONCE and is never persisted anywhere recoverable (only the SHA-256
+       hash lives on disk). So this panel is the ONLY opportunity for the
+       admin to copy/print the token. _claimToken non-null means we
+       succeeded; the form is NOT re-rendered until the admin chooses to
+       add a new stub. The placement above the form's branching
+       structure means the reveal is the final visual state until the
+       admin navigates away. *@
+    <nav aria-label="breadcrumb" class="mb-2">
+        <ol class="breadcrumb mb-0">
+            <li class="breadcrumb-item"><a href="Organizations">Organizations</a></li>
+            <li class="breadcrumb-item"><a href="@($"Organizations/{Id}")">@_org.Name</a></li>
+            <li class="breadcrumb-item active" aria-current="page">Stub added</li>
+        </ol>
+    </nav>
+
+    <div class="card border-warning mb-3">
+        <div class="card-header bg-warning-subtle">
+            <h4 class="mb-0">Stub member created successfully</h4>
+        </div>
+        <div class="card-body">
+            <p class="mb-2">
+                <strong>@_createdName</strong> has been added to <strong>@_org.Name</strong> as a
+                stub volunteer. The volunteer can't log in yet — they're waiting on you to hand off a
+                claim token in person.
+            </p>
+            <div class="alert alert-warning py-2 small mb-3">
+                <strong>This is the only time the claim token will be displayed.</strong>
+                It is stored only as a SHA-256 hash and cannot be recovered later. Print or write the
+                token down <em>before</em> closing this page.
+            </div>
+
+            <label class="form-label small text-uppercase mb-1">Claim token</label>
+            <div class="input-group mb-3">
+                <input id="claim-token" class="form-control font-monospace" readonly
+                       value="@_claimToken" />
+                <button class="btn btn-outline-primary" type="button"
+                        @onclick="CopyToken"
+                        title="Copy the claim token to your clipboard">
+                    @(_copied ? "Copied" : "Copy")
+                </button>
+            </div>
+
+            <label class="form-label small text-uppercase mb-1">Claim URL</label>
+            <p class="small mb-3">
+                The volunteer can also visit the register page directly with the token in the URL:
+                <br />
+                <code class="small">@BuildClaimUrl(_claimToken)</code>
+            </p>
+
+            <div class="d-flex flex-wrap gap-2">
+                <button type="button" class="btn btn-outline-secondary" @onclick="PrintPage">
+                    🖨 Print this page
+                </button>
+                <a href="@($"Organizations/{Id}/Members/Stubs")" class="btn btn-outline-primary">
+                    Manage stub members →
+                </a>
+                <button type="button" class="btn btn-outline-primary" @onclick="AddAnother">
+                    + Add another stub
+                </button>
+                <a href="@($"Organizations/{Id}")" class="btn btn-secondary ms-auto">← Done</a>
+            </div>
+        </div>
+    </div>
+}
+else
+{
+    @* ─── FORM MODE ─── *@
+    <nav aria-label="breadcrumb" class="mb-2">
+        <ol class="breadcrumb mb-0">
+            <li class="breadcrumb-item"><a href="Organizations">Organizations</a></li>
+            <li class="breadcrumb-item"><a href="@($"Organizations/{Id}")">@_org.Name</a></li>
+            <li class="breadcrumb-item active" aria-current="page">Add stub</li>
+        </ol>
+    </nav>
+
+    <h1 class="h3 mb-3">Add stub member</h1>
+
+    <p class="text-muted small">
+        Stub members are volunteers you have manually added to <strong>@_org.Name</strong> who
+        haven't yet registered an account. After adding them, you can assign them to
+        ministries and scheduled duties (after their training has been marked complete via the
+        per-volunteer marker flow). When the volunteer eventually signs up, they can present
+        the claim token to link their existing record — memberships, assignments, and training
+        completions all re-parent to their new account automatically.
+    </p>
+
+    @if (!string.IsNullOrEmpty(_errorMessage))
+    {
+        @* Single shared alert slot for failed create attempts. Mapped from
+           StubCreationResult enum to a plain-English sentence so the admin
+           sees something actionable, not just an enum-code breadcrumb. *@
+        <div class="alert alert-danger py-2 small">
+            @_errorMessage
+        </div>
+    }
+
+    @* FormName + always-rendered: the EditForm mounts on initial render
+       and is NEVER wrapped in @if/else conditionals, so the round-AF
+       "conditional EditForm FormName mount on InteractiveServer drops
+       the SignalR circuit" failure mode doesn't apply here. *@
+    <EditForm Model="_model" OnValidSubmit="SubmitAsync" FormName="stub-add">
+        <DataAnnotationsValidator />
+        <div class="row g-2">
+            <div class="col">
+                <div class="form-floating mb-3">
+                    <InputText id="first" class="form-control" @bind-Value="_model.FirstName" autocomplete="given-name" />
+                    <label for="first">First name</label>
+                    <ValidationMessage For="() => _model.FirstName" class="text-danger small" />
+                </div>
+            </div>
+            <div class="col">
+                <div class="form-floating mb-3">
+                    <InputText id="last" class="form-control" @bind-Value="_model.LastName" autocomplete="family-name" />
+                    <label for="last">Last name</label>
+                    <ValidationMessage For="() => _model.LastName" class="text-danger small" />
+                </div>
+            </div>
+        </div>
+        <div class="form-floating mb-3">
+            <InputText id="email" type="email" class="form-control" @bind-Value="_model.Email" autocomplete="off" />
+            <label for="email">Email (optional)</label>
+            <ValidationMessage For="() => _model.Email" class="text-danger small" />
+            <div class="form-text">If supplied, can be used later as the email-match secondary claim path. Pick a unique value — collisions are rejected.</div>
+        </div>
+        <div class="form-floating mb-3">
+            <InputText id="phone" class="form-control" @bind-Value="_model.Phone" autocomplete="off" />
+            <label for="phone">Phone (optional)</label>
+        </div>
+
+        <p class="small text-muted">
+            After you click <strong>Create</strong>, a claim token will be generated and shown to
+            you <strong>one time</strong>. Copy it now or print this page; the token is not
+            recoverable from the database.
+        </p>
+
+        <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-primary" disabled="@_busy">
+                @(_busy ? "Creating…" : "Create stub member")
+            </button>
+            <a href="@($"Organizations/{Id}")" class="btn btn-outline-secondary">Cancel</a>
+        </div>
+    </EditForm>
+}
+
+@inject IPersonService PersonSvc
+@inject IOrgAuthService OrgAuth
+@inject AuthenticationStateProvider Auth
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@code {
+    [Parameter] public int Id { get; set; }
+
+    // _hasLoaded: true after OnInitializedAsync finishes so the renderer
+    // can distinguish "still loading" from "loaded, no org matched the
+    // route Id" (the latter renders a Not Found panel). The same pattern
+    // is used in Organizations/Detail.razor and Ministries/Edit.razor
+    // so a missing-org navigation shows explicit feedback rather than
+    // an indefinite Loading spinner.
+    private bool _hasLoaded;
+    private Organization? _org;
+    private string _orgName = "";
+    // Pattern matches Organizations/Detail.razor: OrgAuth lookup cached
+    // once at OnInitialized; false until that resolves so the form
+    // never flashes on a non-admin browser refresh.
+    private bool _canAddMember;
+    private string _userId = "";
+
+    @* Form model: string First/Last initialized to empty (not null) so
+       the [Required] validator sees a non-null value and reports the
+       "required" message cleanly instead of NRE-ing on Trim().
+       Optional Email/Phone are nullable so InputText can render an
+       empty control. *@
+    [SupplyParameterFromForm] private StubModel _model { get; set; } = new();
+    private bool _busy;
+    private string? _errorMessage;
+    // Post-create one-time reveal state. Non-null → render the token
+    // panel instead of the form (the @if !_org is null ... else if
+    // _claimToken is not null ... else { form } chain above).
+    private string? _claimToken;
+    private string _createdName = "";
+    private bool _copied;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await Auth.GetAuthenticationStateAsync();
+        _userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
+        await LoadOrgAsync();
+        _canAddMember = !string.IsNullOrEmpty(_userId) && await OrgAuth.IsOrgAdminAsync(_userId, Id);
+        _hasLoaded = true;
+    }
+
+    private async Task LoadOrgAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _org = await db.Organizations.FindAsync(Id);
+        if (_org is not null) _orgName = _org.Name;
+    }
+
+    // The submit handler is a regular OnValidSubmit callback. Form
+    // validation already enforces Required on First + Last and the
+    // EmailAddress attribute on Email; this handler does the
+    // service call + enum → sentence mapping. _busy gates the submit
+    // button so a double-click can't submit twice (each successful
+    // submit mints a fresh token).
+    private async Task SubmitAsync()
+    {
+        if (!_canAddMember) return;
+        _busy = true;
+        _errorMessage = null;
+        try
+        {
+            var outcome = await PersonSvc.CreateStubAsync(
+                organizationId: Id,
+                firstName: (_model.FirstName ?? "").Trim(),
+                lastName: (_model.LastName ?? "").Trim(),
+                email: string.IsNullOrWhiteSpace(_model.Email) ? null : _model.Email.Trim(),
+                phone: string.IsNullOrWhiteSpace(_model.Phone) ? null : _model.Phone.Trim(),
+                callerUserId: _userId);
+
+            switch (outcome.Result)
+            {
+                case StubCreationResult.Succeeded:
+                    _claimToken = outcome.RawToken;
+                    _createdName = outcome.Person?.DisplayName
+                        ?? $"{_model.FirstName} {_model.LastName}".Trim();
+                    // Reset the model so the next "Add another stub" click
+                    // (handled by AddAnother()) starts with empty fields.
+                    _model = new StubModel();
+                    break;
+                case StubCreationResult.PermissionDenied:
+                    _errorMessage = "You don't have administrator rights for this organization.";
+                    break;
+                case StubCreationResult.ValidationFailed:
+                    _errorMessage = "First name and last name are required.";
+                    break;
+                case StubCreationResult.OrgNotFound:
+                    _errorMessage = "Organization not found. (It may have been deleted.)";
+                    break;
+                case StubCreationResult.EmailCollision:
+                    _errorMessage = "Another person already uses this email. Pick a different email or leave it blank.";
+                    break;
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task CopyToken()
+    {
+        if (string.IsNullOrEmpty(_claimToken)) return;
+        _copied = false;
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", _claimToken);
+            _copied = true;
+        }
+        catch
+        {
+            // Older browsers / non-secure contexts reject the Clipboard API.
+            // The readonly <input> is still select-and-copyable manually.
+            // Same defense-in-depth as Organizations/Detail.razor's
+            // CopyRegisterLink.
+        }
+    }
+
+    private async Task PrintPage()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("window.print");
+        }
+        catch
+        {
+            // Browser without window.print (printer-less headless, etc.):
+            // silent fallback. The admin can still copy + paste into a
+            // notepad/email.
+        }
+    }
+
+    // "Add another" → reset to the form. Pattern-matches the round-AV
+    // post-success UX: reset state but stay on the page (don't navigate
+    // away) so the admin can conveniently enter the next stub without
+    // repeating the URL dance.
+    private void AddAnother()
+    {
+        _claimToken = null;
+        _createdName = "";
+        _copied = false;
+        _model = new StubModel();
+        _errorMessage = null;
+    }
+
+    // BuildClaimUrl — exact same shape as Organizations/Detail.razor's
+    // BuildRegisterUrl: trim trailing slash so we don't get a double
+    // slash in the rendered URL.
+    private string BuildClaimUrl(string token)
+    {
+        var baseUri = Nav.BaseUri.TrimEnd('/');
+        return $"{baseUri}/Account/Register?claim={Uri.EscapeDataString(token)}";
+    }
+
+    private class StubModel
+    {
+        // Strings initialized to empty (not null) so [Required] validation
+        // reuses the canonical "required" message instead of tripping on
+        // the null reference during Trim() inside SubmitAsync.
+        [Required, StringLength(80)] public string FirstName { get; set; } = "";
+        [Required, StringLength(80)] public string LastName { get; set; } = "";
+        [StringLength(254), EmailAddress] public string? Email { get; set; }
+        [StringLength(40)] public string? Phone { get; set; }
+    }
+}

@@ -236,6 +236,7 @@ app.MapPost("/Account/PerformRegister", async (
     UserManager<IdentityUser> users,
     SignInManager<IdentityUser> signIn,
     IDbContextFactory<ApplicationDbContext> dbFactory,
+    IPersonService personSvc,             // Round-FR-3.3 (this): claim-token re-parent
     IAntiforgery antiforgery) =>
 {
     await antiforgery.ValidateRequestAsync(ctx);
@@ -245,6 +246,12 @@ app.MapPost("/Account/PerformRegister", async (
     var email = form["email"].ToString().Trim();
     var password = form["password"].ToString();
     var token = form["token"].ToString().Trim();
+    // Round-FR-3.3 (this): the claiming stub's raw claim token, posted
+    // from the Register.razor hidden form field. Empty string → no claim
+    // (normal register path). Non-empty → after SignInAsync, call
+    // PersonService.ClaimStubAsync to re-parent the stub's existing
+    // memberships / assignments / training to the new IdentityUser.
+    var claim = form["claim"].ToString().Trim();
     var orgIdRaw = form["organizationId"].ToString();
     var returnUrl = form["returnUrl"].ToString();
 
@@ -297,6 +304,59 @@ app.MapPost("/Account/PerformRegister", async (
     await db.SaveChangesAsync();
 
     await signIn.SignInAsync(user, isPersistent: false);
+
+    // ─── Round-FR-3.3: claim-token re-parent (token-primary path) ───
+    // If the volunteer registered with ?claim=... (FR-3.3), re-parent
+    // the stub's memberships / assignments / training to this new
+    // IdentityUser via PersonService.ClaimStubAsync. Service is the
+    // source of truth (validates hash, expiry, consume state, then
+    // does the FK re-parent; see the full re-parent sub-round audit
+    // in STATUS.md round-FR-3.2 for the SQLite defer-foreign-keys
+    // + FormattableString + PersonClaimToken.PersonUserId-flipped
+    // sub-rounds that landed it green).
+    //
+    // On Succeeded → redirect to safeTarget (re-parented Person is
+    // now live under the new IdentityUser; returning to / settles the
+    // navigation redirect that would otherwise re-fire circle-back to
+    // /Account/Register). On any non-Succeeded result → SIGN OUT the
+    // just-signed-in cookie + redirect back to /Account/Register with
+    // a descriptive error code so the user sees what happened. Sign-out
+    // is critical: without it the user would be "authenticated as a
+    // phantom account" whose Person row lived but whose stub merge
+    // failed — the dashboard would render without their history and
+    // there'd be no user-visible signal.
+    if (!string.IsNullOrEmpty(claim))
+    {
+        var outcome = await personSvc.ClaimStubAsync(
+            rawClaimToken: claim,
+            newIdentityUserId: user.Id,
+            newEmail: email);
+
+        if (outcome.Result != StubClaimResult.Succeeded)
+        {
+            // Roll back the just-issued auth cookie so we're not
+            // signed in as a phantom identity. The IdentityUser row
+            // + Person row still exist (intentional: they're harmless
+            // orphans and admin can clean them up; the alternative —
+            // deleting the IdentityUser on failure — is more brittle
+            // because the volunteer may have ALREADY been in your org
+            // as a MailConfirmed-only user from a prior POST).
+            await signIn.SignOutAsync();
+            var reason = outcome.Result switch
+            {
+                StubClaimResult.InvalidToken    => "claim_invalid",
+                StubClaimResult.Expired          => "claim_expired",
+                StubClaimResult.AlreadyClaimed  => "claim_used",
+                StubClaimResult.AlreadyLinked    => "claim_already_linked",
+                StubClaimResult.ValidationFailed => "claim_invalid",
+                _                                => "claim_failed",
+            };
+            var safeTarget = UrlSafety.IsLocalUrl(returnUrl) ? returnUrl : "/";
+            return Results.Redirect(
+                $"/Account/Register?returnUrl={Uri.EscapeDataString(safeTarget)}&error={reason}");
+        }
+    }
+
     return Results.Redirect(UrlSafety.IsLocalUrl(returnUrl) ? returnUrl : "/");
 });
 
