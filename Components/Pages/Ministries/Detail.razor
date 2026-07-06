@@ -97,9 +97,15 @@ else
 
     <div class="d-flex justify-content-between align-items-center mb-2">
         <h4 class="mb-0">Service slots (volunteer opportunities)</h4>
-        @* Admin-only "+ Add slot" affordance: matching the gate on
-           ServiceSlots/Edit.razor. *@
-        @if (_canManageOrg)
+        @* Round-BA: gate widened from `_canManageOrg` (org-Admin only) to
+           `_canManageMinistry` (CanManageMinistryAsync). Both target pages
+           — ServiceSlots/Edit.razor create path and Leagues/Teams/New.razor —
+           already use CanManageMinistryAsync as their server-side gate, so
+           the button visibility now matches the action-allowed state.
+           Previously a ministry coordinator could Schedule shifts in slots
+           they manage but got 403'd on CREATING a slot (Create was gated
+           on OrgAuth alone). *@
+        @if (_canManageMinistry)
         {
             <div class="d-flex gap-2 flex-wrap">
                 <a class="btn btn-sm btn-primary" href="@($"Organizations/{OrgId}/Ministries/{Id}/Roles/New")">+ Add slot</a>
@@ -113,7 +119,7 @@ else
        reachable via this page only, which made the conversion invisible
        to admins. The explainer turns the implicit state into an explicit
        one and points the admin at the right button above. *@
-    @if (_canManageOrg && !_ministry.Teams.Any())
+    @if (_canManageMinistry && !_ministry.Teams.Any())
     {
         <div class="text-muted small mb-2">
             <span class="bi bi-info-circle me-1" aria-hidden="true"></span>

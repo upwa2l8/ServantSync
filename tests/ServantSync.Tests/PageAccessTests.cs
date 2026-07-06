@@ -46,6 +46,11 @@ public class PageAccessTests : SqliteTestBase
         new OrgAuthService(Factory),
         NullLogger<OrganizationService>.Instance);
 
+    private SlotManagementService NewSlots() => new(
+        Factory,
+        new OrgAuthService(Factory),
+        NullLogger<SlotManagementService>.Instance);
+
     /// <summary>
     /// Single shared "seed org" with one of each role plus a target person
     /// that isn't a member. Reused across every test so setup overhead
@@ -237,5 +242,211 @@ public class PageAccessTests : SqliteTestBase
         await using var db = await Factory.CreateDbContextAsync();
         Assert.False(await db.Organizations.AnyAsync(o =>
             o.Name == "Should Not Exist" || o.Name == "Should Not Exist 2"));
+    }
+
+    // ─── Round-BA: ServiceSlots/Edit.razor gate split ─────────────────────
+    // Round-BA moved the single CanManageOrgAsync gate on the slot Edit
+    // page into a tier-split gate:
+    //   * Create path (slotId = null)  → CanManageMinistryAsync(MinId)
+    //   * Edit path   (slotId = int)   → CanManageSlotAsync(slotId)
+    // SlotManagementService.UpsertAsync is the source of truth for both
+    // gates (the page re-checks them but the service is what gets
+    // exercised in this matrix). Tests assert the gate contract for each
+    // tier; the positive admin path is already covered by the per-service
+    // suite and would be redundant here.
+
+    [Fact]
+    public async Task Edit_NewSlot_AllowsMinistryCoordinator()
+    {
+        // Widen-on-create: an org Coordinator (no Admin role) can create
+        // a slot in any ministry they CanManageMinistryAsync-gate. Pins
+        // the round-BA split: previously the page's CanManageOrgAsync
+        // gate ALSO accepted org Coordinators; the new ministry-tier
+        // gate keeps that property AND additionally accepts ministry
+        // Coordinators (so the order-side PromoteSlot flow keeps
+        // working without Admin escalation).
+        var (org, _, coordinatorId, _, _) = SeedOrgWithRoles();
+        var ministry = TestData.Ministry(Factory, org.Id, "Worship");
+
+        var result = await NewSlots().UpsertAsync(
+            coordinatorId, org.Id, ministry.Id, slotId: null,
+            name: "New Slot for Coordinator", description: null,
+            location: null, defaultDurationMinutes: 0,
+            isActive: true, capacity: 1,
+            coordinatorPersonUserId: null, coordinatorEmail: null, coordinatorPhone: null);
+
+        Assert.Equal(SlotUpsertResult.Saved, result);
+
+        await using var db = await Factory.CreateDbContextAsync();
+        Assert.True(await db.ServiceSlots.AnyAsync(s =>
+            s.MinistryId == ministry.Id && s.Name == "New Slot for Coordinator"));
+    }
+
+    [Fact]
+    public async Task Edit_NewSlot_DeniesRandomVolunteer()
+    {
+        // Negative matrix: a Volunteer who's a member of the org but
+        // holds neither Admin nor Coordinator role must still be denied.
+        var (org, _, _, volunteerId, _) = SeedOrgWithRoles();
+        var ministry = TestData.Ministry(Factory, org.Id, "Kids");
+
+        var result = await NewSlots().UpsertAsync(
+            volunteerId, org.Id, ministry.Id, slotId: null,
+            name: "Should Not Exist", description: null,
+            location: null, defaultDurationMinutes: 0,
+            isActive: true, capacity: 1,
+            coordinatorPersonUserId: null, coordinatorEmail: null, coordinatorPhone: null);
+
+        Assert.Equal(SlotUpsertResult.PermissionDenied, result);
+
+        await using var db = await Factory.CreateDbContextAsync();
+        Assert.False(await db.ServiceSlots.AnyAsync(s => s.Name == "Should Not Exist"));
+    }
+
+    [Fact]
+    public async Task Edit_ExistingSlot_AllowsSlotCoordinator()
+    {
+        // The round-BA edit-path widens to slot-tier: a person who IS the
+        // slot's own CoordinatorPersonUserId can edit their slot even
+        // when they hold zero org-wide role (no Admin, no org
+        // Coordinator, no ministry Coordinator). This was the substantive
+        // motivation for the per-slot coordinator field in the first
+        // place — Sara can run Greeters without admins having to
+        // micro-manage the ministry layer.
+        var (org, _, _, _, _) = SeedOrgWithRoles();
+        var ministry = TestData.Ministry(Factory, org.Id, "Welcome");
+        var slot = TestData.Slot(Factory, ministry.Id, "Welcome Desk");
+        // Slot coordinator is a Person who is NOT in any org role — promote
+        // them to membership only as a Person so the FK constraint on
+        // FK_ServiceSlots_People_CoordinatorPersonUserId is satisfied.
+        var slotCoord = TestData.Person(Factory);
+        await using (var db = await Factory.CreateDbContextAsync())
+        {
+            slot.CoordinatorPersonUserId = slotCoord.UserId;
+            db.ServiceSlots.Update(slot);
+            await db.SaveChangesAsync();
+        }
+
+        var result = await NewSlots().UpsertAsync(
+            slotCoord.UserId, org.Id, ministry.Id, slotId: slot.Id,
+            name: "Welcome Desk (renamed by slot coord)", description: null,
+            location: null, defaultDurationMinutes: 0,
+            isActive: true, capacity: 1,
+            coordinatorPersonUserId: slotCoord.UserId,
+            coordinatorEmail: null, coordinatorPhone: null);
+
+        Assert.Equal(SlotUpsertResult.Saved, result);
+
+        await using var db2 = await Factory.CreateDbContextAsync();
+        var reloaded = await db2.ServiceSlots.SingleAsync(s => s.Id == slot.Id);
+        Assert.Equal("Welcome Desk (renamed by slot coord)", reloaded.Name);
+        Assert.Equal(slotCoord.UserId, reloaded.CoordinatorPersonUserId);
+    }
+
+    [Fact]
+    public async Task Edit_ExistingSlot_DeniesRandomVolunteer()
+    {
+        // Negative matrix: a Volunteer in the org cannot edit a slot in
+        // that org's ministry. Their membership is at the org tier but
+        // not the ministry or slot tier. The slot-tier gate correctly
+        // rejects them.
+        var (org, _, _, volunteerId, _) = SeedOrgWithRoles();
+        var ministry = TestData.Ministry(Factory, org.Id, "Tech");
+        var slot = TestData.Slot(Factory, ministry.Id, "Soundboard");
+
+        var result = await NewSlots().UpsertAsync(
+            volunteerId, org.Id, ministry.Id, slotId: slot.Id,
+            name: "Should Not Rename", description: null,
+            location: null, defaultDurationMinutes: 0,
+            isActive: true, capacity: 1,
+            coordinatorPersonUserId: null, coordinatorEmail: null, coordinatorPhone: null);
+
+        Assert.Equal(SlotUpsertResult.PermissionDenied, result);
+
+        await using var db = await Factory.CreateDbContextAsync();
+        var reloaded = await db.ServiceSlots.SingleAsync(s => s.Id == slot.Id);
+        Assert.Equal("Soundboard", reloaded.Name);
+    }
+
+    [Fact]
+    public async Task Edit_ExistingSlot_StaleMinistry_ReturnsNotFound()
+    {
+        // Edit-path NotFound pin via the realistic stale-membership
+        // scenario: an admin opens Edit for ministry A but the
+        // (OrgId, MinId, Id) tuple on the form gets corrupted (or the
+        // admin deletes ministry A and a stale Save submit arrives) so
+        // the page submits ministryId B + an Id that exists in ministry
+        // A only. The gate is org-Admin-wider so it PASSES (admins
+        // can manage any ministry in their org), but the DB op's
+        // scope check (`s.Id == editId && s.MinistryId == ministryId &&
+        // s.Ministry!.OrganizationId == organizationId`) refuses
+        // because the slot isn't in ministry B. Result must be
+        // NotFound, NOT throw, AND must NOT insert a phantom row.
+        //
+        // Note: a "ghost slotId 999_999" version of this test would
+        // fail it because CanManageSlotAsync returns false on
+        // nonexistent-slot (= PermissionDenied, not NotFound). The
+        // only reachable NotFound path is "exists in another ministry
+        // of the same org" — this is it.
+        var (org, adminId, _, _, _) = SeedOrgWithRoles();
+        var ministryA = TestData.Ministry(Factory, org.Id, "Original Ministry");
+        var ministryB = TestData.Ministry(Factory, org.Id, "Stale Page's Ministry");
+        var slot = TestData.Slot(Factory, ministryA.Id, "Real Slot in A");
+
+        var result = await NewSlots().UpsertAsync(
+            adminId, org.Id, ministryB.Id, slotId: slot.Id,
+            name: "Sneak Saves", description: null,
+            location: null, defaultDurationMinutes: 0,
+            isActive: true, capacity: 1,
+            coordinatorPersonUserId: null, coordinatorEmail: null, coordinatorPhone: null);
+
+        Assert.Equal(SlotUpsertResult.NotFound, result);
+
+        // ⚠ This NotFound path depends on org-Admin-covers-all-ministries
+        // (CanManageSlotAsync defers to CanManageMinistryAsync which
+        // widens via CanManageOrgAsync). If a future RBAC change narrows
+        // admin scope so admin can only manage a specific ministry,
+        // this assertion would shift to PermissionDenied instead of
+        // NotFound — re-evaluate or switch to a stub IOrgAuthService.
+
+        // Pin no-insert: NotFound must NOT have created a new row in
+        // ministry B with the attempted name (would be a data-corruption
+        // regression if a future refactor moves the Add() above the
+        // NotFound check).
+        await using var db = await Factory.CreateDbContextAsync();
+        Assert.False(await db.ServiceSlots.AnyAsync(s => s.Name == "Sneak Saves"));
+    }
+
+    [Fact]
+    public async Task Edit_NewSlot_DeniesCoordinatorOfDifferentMinistry()
+    {
+        // Cross-ministry guard: a ministry Coordinator's grant is
+        // ministry-scoped, NOT org-wide. They must NOT be able to create
+        // a slot in a DIFFERENT ministry of the same org. Pins the round-BA
+        // widen-AND-scope contract: ministry coordinator can create
+        // slots in their own ministry (see AllowMinistryCoordinator
+        // above) but not in others.
+        var (org, _, _, _, _) = SeedOrgWithRoles();
+        var ministryA = TestData.Ministry(Factory, org.Id, "A's Ministry");
+        var ministryB = TestData.Ministry(Factory, org.Id, "B's Ministry");
+        var ministerA = TestData.Person(Factory);
+        await using (var db = await Factory.CreateDbContextAsync())
+        {
+            ministryA.CoordinatorPersonUserId = ministerA.UserId;
+            db.Ministries.Update(ministryA);
+            await db.SaveChangesAsync();
+        }
+
+        var result = await NewSlots().UpsertAsync(
+            ministerA.UserId, org.Id, ministryB.Id, slotId: null,
+            name: "Sneak Across", description: null,
+            location: null, defaultDurationMinutes: 0,
+            isActive: true, capacity: 1,
+            coordinatorPersonUserId: null, coordinatorEmail: null, coordinatorPhone: null);
+
+        Assert.Equal(SlotUpsertResult.PermissionDenied, result);
+
+        await using var db2 = await Factory.CreateDbContextAsync();
+        Assert.False(await db2.ServiceSlots.AnyAsync(s => s.Name == "Sneak Across"));
     }
 }

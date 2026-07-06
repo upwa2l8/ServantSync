@@ -114,6 +114,11 @@ builder.Services.AddScoped<IOrganizationService, OrganizationService>();
 builder.Services.AddScoped<IMemberManagementService, MemberManagementService>();
 builder.Services.AddScoped<IArenaService, ArenaService>();
 builder.Services.AddScoped<IOrganizationMinistryService, OrganizationMinistryService>();
+// Round-BA: SlotManagementService hosts the gate-split logic for the
+// ServiceSlots/Edit.razor page (create vs edit tier). Keeps the page
+// markup thin and lets PageAccessTests pin the gate the same way it
+// already does for ministries/arenas/members.
+builder.Services.AddScoped<ISlotManagementService, SlotManagementService>();
 builder.Services.AddScoped<IMinistryInterestService, MinistryInterestService>();
 builder.Services.AddScoped<ICoordinatorAssignmentsService, CoordinatorAssignmentsService>();
 // Round-AI: self-heal handler. The Take page calls this on every

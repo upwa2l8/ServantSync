@@ -77,6 +77,7 @@
 @inject NavigationManager Nav
 @inject AuthenticationStateProvider Auth
 @inject IOrgAuthService OrgAuth
+@inject ISlotManagementService SlotMgmt
 @code {
     [Parameter] public int OrgId { get; set; }
     [Parameter] public int MinId { get; set; }
@@ -94,18 +95,63 @@
     private List<Person> _members = new();
     private string? _message;
     private bool _isError;
-    private bool _canSubmit;
+    // Round-BA split gate. _canCreate and _canEdit drive BOTH the
+    // button-disable state AND the Save() server-side check.
+    //
+    //  _canCreate = CanManageMinistryAsync(MinId)
+    //    Ministry-tier: org Admin/Coordinator + ministry Coordinator +
+    //    parent-ministry Coordinator (transitive). Widens the prior
+    //    CanManageOrgAsync gate so the ministry coordinator — who can
+    //    already schedule shifts in their own slot via Schedule.razor —
+    //    can also CREATE the slot definition.
+    //
+    //  _canEdit = CanManageSlotAsync(Id)
+    //    Slot-tier (delegated also to CoordinatorPersonUserId on the
+    //    slot row). Matches ServiceSlots/Detail.razor + Schedule.razor +
+    //    ScheduleSeries.razor so the three slot surfaces share one gate.
+    //    Crucially a slot coordinator can edit their own slot without
+    //    being escalated to ministry tier.
+    //
+    // Both intentionally do NO `|| IsSystemAdminAsync` widening — slot
+    // mutations stay in the strict-per-org blast radius (round-AZ
+    // precedent). SystemAdmin can READ every org but doesn't get
+    // auto-write to slots in arbitrary orgs.
+    private bool _canCreate;
+    private bool _canEdit;
+    // button-bind state for the Save button. Re-derives in OnInitialized
+    // (and on form re-render) — never trust client-side evaluation of a
+    // gate the server also re-checks inside SlotManagementService.
+    private bool _canSubmit => _isNew ? _canCreate : _canEdit;
+    private string _userId = "";
 
     protected override async Task OnInitializedAsync()
     {
         var state = await Auth.GetAuthenticationStateAsync();
-        var userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-        _canSubmit = !string.IsNullOrEmpty(userId)
-            && await OrgAuth.CanManageOrgAsync(userId, OrgId);
+        _userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
+
+        // ── Tier-split gate ─────────────────────────────────────────────
+        // At create-time there's no slot row yet so we MUST use the
+        // ministry-tier gate (slot-tier has no slot-coordinator FK yet).
+        // At edit-time the slot-tier gate ALSO honors the slot's own
+        // CoordinatorPersonUserId, which is the whole point of having
+        // per-slot coordinators in the first place.
+        if (_isNew)
+        {
+            _canCreate = !string.IsNullOrEmpty(_userId)
+                && await OrgAuth.CanManageMinistryAsync(_userId, MinId);
+        }
+        else
+        {
+            _canEdit = !string.IsNullOrEmpty(_userId)
+                && await OrgAuth.CanManageSlotAsync(_userId, Id!.Value);
+        }
+
         if (!_canSubmit)
         {
             _isError = true;
-            _message = "You don't have permission to manage service slots in this organization.";
+            _message = _isNew
+                ? "You don't have permission to add slots to this ministry."
+                : "You don't have permission to manage this service slot.";
             return;
         }
 
@@ -120,7 +166,10 @@
             .ToListAsync();
 
         if (_isNew) return;
-        var slot = await db.ServiceSlots.FindAsync(Id!.Value);
+        var slot = await db.ServiceSlots
+            .Where(s => s.Id == Id!.Value && s.MinistryId == MinId
+                && s.Ministry!.OrganizationId == OrgId)
+            .FirstOrDefaultAsync();
         if (slot is null)
         {
             _isError = true;
@@ -144,51 +193,49 @@
 
     private async Task Save()
     {
-        if (!_canSubmit)
+        // Server-side gate re-check — mirrors SlotManagementService's
+        // tier-split internal gate. The page-side gate already disabled
+        // the button; this is defense in depth in case a future
+        // contributor removes the disabled attribute.
+        if (_isNew ? !_canCreate : !_canEdit)
         {
             _isError = true;
             _message = "You don't have permission to do that.";
             return;
         }
 
-        await using var db = await DbFactory.CreateDbContextAsync();
-        if (_isNew)
+        var result = await SlotMgmt.UpsertAsync(
+            callerUserId: _userId,
+            organizationId: OrgId,
+            ministryId: MinId,
+            slotId: Id,
+            name: _model.Name,
+            description: _model.Description,
+            location: _model.Location,
+            defaultDurationMinutes: _model.DefaultDurationMinutes,
+            isActive: _model.IsActive,
+            capacity: _model.Capacity,
+            coordinatorPersonUserId: _model.CoordinatorPersonUserId,
+            coordinatorEmail: _model.CoordinatorEmail,
+            coordinatorPhone: _model.CoordinatorPhone);
+
+        switch (result)
         {
-        db.ServiceSlots.Add(new ServiceSlot
-        {
-            MinistryId = MinId,
-            Name = _model.Name,
-            Description = _model.Description,
-            Location = _model.Location,
-            DefaultDurationMinutes = _model.DefaultDurationMinutes > 0 ? _model.DefaultDurationMinutes : null,
-            IsActive = _model.IsActive,
-            Capacity = _model.Capacity > 0 ? _model.Capacity : 1,
-            CoordinatorPersonUserId = _model.CoordinatorPersonUserId,
-            CoordinatorEmail = _model.CoordinatorEmail,
-            CoordinatorPhone = _model.CoordinatorPhone,
-        });
-            await db.SaveChangesAsync();
-            Nav.NavigateTo($"Organizations/{OrgId}/Ministries/{MinId}");
-            return;
+            case SlotUpsertResult.Saved:
+                Nav.NavigateTo(_isNew
+                    ? $"Organizations/{OrgId}/Ministries/{MinId}"
+                    : $"Organizations/{OrgId}/Ministries/{MinId}/Roles/{Id}");
+                return;
+            case SlotUpsertResult.NotFound:
+                _isError = true;
+                _message = "Slot not found.";
+                return;
+            case SlotUpsertResult.PermissionDenied:
+            default:
+                _isError = true;
+                _message = "You don't have permission to do that.";
+                return;
         }
-        var existing = await db.ServiceSlots.FindAsync(Id!.Value);
-        if (existing is null)
-        {
-            _isError = true;
-            _message = "Slot not found.";
-            return;
-        }
-        existing.Name = _model.Name;
-        existing.Description = _model.Description;
-        existing.Location = _model.Location;
-        existing.DefaultDurationMinutes = _model.DefaultDurationMinutes > 0 ? _model.DefaultDurationMinutes : null;
-        existing.IsActive = _model.IsActive;
-        existing.Capacity = _model.Capacity > 0 ? _model.Capacity : 1;
-        existing.CoordinatorPersonUserId = _model.CoordinatorPersonUserId;
-        existing.CoordinatorEmail = _model.CoordinatorEmail;
-        existing.CoordinatorPhone = _model.CoordinatorPhone;
-        await db.SaveChangesAsync();
-        Nav.NavigateTo($"Organizations/{OrgId}/Ministries/{MinId}/Roles/{Id}");
     }
 
     private class SlotModel

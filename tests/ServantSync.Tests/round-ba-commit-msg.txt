@@ -1,0 +1,66 @@
+RBAC: round-BA ServiceSlots/Edit.razor gate split (slot-tier vs ministry-tier)
+
+Closes the asymmetry where a ministry coordinator — who could already
+schedule shifts in a slot via Schedule.razor — got 403'd on CREATING
+that slot in the first place because the page's CanManageOrgAsync gate
+was org-Admin-only. Same fix opens up EDIT to per-slot coordinators
+(Sara runs Greeters) without either extending org-wide role or
+escalating to ministry tier.
+
+NEW FILES:
+
+- Services/ISlotManagementService.cs
+  Interface UpsertAsync(orgId, ministryId, slotId?, name, ...) -> Task
+  <SlotUpsertResult> plus enum {Saved, PermissionDenied, NotFound}.
+  Heavy XML doc explicitly notes SystemAdmin is NOT widened on either
+  path (round-AZ strict-per-org-mutation precedent preserved).
+
+- Services/SlotManagementService.cs
+  Two-tier gate matching the org's slot surfacing pattern. Create path
+  uses CanManageMinistryAsync(MinId) — covers org Admin/Coordinator +
+  ministry Coordinator + parent-ministry Coordinator (transitive).
+  Edit path uses CanManageSlotAsync(Id) — also honors slot's
+  CoordinatorPersonUserId so delegated slot coordinators can edit
+  their own slots. DB op scope-checks the target row to (Id, MinId,
+  OrgId) for defense in depth. Two per-branch _log.LogWarning calls
+  so each message's placeholder count matches its template exactly.
+
+MODIFIED FILES:
+
+- Program.cs
+  Registered ISlotManagementService -> SlotManagementService as Scoped
+  next to the existing OrganizationMinistryService line.
+
+- Components/Pages/ServiceSlots/Edit.razor
+  Replaced single _canSubmit (CanManageOrgAsync) with _canCreate +
+  _canEdit; button-bind state derives from _isNew ? _canCreate :
+  _canEdit. OnInitializedAsync computes the right gate for the route
+  (_isNew => ministry-tier; !_isNew => slot-tier). Save() re-checks
+  the gate then delegates to SlotMgmt.UpsertAsync, switching on the
+  result enum. Error messages distinguish create-vs-edit. Load path
+  also scope-checks (Id, MinId, OrgId) so the same NotFound guard
+  works at load-time.
+
+- Components/Pages/Ministries/Detail.razor
+  The +Add slot and +Add team button block widened from _canManageOrg
+  (org-Admin-only) to _canManageMinistry (the ministry-tier gate the
+  page already computes). The League-CTA explainer block also flipped
+  to _canManageMinistry. Matches Leagues/Teams/New.razor's server-side
+  gate so clicking into the page won't 403.
+
+TESTS:
+
+- tests/ServantSync.Tests/PageAccessTests.cs
+  Added NewSlots() helper and 6 new tests pinning the split:
+  * Edit_NewSlot_AllowsMinistryCoordinator (widen-on-create pin)
+  * Edit_NewSlot_DeniesRandomVolunteer (negative matrix)
+  * Edit_ExistingSlot_AllowsSlotCoordinator (slot coord can edit
+    their own slot without escalation)
+  * Edit_ExistingSlot_DeniesRandomVolunteer (negative matrix)
+  * Edit_NewSlot_DeniesCoordinatorOfDifferentMinistry (cross-ministry
+    scope guard)
+  * Edit_ExistingSlot_StaleMinistry_ReturnsNotFound (realistic stale-
+    membership NotFound pin via slot-in-other-ministry + no-insert
+    regression guard)
+
+Build green, 340/340 tests pass (was 334 + 6 new).
