@@ -569,10 +569,429 @@ localization pass wires through cleanly without an interface bump.
   same mark logic that the email + login + register + empty-state
   surfaces use.
 - `BRANDING.md`: add a new "Printed material" section cross-linking
-  the PDF surface to the same brand tokens + text-wordmark rationale.
-- NEW tests: `tests/ServantSync.Tests/CalendarPdfBuilderTests.cs`
-  (PDF byte-stream non-empty + page count per scope + brand-text
-  present), `tests/ServantSync.Tests/QrCodeBuilderTests.cs` (encodes
-  expected URL + reasonable byte size), and a `PageAccessTests` entry
-  for the new endpoint's auth gate.
+  the PDF surface to the same brand tokens + text-wordmark rationale.- NEW tests: `tests/ServantSync.Tests/CalendarPdfBuilderTests.cs` (PDF byte-stream non-empty + page count per scope + brand-text present), `tests/ServantSync.Tests/QrCodeBuilderTests.cs` (encodes expected URL + reasonable byte size), and a `PageAccessTests` entry for the new endpoint's auth gate.
+
+### Round-FR-2: in-person scheduled training sessions with manual-completion audit
+
+**User ask (verbatim intent).** Coordinators want to schedule in-person
+training events (date/time/location), let volunteers sign up for those
+sessions, and after the session have the coordinator or admin mark
+volunteers complete. The system must keep an audit trail showing the
+completion was MANUAL (not user-clicked from online training).
+
+**Why now.** The current training pipeline is fully self-paced digital
+(PDF / video / slideshow). In-person training is a real-world pattern (a
+coach running a clinic, a trainer walking through safety procedures) that
+needs to be supported. The "mark complete in person" workflow is
+distinct from the engagement-verified online workflow in
+`TrainingService.RecordCompletionAsync` and must be auditable.
+
+**Tightly coupled to Round-FR-3.** The user explicitly tied FR-3 to
+FR-2 in the same message: *"coordinators can assign [manually-added
+volunteers] to scheduled duties if their trainings have been marked as
+complete."* That "marked as complete" is FR-2's manual-mark flow. The
+two specs should be implemented in order — FR-2 first (the manual-mark
+flow), then FR-3 (the stub-Person + claim flow) — because FR-3's stub
+duty-assignment feature is gated on FR-2's manual completion.
+
+**RBAC.**
+- Coordinator (or Admin) of the org: create / edit / cancel a session;
+  mark attendees complete.
+- Volunteer (or any org member): sign up for / cancel their own sign-up.
+- Coordinator of a different org: no access (server-gated deny).
+
+**Model additions.**
+
+1. **`TrainingSession` (new model).**
+   - `Id` (int, PK)
+   - `OrganizationId` (FK, required, cascade-delete with org)
+   - `TrainingContentId` (FK, optional — the material covered; null if
+     the session is "general orientation" with no specific digital content)
+   - `Title` (string, 200)
+   - `Description` (string?, 2000)
+   - `Location` (string, 200) — free-form: "Fellowship Hall", "Field 3", etc.
+   - `StartUtc` (DateTime)
+   - `EndUtc` (DateTime)
+   - `MaxAttendees` (int?, optional capacity)
+   - `Status` (enum: `Scheduled`, `Completed`, `Cancelled`)
+   - `CreatedByUserId` (string, FK IdentityUser)
+   - `CreatedUtc` (DateTime, default UtcNow)
+
+2. **`TrainingSessionAttendee` (new model).**
+   - `Id` (int, PK)
+   - `TrainingSessionId` (FK, required, cascade-delete with session)
+   - `PersonUserId` (FK, required) — links to Person (which may be a
+     stub for manually-added volunteers; see Round-FR-3)
+   - `SignedUpUtc` (DateTime, default UtcNow)
+   - `Attended` (bool?) — null until marker records it; `true` = attended,
+     `false` = no-show
+   - Unique index on `(TrainingSessionId, PersonUserId)` to enforce the
+     one-signup-per-volunteer invariant.
+
+3. **Extend `TrainingCompletion` with 3 new columns.**
+   - `CompletionSource` (enum, default `UserOnline`) — values
+     `UserOnline` / `CoordinatorManual` / `CoordinatorManualSingle`. The
+     existing `RecordCompletionAsync` path writes `UserOnline`; the new
+     `MarkAttendeesCompleteAsync` writes `CoordinatorManual`; the new
+     `MarkSingleCompleteAsync` writes `CoordinatorManualSingle`.
+   - `MarkedCompleteByUserId` (string?, FK IdentityUser) — null for
+     `UserOnline`; set to the marker (coordinator or admin) for the
+     manual paths.
+   - `ManualCompletionNotes` (string?, 1000) — free-form
+     *"attended the May 5 session"*, *"showed competence via demo on
+     June 3"*, etc.
+
+4. **Extend `Models/Enums.cs` with a new enum.**
+   ```csharp
+   public enum TrainingCompletionSource
+   {
+       UserOnline = 0,
+       CoordinatorManual = 1,
+       CoordinatorManualSingle = 2,
+   }
+   ```
+
+**Library / service decisions.** Pure C# / EF. No new NuGet dependencies.
+
+**Route surface.**
+- `/Organizations/{OrgId:int}/Training/Sessions` — list upcoming + past
+  sessions for the org (coordinator view: all; volunteer view: their
+  sign-ups only).
+- `/Organizations/{OrgId:int}/Training/Sessions/New` — create a new
+  session (coordinator/admin only).
+- `/Organizations/{OrgId:int}/Training/Sessions/{Id:int}` — session
+  detail with sign-up roster + marker UI.
+- `/Organizations/{OrgId:int}/Training/Sessions/{Id:int}/Edit` — edit a
+  session (coordinator/admin).
+- API: `POST /Organizations/{OrgId:int}/Training/Sessions/{Id:int}/MarkComplete`
+  — coordinator/admin only; body = list of `{personUserId, attended, notes}`;
+  the service applies the completion rows.
+
+**Calendar integration.** In-person sessions appear on the existing
+`Components/Shared/AssignmentCalendar.razor` (org-wide view) as a
+distinct event class with a "training" badge so they don't visually
+compete with regular assignments. A future round could add a dedicated
+"training calendar" view; out of scope for round 1.
+
+**Service additions: `ITrainingSessionService`.**
+- `ListUpcomingAsync(orgId)` — scheduled sessions in the next 60 days,
+  eager-loaded `TrainingContent` + signed-up `Attendees`.
+- `ListPastAsync(orgId, sinceUtc)` — completed / cancelled sessions.
+- `CreateAsync(organizationId, title, description, location, startUtc, endUtc, maxAttendees?, trainingContentId?, callerUserId)`
+  — coordinator/admin gate; returns `Created` / `PermissionDenied` /
+  `ValidationFailed` enum.
+- `SignUpAsync(sessionId, personUserId)` — volunteer self-service;
+  refuses when the session is full or the volunteer is already signed up.
+- `CancelSignUpAsync(sessionId, personUserId)` — volunteer self-service.
+- `MarkAttendeesCompleteAsync(sessionId, markerUserId, attendeeResults, notes)`
+  — coordinator/admin; for each `attended=true` entry, inserts a
+  `TrainingCompletion` with `CompletionSource=CoordinatorManual` and
+  `MarkedCompleteByUserId=markerUserId` (only when the session has a
+  `TrainingContentId`); updates `TrainingSessionAttendee.Attended` for
+  all entries regardless.
+- Extend `Services/TrainingService.cs` with `MarkSingleCompleteAsync(
+  contentId, personUserId, markerUserId, notes)` — coordinator/admin
+  ad-hoc *"this volunteer knows the material without a session"*; inserts
+  one `TrainingCompletion` with `CompletionSource=CoordinatorManualSingle`.
+
+**UI changes.**
+- NEW: `Components/Pages/Training/Sessions/{Index,Detail,New,Edit}.razor`.
+- Extend `Components/Pages/Training/Manage.razor` with a "In-person
+  sessions" tab.
+- Extend `Components/Shared/AssignmentCalendar.razor` to render
+  `TrainingSession` events as a separate class with a "training" badge.
+- Extend `Components/Pages/Training/Take.razor` with a "Mark as completed
+  by a coordinator" admin button (for `CoordinatorManualSingle`) on the
+  coordinator view.
+
+**Audit / reporting.**
+- New "Audit log" panel on `Components/Pages/Organizations/Detail.razor`
+  (or a dedicated `/Organizations/{Id:int}/Audit` page) that shows every
+  `TrainingCompletion` with `CompletionSource != UserOnline`, listing
+  the volunteer, content, when marked, by whom, and notes. Visible to
+  org Admin only.
+
+**Edge cases + behavior.**
+- *No attendees:* session can be created + completed with 0 attendees.
+- *Capacity full:* refuse sign-ups; no wait list in round 1.
+- *Session time in past at creation:* warn via UI confirmation; do not block.
+- *Mark-complete partial:* marker can mark some `attended=true`, some
+  `attended=false` (no-shows); only `attended=true` rows get the
+  `TrainingCompletion`.
+- *Re-mark after manual completion:* the existing `TrainingCompletion`
+  row is updated (marker + timestamp overwritten). The audit captures the
+  latest mark. Round 2 could introduce a history table if multi-mark
+  history is needed.
+- *Session has no `TrainingContentId`:* the marker still records
+  attendance (sets `TrainingSessionAttendee.Attended`) but no
+  `TrainingCompletion` row is created — there's no content to complete.
+- *Volunteer cancels after being marked attended:* the cancellation is
+  refused; markers can't un-mark without going through an admin.
+
+**Open questions for the user before implementation starts.**
+1. **Session capacity:** enforce `MaxAttendees` (refuse sign-ups when
+   full) or warn-only? Default enforce.
+2. **Wait list:** out of scope for round 1; flag for follow-up.
+3. **Reminder notifications:** email the attendee 24h before the session?
+   The existing `MailKitEmailSender` could carry this; out of scope for
+   round 1.
+4. **Recurring sessions:** out of scope for round 1; flag for follow-up.
+5. **Manual mark notes required:** the user said *"keep audit trail
+   that it was manual not user clicked"* — implying the notes should be
+   required, not optional. Default required (marker must type a non-empty
+   reason).
+6. **Engagement-gate bypass on manual mark:** the existing
+   `RecordCompletionAsync` gates on engagement (PDF viewed every page,
+   video 95% watched, slideshow 80% dwell). The manual mark BYPASSES
+   this — the marker asserts "yes this volunteer knows the material"
+   out-of-band. Confirm.
+7. **Re-mark semantics:** latest-wins (current spec) vs. immutable
+   (round 1 stubs a separate history table) — confirm.
+
+**Files this round would touch (when implementation starts).**
+- NEW models: `Models/TrainingSession.cs`, `Models/TrainingSessionAttendee.cs`;
+  extend `Models/TrainingCompletion.cs` with 3 new columns.
+- NEW enum value: extend `Models/Enums.cs` with `TrainingCompletionSource`.
+- NEW service: `Services/TrainingSessionService.cs` +
+  `ITrainingSessionService.cs`.
+- Extend `Services/TrainingService.cs` with `MarkSingleCompleteAsync`.
+- NEW pages: `Components/Pages/Training/Sessions/{Index,Detail,New,Edit}.razor`.
+- Extend `Components/Pages/Training/Manage.razor` +
+  `Components/Shared/AssignmentCalendar.razor` +
+  `Components/Pages/Training/Take.razor`.
+- Extend `Components/Pages/Organizations/Detail.razor` with the
+  audit-log panel.
+- NEW migration: `AddTrainingSessions`.
+- NEW tests: `tests/ServantSync.Tests/TrainingSessionServiceTests.cs`;
+  extend `tests/ServantSync.Tests/TrainingServiceTests.cs` for
+  `MarkSingleCompleteAsync`.
+
+### Round-FR-3: manually-added volunteers with account linking
+
+**User ask (verbatim intent).** Org admins want to add volunteers to
+the system before those volunteers have an email address or
+self-registered. The admin enters the volunteer's name (and optional
+email/phone) and assigns them to ministries; coordinators can assign
+them to scheduled duties if their training has been marked complete
+(per Round-FR-2's manual-completion flow). When the volunteer eventually
+self-registers at `/Account/Register`, they can "link" their new account
+(with email + password) to the existing manual record, and their
+historical record (memberships, assignments, training completions) follows
+them.
+
+**Why now.** Many volunteer coordinators know their volunteers by name
+long before the volunteers have email accounts (children, elderly,
+no-email relatives, members without stable email access). A manual-add
+flow closes the gap between *"Sara is the head of Greeters"* and
+*"Sara has an account she can log in with"* — without the coordinator
+re-entering everything when Sara finally arrives at the kiosk.
+
+**Tightly coupled to Round-FR-2.** The user explicitly said
+*"coordinators can assign them to scheduled duties if their trainings
+have been marked as complete."* That "marked as complete" is FR-2's
+manual-mark flow. The two specs are inseparable in practice and should
+be implemented in order: FR-2 first (the manual-mark flow), then FR-3
+(the stub-Person + claim flow). FR-3 depends on FR-2's
+`MarkSingleCompleteAsync` being available for stub Persons; the
+existing `AssignmentService.ValidateAsync` training-gate already works
+on `PersonUserId` as a string FK, so no changes to the gate are needed
+for FR-3.
+
+**RBAC.**
+- Org Admin: create / edit / cancel stub Persons in their org; generate
+  a `PersonClaimToken`.
+- Coordinator of the org's ministry: can assign stub Persons to scheduled
+  duties IF the stub has a `TrainingCompletion` row for the slot's
+  required content (per FR-2's manual-mark path).
+- Volunteer: can register at `/Account/Register` and consume a
+  `PersonClaimToken` to claim a stub.
+- Coordinator / Admin of a different org: no access (server-gated deny).
+
+**Model additions.**
+
+1. **Extend `Person` with two columns.**
+   - `IsStub` (bool, default `false`) — true for manually-added records
+     with no linked `IdentityUser`. The existing `UserId` (PK + FK to
+     `IdentityUser.Id`) is still set — the stub points to a placeholder
+     `IdentityUser` created at stub creation (random unusable password,
+     `LockoutEnabled=true`, `LockoutEnd=9999-12-31`). The `IsStub` flag
+     is the gate for "can this person log in?" in the auth pipeline
+     (always refuse login for stubs).
+   - `Email` (string?, EmailAddress, indexed) — captured at stub
+     creation. The `IdentityUser.Email` is the source of truth once a
+     stub is claimed, but the stub's email lives on `Person` for the
+     email-match secondary claim flow.
+
+   **Why `IsStub` over nullable `UserId`:** nullable FK is a breaking
+   schema change (the PK is the FK; relaxing it ripples to every join +
+   every FK chain). The `IsStub` boolean is a one-time additive
+   migration with no FK changes. Round 1 ships `IsStub`; a future round
+   can refactor to nullable `UserId` if a code-path-cleaner signal is
+   needed.
+
+2. **New `PersonClaimToken` (new model).**
+   - `Id` (int, PK)
+   - `PersonUserId` (string, FK Person.UserId, required) — the stub
+     Person this token claims
+   - `TokenHash` (string, indexed unique) — SHA-256 of a 32-byte
+     cryptographically-random token; raw token is never stored (only
+     returned to the admin ONCE at creation / rotation)
+   - `CreatedUtc` (DateTime, default UtcNow)
+   - `ExpiresUtc` (DateTime, default UtcNow + 30 days) — admin can
+     rotate to extend
+   - `ClaimedUtc` (DateTime?, nullable) — set when the token is
+     consumed; repurposed in round 1 to also mean "rotated" (any
+     terminal state). Round 2 could split this into a separate
+     `IsRevoked` column for clarity.
+   - `CreatedByUserId` (string, FK IdentityUser) — the admin who
+     created the stub
+   - Unique index on `TokenHash`.
+
+3. **No change to `OrganizationMembership`, `Assignment`,
+   `TrainingCompletion`, `TrainingActivity`.** The `PersonUserId` FK is
+   a string and works whether the Person has a real IdentityUser or is
+   a stub. The existing `AssignmentService.ValidateAsync` training-gate
+   works for stubs unchanged because it reads `PersonUserId` as a string
+   without caring about the IdentityUser state.
+
+**Library / service decisions.** Pure C# / EF / ASP.NET Core Identity
+(for the `UserManager.CreateAsync` + `SignInManager` calls). No new
+NuGet dependencies.
+
+**Route surface.**
+- `/Organizations/{OrgId:int}/Members/AddStub` — admin-only; form to
+  create a stub Person + display the claim token ONCE.
+- `/Organizations/{OrgId:int}/Members/Stubs` — admin-only; list of
+  stub Persons with claim status (active token / claimed / no token).
+- `/Account/Register?claim={token}` — Register page accepts an optional
+  `?claim=` param; if present, after successful registration the stub
+  is claimed and the volunteer is signed in.
+- `/Account/Claim/Confirm?token={token}` — confirmation page for the
+  email-match secondary flow (admin can pre-approve or decline).
+
+**Service additions: `IPersonService`.**
+- `CreateStubAsync(organizationId, firstName, lastName, email, phone,
+  callerUserId)` — admin-only; creates a placeholder `IdentityUser`
+  (random unusable password, lockout-future) + a stub `Person`
+  (`IsStub=true`) + an `OrganizationMembership(Role=Volunteer)` in
+  the calling org; returns the new `Person` + the raw claim token
+  (shown ONCE to the admin for the in-person handoff).
+- `RotateClaimTokenAsync(personId, callerUserId)` — admin-only;
+  invalidates the previous token (sets its `ClaimedUtc` = rotation
+  timestamp), creates a new one. Old token cannot be claimed after
+  rotation.
+- `ListStubsAsync(organizationId)` — admin-only; returns every stub
+  Person in the org with their current claim status.
+- `ClaimStubAsync(claimToken, newIdentityUserId, newEmail)` — public;
+  called by the Register page when the volunteer pastes the token
+  during registration. Validates the token (not expired, not claimed);
+  re-parents the stub's `Person.UserId` to the new IdentityUser;
+  flips `IsStub=false`; sets `ClaimedUtc=now`; returns the merged
+  Person.
+- `LinkByEmailPromptAsync(identityUserId)` — alternative flow: if the
+  new IdentityUser's email matches a stub's `Email` column, prompt
+  the volunteer to confirm linking on first login. Admin can
+  pre-approve or decline.
+
+**Claim-time merge strategy (the key implementation decision).**
+Re-parent, not copy. Round 1's recommendation: when the volunteer
+registers with a claim token, the existing `PersonClaimToken` row's
+stub `Person` is updated in one query: `UPDATE People SET UserId =
+@newIdentityUserId, IsStub = 0, Email = @newEmail WHERE UserId =
+@oldStubUserId`. Every FK chain (OrganizationMembership,
+Assignment, TrainingCompletion, TrainingActivity) references
+`Person.UserId` as a string — re-parenting in one UPDATE preserves
+all FKs without copy logic. The placeholder `IdentityUser` is
+soft-deleted (`LockoutEnabled=true`, `LockoutEnd=9999-12-31`) so no
+one can log in with it.
+
+**UI changes.**
+- Extend `Components/Pages/Organizations/Detail.razor` Members tab with
+  a "Add manually" button (admin-only) and a "Stub members" subsection.
+- Extend `Components/Account/Pages/Register.razor` with a `?claim=`
+  query param handling.
+- NEW: `Components/Pages/Organizations/Members/{AddStub,Stubs}.razor`.
+
+**Audit.**
+- Every stub creation writes a `OrganizationMembership.Notes` entry:
+  *"Stub created by {admin} on {date}"*.
+- Every stub claim writes a `OrganizationMembership.Notes` entry:
+  *"Claimed by {newUserId} on {date}"*.
+- The audit-log panel (FR-2) also surfaces stub-claim events for the
+  org admin.
+
+**Edge cases.**
+- *Email match collision:* if two stubs share the same email, the
+  Register page warns and refuses to auto-link (admin resolves
+  manually).
+- *Stub already claimed:* the token check returns `AlreadyClaimed`;
+  the Register page falls back to creating a new account (the stub's
+  history is left orphaned — admin can manually merge).
+- *Stub Person has a different email at registration:* the merge
+  happens by token (primary) or by email-match (secondary); the
+  stub's stored `Email` is updated to the new email on claim.
+- *Coordinator assigns stub to duty before training:* the existing
+  `AssignmentService.ValidateAsync` enforces the training gate; the
+  stub's `PersonUserId` is a regular string FK — the existing
+  training-gate query works without modification.
+- *Volunteer with stub account declines to claim:* the stub remains
+  orphaned; admin can delete the stub (cascade-deletes memberships /
+  assignments / completions) or leave it for future claim.
+- *Stub gets claimed by an account that ends up in a different org:*
+  the Person's OrganizationMemberships are preserved; the new
+  IdentityUser just gets read-access to those orgs as the Person. No
+  cross-org leakage.
+- *Token is rotated while a volunteer's invitation is in flight:* the
+  old token's `ClaimedUtc` is set to the rotation timestamp
+  (terminal-state repurposed); the new token is the only valid path.
+- *A stub's underlying `IdentityUser` placeholder is somehow deleted:*
+  the stub becomes orphaned; the admin can re-create a placeholder
+  via a "Re-key stub" button that generates a new `IdentityUser` and
+  re-points the stub's `UserId`.
+
+**Open questions for the user before implementation starts.**
+1. **Claim mechanism: token vs. email-match.** The user said *"link
+   their account password/email"* — both are plausible. Token via
+   printed-paper handoff is more secure and works for child / elderly
+   volunteers with no email. Email-match-on-first-registration is
+   simpler but requires the stub to have an email column. **Recommend
+   token-primary + email-secondary.**
+2. **What happens to the stub's old data on claim?** Merge into the
+   new IdentityUser's history (recommended; default) vs. archive
+   separately. Default merge.
+3. **Can a stub be assigned to duties without ANY training?** The
+   current `ValidateAsync` requires training for every assignment.
+   With FR-2, the coordinator can mark training complete WITHOUT a
+   session. So the answer is yes, a coordinator can mark training
+   for a stub → stub can be assigned. The flow is *"admin adds stub
+   → coordinator marks training → coordinator assigns duty"* which
+   matches the user's exact ask.
+4. **Can a coordinator (not admin) create stubs?** The user said
+   *"organization admin"* can add — coordinators cannot. Confirm.
+5. **Person.UserId nullable vs. IsStub boolean:** nullable is cleaner
+   but is a breaking schema change. Recommend the IsStub boolean for
+   round 1 (no migration risk), refactor to nullable in a follow-up.
+6. **Stub TTL:** no TTL in round 1; admin manually deletes orphaned
+   stubs. Future round could add a "stale stub cleanup" job.
+7. **Re-parent vs. copy on claim:** recommend re-parent (one UPDATE on
+   `Person.UserId`) because every FK chain references `Person.UserId`
+   as a string. Confirm.
+
+**Files this round would touch (when implementation starts).**
+- NEW models: `Models/PersonClaimToken.cs`; extend `Models/Person.cs`
+  with `IsStub` + `Email` columns.
+- NEW service: `Services/PersonService.cs` + `IPersonService.cs`.
+- NEW pages: `Components/Pages/Organizations/Members/{AddStub,Stubs}.razor`.
+- Extend `Components/Pages/Organizations/Detail.razor` Members tab.
+- Extend `Components/Account/Pages/Register.razor` with `?claim=`
+  handling.
+- Extend `Program.cs` `/Account/PerformRegister` endpoint to call
+  `ClaimStubAsync` after `SignInAsync` if a `?claim=` token is present.
+- Extend `Components/Pages/Account/Pages/Login.razor` with the
+  email-match secondary prompt.
+- NEW migration: `AddPersonClaimTokens` (+ `IsStub` + `Email` columns
+  on `Person`).
+- NEW tests: `tests/ServantSync.Tests/PersonServiceTests.cs`; extend
+  `tests/ServantSync.Tests/PageAccessTests.cs` for the new
+  admin-gated routes.
 
