@@ -85,3 +85,35 @@ public enum SystemAdminAuditAction
     Grant = 0,
     Revoke = 1,
 }
+
+/// <summary>
+/// Round-FR-2: how a <see cref="TrainingCompletion"/> was recorded.
+/// <see cref="UserOnline"/> is the round-AV-and-prior
+/// engagement-verified mark path (the volunteer's browser proved
+/// they engaged with the content). <see cref="CoordinatorManual"/>
+/// is the new in-person-session batch-mark path (a coordinator /
+/// admin observed attendance at a <see cref="TrainingSession"/>).
+/// <see cref="CoordinatorManualSingle"/> is the new ad-hoc
+/// single-volunteer mark path (a coordinator / admin asserts
+/// competence out-of-band, no session required).
+/// </summary>
+public enum TrainingCompletionSource
+{
+    UserOnline = 0,
+    CoordinatorManual = 1,
+    CoordinatorManualSingle = 2,
+}
+
+/// <summary>
+/// Round-FR-2: lifecycle state of a <see cref="TrainingSession"/>.
+/// <see cref="Scheduled"/> on creation; <see cref="Cancelled"/>
+/// if cancelled pre-event; <see cref="Completed"/> after the
+/// marker finalizes attendance via
+/// <c>ITrainingSessionService.MarkAttendeesCompleteAsync</c>.
+/// </summary>
+public enum TrainingSessionStatus
+{
+    Scheduled = 0,
+    Completed = 1,
+    Cancelled = 2,
+}

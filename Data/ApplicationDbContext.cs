@@ -28,6 +28,9 @@ public class ApplicationDbContext : IdentityDbContext<IdentityUser>
     public DbSet<TrainingRequirement> TrainingRequirements => Set<TrainingRequirement>();
     public DbSet<TrainingCompletion> TrainingCompletions => Set<TrainingCompletion>();
     public DbSet<TrainingActivity> TrainingActivities => Set<TrainingActivity>();
+    // Round-FR-2: in-person training sessions + volunteer sign-ups.
+    public DbSet<TrainingSession> TrainingSessions => Set<TrainingSession>();
+    public DbSet<TrainingSessionAttendee> TrainingSessionAttendees => Set<TrainingSessionAttendee>();
     public DbSet<Assignment> Assignments => Set<Assignment>();
     public DbSet<Arena> Arenas => Set<Arena>();
     public DbSet<Team> Teams => Set<Team>();
@@ -201,7 +204,12 @@ public class ApplicationDbContext : IdentityDbContext<IdentityUser>
                 .OnDelete(DeleteBehavior.Restrict);
         });
 
-        // ---- TrainingCompletion ----
+        // ---- TrainingCompletion (round-FR-2: extended with CompletionSource +
+        //                              MarkedCompleteByUserId + ManualCompletionNotes) ----
+        // Round-FR-2 appended 3 columns. No FK changes — MarkedCompleteByUserId
+        // is a plain string column (no FK nav) so the audit trail survives
+        // user deletion. The existing Person/TrainingContent FK semantics
+        // carry over unchanged.
         modelBuilder.Entity<TrainingCompletion>(b =>
         {
             b.HasIndex(c => new { c.PersonUserId, c.TrainingContentId, c.TrainingContentVersion }).IsUnique();
@@ -213,6 +221,12 @@ public class ApplicationDbContext : IdentityDbContext<IdentityUser>
                 .WithMany()
                 .HasForeignKey(c => c.TrainingContentId)
                 .OnDelete(DeleteBehavior.Restrict);
+            // Round-FR-2 column-length audit. EF conventions pick these up
+            // from the [StringLength] attributes on the model, but pinning
+            // here makes the migration's schema independent of any future
+            // attribute drift.
+            b.Property(c => c.MarkedCompleteByUserId).HasMaxLength(128);
+            b.Property(c => c.ManualCompletionNotes).HasMaxLength(1000);
         });
 
         // ---- TrainingActivity (round M) ----
@@ -233,6 +247,57 @@ public class ApplicationDbContext : IdentityDbContext<IdentityUser>
                 .WithMany()
                 .HasForeignKey(a => a.TrainingContentId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // ---- TrainingSession (round-FR-2) ----
+        // In-person training event tied to an org (matches TrainingContent's
+        // org-scoped policy). CreatedByUserId is a plain string column with
+        // no FK — mirrors SystemAdminGrantAudit's "audit trail outlives the
+        // actor" pattern so deleting the coordinator who created a session
+        // does NOT vaporize the session's history.
+        modelBuilder.Entity<TrainingSession>(b =>
+        {
+            b.HasOne(s => s.Organization)
+                .WithMany()
+                .HasForeignKey(s => s.OrganizationId)
+                .OnDelete(DeleteBehavior.Cascade);  // drop sessions when the org is deleted
+            b.HasOne(s => s.TrainingContent)
+                .WithMany()
+                .HasForeignKey(s => s.TrainingContentId)
+                .OnDelete(DeleteBehavior.SetNull);  // preserve session history if content is removed
+            b.Property(s => s.Title).HasMaxLength(200);
+            b.Property(s => s.Location).HasMaxLength(200);
+            // Index optimized for the "list upcoming for org" hot path
+            // (TrainingSessionService.ListUpcomingAsync).
+            b.HasIndex(s => new { s.OrganizationId, s.StartUtc });
+            b.HasIndex(s => s.Status);
+        });
+
+        // ---- TrainingSessionAttendee (round-FR-2) ----
+        // Volunteer sign-up row. Person FK cascades to match
+        // OrganizationMembership (deleting a Person sweeps their session
+        // sign-ups). TrainingSession FK cascades so deleting a session
+        // sweeps its attendee list. The audit-trail concern (marker
+        // identity + notes) lives on the TrainingCompletion rows whose
+        // MarkedCompleteByUserId is a plain string column (no FK) — so
+        // deletion of a volunteer or their coordinator doesn't erase
+        // the audit trail from completion rows that have already been
+        // written.
+        modelBuilder.Entity<TrainingSessionAttendee>(b =>
+        {
+            b.HasOne(a => a.TrainingSession)
+                .WithMany(s => s.Attendees)
+                .HasForeignKey(a => a.TrainingSessionId)
+                .OnDelete(DeleteBehavior.Cascade);
+            b.HasOne(a => a.Person)
+                .WithMany()
+                .HasForeignKey(a => a.PersonUserId)
+                .OnDelete(DeleteBehavior.Cascade);
+            // Composite-unique enforces one-signup-per-volunteer (a volunteer
+            // can't double-sign-up for the same session).
+            b.HasIndex(a => new { a.TrainingSessionId, a.PersonUserId }).IsUnique();
+            // Index for the "list this person's upcoming sessions" query path.
+            b.HasIndex(a => a.PersonUserId);
         });
 
         // ---- Assignment (conflict-detection hot path) ----
