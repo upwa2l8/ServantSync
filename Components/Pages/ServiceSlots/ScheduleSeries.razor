@@ -176,8 +176,14 @@ else
     {
         var state = await Auth.GetAuthenticationStateAsync();
         var userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        // Gate on CanManageSlotAsync (not CanManageOrgAsync) so a ministry coordinator
+        // of the slot's ministry — or the slot's own coordinator — can drive the
+        // Series UI, matching the parallel gate on Schedule.razor. Using the org
+        // gate here would wrongly label the button "Coordinators only" for any user
+        // whose coordinator role is at the ministry/slot tier rather than the
+        // org tier (e.g. Rob Test, coordinator of the Referees ministry).
         _canSchedule = !string.IsNullOrEmpty(userId)
-            && await OrgAuth.CanManageOrgAsync(userId, OrgId);
+            && await OrgAuth.CanManageSlotAsync(userId, Id);
 
         await Reload();
 
