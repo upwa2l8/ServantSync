@@ -995,3 +995,258 @@ one can log in with it.
   `tests/ServantSync.Tests/PageAccessTests.cs` for the new
   admin-gated routes.
 
+### Round-FR-4: public feature request form (anyone can submit)
+
+**User ask (verbatim intent).** Anyone — a visitor, a volunteer, a
+coordinator, a curious passerby — should be able to fill out a
+feature request form on the public site and have it land in a
+triage queue for the product team to review.
+
+**Why now.** The user has been queuing feature requests verbally
+in this session (Round-FR-1, FR-2, FR-3). A public form gives end
+users a low-friction way to add their own feature requests,
+creating a feedback channel from real users to the product team
+and closing the loop between *"I have an idea"* and *"the
+coordinators know about it"*. The triage queue also creates a
+back-channel for the queued PLAN.md specs: admins can mark an
+inbound request as "tracked in Round-FR-2" so the submitter
+sees their idea has been heard even before any code ships.
+
+**RBAC.**
+- **Anyone (unauthenticated or authenticated):** submit a feature
+  request via `/feedback` (the public form).
+- **SystemAdmin:** view the full triage queue at
+  `/SystemAdmin/FeatureRequests`, change status, add triage notes,
+  link to an existing PLAN.md spec.
+- **OrgAdmin:** read-only view filtered to requests that mention
+  their org (a "my org" filter chip on the SystemAdmin view; the
+  matching is fuzzy on the title + description text).
+- **Volunteer / Coordinator:** no access to the triage view; the
+  public submit form is the only surface they see.
+
+**Model additions.**
+
+1. **`FeatureRequest` (new model).**
+   - `Id` (int, PK)
+   - `Title` (string, 200) — short summary, shown in the triage list
+   - `Description` (string, 4000) — free-form detailed request
+   - `SubmitterEmail` (string?, 120, EmailAddress) — optional, for
+     admin follow-up
+   - `SubmitterName` (string?, 80) — optional, displayed in the
+     admin view
+   - `SubmitterUserId` (string?, FK IdentityUser, nullable) — set
+     when the submitter was logged in; null for anonymous
+   - `SubmitterIpAddress` (string, 64) — for spam rate-limiting
+   - `Status` (enum `FeatureRequestStatus`, default `New`)
+   - `CreatedUtc` (DateTime, default UtcNow)
+   - `TriagedByUserId` (string?, FK IdentityUser) — the SystemAdmin
+     who triaged
+   - `TriagedUtc` (DateTime?) — set when the status changes from
+     `New` to anything else
+   - `TriageNotes` (string?, 2000) — admin's reasoning (e.g. *"this
+     overlaps with Round-FR-2"*, *"declined because X"*)
+   - `LinkedSpecAnchor` (string?, 200) — optional link to a PLAN.md
+     spec (e.g. *"Round-FR-2"* or *"Round-FR-1"*); when set, the
+     admin view shows a *"See PLAN.md#round-fr-2-…"* link
+   - `VoteCount` (int, default 0) — reserved for round 2 public
+     voting; round 1 leaves the column at 0
+
+2. **Extend `Models/Enums.cs` with a new enum.**
+   ```csharp
+   public enum FeatureRequestStatus
+   {
+       New = 0,
+       UnderReview = 1,
+       Planned = 2,
+       Completed = 3,
+       Declined = 4,
+       Duplicate = 5,
+   }
+   ```
+
+**Library / service decisions.** Pure C# / EF / ASP.NET Core
+Identity. No new NuGet dependencies. Rate-limiting uses the
+built-in .NET 8+ `Microsoft.AspNetCore.RateLimiting` middleware
+(`AddRateLimiter` + a fixed-window policy keyed on remote IP).
+
+**Route surface.**
+- `/feedback` (public) — the submission form. No auth required.
+  Renders a hero header with the brand wordmark
+  (`Components/Shared/WordmarkSplash.razor` at 140 px) + the form.
+- `/feedback/thanks` (public) — thank-you page after submit;
+  renders the brand wordmark + a *"Your request has been received"*
+  message + a link back to `/`.
+- `/SystemAdmin/FeatureRequests` (SystemAdmin only) — triage queue
+  with status filter chips (All / New / UnderReview / Planned /
+  Completed / Declined / Duplicate) and a sort toggle
+  (newest-first / oldest-first).
+- `/SystemAdmin/FeatureRequests/{Id:int}` (SystemAdmin only) —
+  detail view with the submitter info, the full description, the
+  triage form (status dropdown + notes textarea + linked-spec
+  input), and a *"Mark as Duplicate of {spec}"* quick action that
+  pre-fills the linked-spec anchor.
+- API: `POST /api/feedback/submit` (public, anti-forgery + rate-limited)
+  — the submission endpoint. Body: `title`, `description`,
+  `submitterEmail?`, `submitterName?`, `__RequestVerificationToken`,
+  `website` (honeypot, must be empty).
+
+**Anti-spam strategy (3 layers).**
+1. **Honeypot field** — a hidden `<input name="website" />` that's
+   invisible to humans (CSS `display:none` + `tabindex=-1` +
+   `autocomplete=off`); bots fill every field, humans don't see it.
+   If the field is non-empty on submit, the endpoint silently
+   returns `200 OK` (so the bot thinks it succeeded) but does NOT
+   persist the row. The honeypot value is the strongest single
+   filter against naive bots; combined with rate limiting it covers
+   the realistic threat model for a low-traffic volunteer platform.
+2. **IP-based rate limit** — a fixed-window policy via
+   `Microsoft.AspNetCore.RateLimiting`: max 3 submissions per IP
+   per hour. Exceeded → `429 Too Many Requests` with a friendly
+   *"Please try again in {minutes} minutes"* message. The limiter
+   keyed on `HttpContext.Connection.RemoteIpAddress` so a single
+   user behind a NAT doesn't burn all three slots in a school
+   computer lab.
+3. **Email confirmation (optional, round 2).** When a submitter
+   provides an email, send a confirmation link; the row stays in
+   `Status = New` until the link is clicked. Round 1 ships the
+   confirmation flow stub (the email template is wired) but
+   defaults the feature OFF so a casual visitor doesn't have to
+   confirm-by-email just to make a feature request.
+
+No captcha in round 1. The honeypot + rate limit combination is
+sufficient for the threat model; if spam becomes a problem, add
+reCAPTCHA v3 (invisible) in round 2.
+
+**Email notifications.**
+- On new submission, notify all SystemAdmin users via the existing
+  `MailKitEmailSender` pipeline (the round-EMAIL-BRAND branded
+  wordmark template is reused). Email body: title, description
+  preview (first 280 chars), submitter name + email, link to
+  `/SystemAdmin/FeatureRequests/{Id}`.
+- No submitter notification on triage (round 1). Round 2 could
+  email the submitter when their request moves to `Completed` or
+  `Declined` if the submitter provided an email.
+
+**Service additions: `IFeatureRequestService`.**
+- `SubmitAsync(title, description, submitterEmail, submitterName,
+  submitterUserId, ipAddress, honeypotValue)` — public; returns
+  `Submitted` / `RateLimited` / `ValidationFailed` / `HoneypotTriggered`
+  enum. Validates: title (5-200 chars), description (20-4000 chars),
+  email format if provided. Persists the row on success. The
+  honeypot branch returns `Submitted` to the caller (so the bot
+  sees a success response) but does not persist.
+- `ListAsync(statusFilter?, sortBy, page, pageSize)` — SystemAdmin;
+  returns paged list of `FeatureRequest` rows with eager-loaded
+  `TriagedByPerson` (so the admin can see the triager's display
+  name without an N+1).
+- `GetAsync(id)` — SystemAdmin; returns a single request.
+- `TriageAsync(id, newStatus, notes, linkedSpecAnchor, triagedByUserId)`
+  — SystemAdmin; updates status + audit fields. Returns
+  `Updated` / `NotFound` / `PermissionDenied` enum. The audit
+  fields (`TriagedByUserId`, `TriagedUtc`, `TriageNotes`,
+  `LinkedSpecAnchor`) are updated on every transition; a future
+  round could introduce a separate `FeatureRequestAudit` table if
+  multi-triage history is needed (round 1: latest-wins).
+- `ListForOrgAsync(orgId, page, pageSize)` — OrgAdmin; filters
+  requests whose title or description fuzzy-matches the org's
+  name. Useful for "what are people saying about my org?".
+
+**UI changes.**
+- NEW: `Components/Pages/Feedback.razor` — the public form. Renders
+  the brand wordmark + the form fields (title, description,
+  submitter email + name, honeypot). Posts to
+  `/api/feedback/submit` via a plain HTML form (round-AN pattern:
+  no `@rendermode InteractiveServer` needed; static-SSR + minimal
+  API endpoint avoids the round-AN cookie-write race).
+- NEW: `Components/Pages/FeedbackThanks.razor` — thank-you page.
+- NEW: `Components/Pages/SystemAdmin/FeatureRequests/{Index,Detail}.razor`
+  — triage queue + detail.
+- Extend `Components/Pages/SystemAdmin/Index.razor` with a
+  *"Feature requests (N new)"* link, where `N` is the count of
+  `Status = New` rows.
+
+**Coupling to existing PLAN.md specs.** When triaging, the admin
+can set `LinkedSpecAnchor` to a spec name (e.g. *"Round-FR-2"*) and
+the detail view shows a *"See PLAN.md#round-fr-2-…"* link. This
+creates a feedback loop: the queued specs in PLAN.md become
+findable from the triage UI, and new submissions can be marked
+as *"Duplicate of Round-FR-2"* so the submitter sees their idea
+has been heard. The reverse direction is also useful: when a
+spec in PLAN.md is implemented, the admin can run a search
+*"FeatureRequests where LinkedSpecAnchor = 'Round-FR-2' AND Status
+in (New, UnderReview, Planned)"* and bulk-transition them to
+`Completed`, emailing the submitters (round 2).
+
+**Edge cases.**
+- *Empty title or description:* validation fails before persist.
+- *Title too short / too long:* validation fails.
+- *Rate limit exceeded:* 429 response with friendly message.
+- *Honeypot triggered:* silent 200 + `HoneypotTriggered` enum;
+  no row persisted.
+- *Submitter is logged in:* `SubmitterUserId` is captured for
+  cross-reference with the existing user table.
+- *Admin triages their own request:* allowed (admins can submit
+  too).
+- *Email format invalid:* validation fails before persist.
+- *Status transitions:* round 1 uses a permissive model — any
+  status can move to any other status (admin override). Round 2
+  could introduce a state machine if the workflow gets more
+  complex. The audit fields track the latest transition; if
+  multi-triage history is needed, a `FeatureRequestAudit` table
+  can be added without breaking the existing column shape.
+- *Submission during server maintenance:* the static-SSR form
+  renders without a Blazor circuit; if the server is down, the
+  user sees the standard 503 page (the same UX any other public
+  page has).
+
+**Open questions for the user before implementation starts.**
+1. **Public visibility:** should other users see existing requests
+   + upvote them? Round 1: admin-only. Round 2: public list with
+   vote count + sort. Recommend round 1 first, public visibility
+   as round 2.
+2. **Captcha:** add a simple captcha in round 1? Recommend no —
+   honeypot + rate limit is enough for a low-traffic internal
+   volunteer platform. Add reCAPTCHA v3 (invisible) only if spam
+   becomes a measured problem.
+3. **Email validation:** require a verified email? Round 1:
+   optional (the field is nullable). Round 2: send a confirmation
+   email with a link to verify before the request becomes
+   "official." Default round 1: optional.
+4. **Auto-link to existing PLAN.md spec:** when the title fuzzy-
+   matches a known spec, auto-suggest a link? Nice-to-have for
+   round 2; round 1 admin types the anchor manually.
+5. **Voting:** round 1: no (the `VoteCount` column is reserved
+   for round 2). Round 2: simple upvote + sort by count.
+6. **Status transition rules:** strict (only allow New →
+   UnderReview) or permissive (allow any → any)? Recommend
+   permissive with audit trail; round 2 could add a state machine
+   if the workflow gets more complex.
+7. **Notification on triage:** when admin triages a request, email
+   the submitter? Round 1: no. Round 2: yes, on `Completed` or
+   `Declined` transitions.
+
+**Files this round would touch (when implementation starts).**
+- NEW model: `Models/FeatureRequest.cs`.
+- NEW enum: `FeatureRequestStatus` in `Models/Enums.cs`.
+- NEW service: `Services/FeatureRequestService.cs` +
+  `IFeatureRequestService.cs`.
+- NEW pages: `Components/Pages/Feedback.razor`,
+  `Components/Pages/FeedbackThanks.razor`,
+  `Components/Pages/SystemAdmin/FeatureRequests/{Index,Detail}.razor`.
+- Extend `Components/Pages/SystemAdmin/Index.razor` with the
+  *"Feature requests (N new)"* link.
+- NEW API endpoint: `MapPost("/api/feedback/submit", ...)` in
+  `Program.cs`, registered with the rate-limiter middleware.
+- NEW: `Services/RateLimiter.cs` (or use
+  `Microsoft.AspNetCore.RateLimiting` directly via
+  `AddRateLimiter` in `Program.cs`).
+- Email notification: extend `Services/MailKitEmailSender.cs`
+  with a `NotifySystemAdminsOfNewFeatureRequestAsync(...)` helper
+  (or new `Services/FeatureRequestNotifier.cs`).
+- NEW migration: `AddFeatureRequests`.
+- NEW tests: `tests/ServantSync.Tests/FeatureRequestServiceTests.cs`
+  (submit, validation, rate-limit simulation via
+  `MemoryCache`-backed counter, triage transitions, honeypot
+  silent-reject). Extend `tests/ServantSync.Tests/PageAccessTests.cs`
+  for the new SystemAdmin-gated routes.
+
