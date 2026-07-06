@@ -170,6 +170,60 @@ public static class TestData
             ExpiresUtc = completionUtc.AddYears(1),
         });
 
+    /// <summary>
+    /// Round-FR-2.2 helper: creates a <see cref="TrainingSession"/> scoped to
+    /// <paramref name="orgId"/>. Defaults are sensible for the happy-path tests
+    /// (status = Scheduled, no max attendees, no linked TrainingContent); pin
+    /// the optional args explicitly when a test exercises a specific state
+    /// (e.g. Cancelled status, has MaxAttendees, linked to a TrainingContent
+    /// from the same org).
+    /// </summary>
+    public static TrainingSession TrainingSession(
+        IDbContextFactory<ApplicationDbContext> factory,
+        int orgId,
+        string title = "Test Session",
+        string location = "Room 1",
+        DateTime? startUtc = null,
+        DateTime? endUtc = null,
+        int? maxAttendees = null,
+        int? trainingContentId = null,
+        string createdByUserId = "test-creator",
+        TrainingSessionStatus status = TrainingSessionStatus.Scheduled) =>
+        Save(factory, () => new TrainingSession
+        {
+            OrganizationId = orgId,
+            TrainingContentId = trainingContentId,
+            Title = title,
+            Location = location,
+            // 7 days from now + 1 hour so the session lands in the
+            // "upcoming" 60-day window without crossing the past-time
+            // boundary. Tests examining past-session behavior override
+            // startUtc/endUtc explicitly.
+            StartUtc = startUtc ?? DateTime.UtcNow.AddDays(7),
+            EndUtc = endUtc ?? DateTime.UtcNow.AddDays(7).AddHours(1),
+            MaxAttendees = maxAttendees,
+            Status = status,
+            CreatedByUserId = createdByUserId,
+        });
+
+    /// <summary>
+    /// Round-FR-2.2 helper: creates an attendee row for the given session.
+    /// Defaults <paramref name="attended"/> to <c>null</c> (signed up, hasn't
+    /// happened yet) — marker-state tests pass <c>true</c> or <c>false</c>
+    /// to simulate pre-marker activity + post-marker attendance.
+    /// </summary>
+    public static TrainingSessionAttendee TrainingSessionAttendee(
+        IDbContextFactory<ApplicationDbContext> factory,
+        int sessionId,
+        string userId,
+        bool? attended = null) =>
+        Save(factory, () => new TrainingSessionAttendee
+        {
+            TrainingSessionId = sessionId,
+            PersonUserId = userId,
+            Attended = attended,
+        });
+
     public static Team Team(IDbContextFactory<ApplicationDbContext> factory, int ministryId, string name = "Test Team",
         TeamAgeBracket bracket = TeamAgeBracket.U10, string? coachUserId = null) =>
         Save(factory, () => new Team

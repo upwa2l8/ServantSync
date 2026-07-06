@@ -104,6 +104,10 @@ builder.Services.AddHttpContextAccessor();
 // ---- Domain services ----
 builder.Services.AddScoped<IAssignmentService, AssignmentService>();
 builder.Services.AddScoped<ITrainingService, TrainingService>();
+// Round-FR-2.2: in-person scheduled training sessions with manual-completion
+// audit. Sibling to TrainingService --- same DI lifetime as the rest of the
+// domain services because every Razor page resolves it via a scoped factory.
+builder.Services.AddScoped<ITrainingSessionService, TrainingSessionService>();
 builder.Services.AddScoped<IUploadPathProvider, UploadPathProvider>();
 builder.Services.AddScoped<IOrgAuthService, OrgAuthService>();
 builder.Services.AddScoped<ITeamService, TeamService>();

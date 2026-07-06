@@ -607,4 +607,283 @@ public class TrainingServiceTests : SqliteTestBase
         Assert.NotNull(row.Organization);
         Assert.Equal("Org A", row.Organization!.Name);
     }
+
+    // ─── Round-FR-2.2: MarkSingleCompleteAsync (manual-mark audit path) ─────────
+    // Bypasses the engagement-eligibility gate (decision Q6) but requires
+    // non-empty notes (decision Q5) and Admin/Coordinator permission.
+
+    [Fact]
+    public async Task MarkSingleCompleteAsync_EmptyNotes_ReturnsManualMarkNotesRequired()
+    {
+        // Decision Q5: empty / whitespace-only notes refused. The audit
+        // trail distinction (auto-engaged vs coord-manual) only carries
+        // weight if every manual mark has a non-empty reason.
+        var org = TestData.Org(Factory, "Org A");
+        var content = TestData.TrainingContent(Factory, org.Id, "Safe Spaces");
+        var coord = TestData.Person(Factory, "Chris", "Coord");
+        var volunteer = TestData.Person(Factory, "Vicky", "Volunteer");
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, volunteer.UserId, org.Id, OrganizationRole.Volunteer);
+
+        var result = await NewService().MarkSingleCompleteAsync(
+            content.Id, volunteer.UserId, coord.UserId, "");
+
+        Assert.Equal(TrainingCompletionResult.ManualMarkNotesRequired, result);
+    }
+
+    [Fact]
+    public async Task MarkSingleCompleteAsync_WhitespaceNotes_ReturnsManualMarkNotesRequired()
+    {
+        // Whitespace-only notes ARE empty for the purposes of decision
+        // Q5. The validate-on-write pattern keeps the column meaningful
+        // even if some future caller forgets the trim.
+        var org = TestData.Org(Factory, "Org A");
+        var content = TestData.TrainingContent(Factory, org.Id, "Safe Spaces");
+        var coord = TestData.Person(Factory, "Chris", "Coord");
+        var volunteer = TestData.Person(Factory, "Vicky", "Volunteer");
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, volunteer.UserId, org.Id, OrganizationRole.Volunteer);
+
+        var result = await NewService().MarkSingleCompleteAsync(
+            content.Id, volunteer.UserId, coord.UserId, "   \t\n  ");
+
+        Assert.Equal(TrainingCompletionResult.ManualMarkNotesRequired, result);
+    }
+
+    [Fact]
+    public async Task MarkSingleCompleteAsync_UnknownContent_ReturnsContentNotFound()
+    {
+        var coord = TestData.Person(Factory, "Chris", "Coord");
+
+        var result = await NewService().MarkSingleCompleteAsync(
+            999_999, "any-user-id", coord.UserId, "any reason");
+
+        Assert.Equal(TrainingCompletionResult.ContentNotFound, result);
+    }
+
+    [Fact]
+    public async Task MarkSingleCompleteAsync_CallerNotAdminOrCoordinator_ReturnsManualMarkPermissionDenied()
+    {
+        // Caller is a plain Volunteer of the content's org — no role
+        // authority to assert competence out-of-band; refused.
+        var org = TestData.Org(Factory, "Org A");
+        var content = TestData.TrainingContent(Factory, org.Id, "Safe Spaces");
+        var volunteer = TestData.Person(Factory, "Vicky", "Volunteer");
+        var otherVolunteer = TestData.Person(Factory, "Oscar", "Volunteer");
+        TestData.Membership(Factory, volunteer.UserId, org.Id, OrganizationRole.Volunteer);
+        TestData.Membership(Factory, otherVolunteer.UserId, org.Id, OrganizationRole.Volunteer);
+
+        var result = await NewService().MarkSingleCompleteAsync(
+            content.Id, volunteer.UserId, otherVolunteer.UserId, "I vouch for them");
+
+        Assert.Equal(TrainingCompletionResult.ManualMarkPermissionDenied, result);
+    }
+
+    [Fact]
+    public async Task MarkSingleCompleteAsync_CallerAdminOfOtherOrg_ReturnsManualMarkPermissionDenied()
+    {
+        // Cross-org authority doesn't transfer. An Admin of Org B can't
+        // mark training owned by Org A; the audit trail said "admin
+        // asserted competence" — a foreign-org admin doesn't have that
+        // authority.
+        var orgA = TestData.Org(Factory, "Org A");
+        var orgB = TestData.Org(Factory, "Org B");
+        var contentA = TestData.TrainingContent(Factory, orgA.Id, "Safe Spaces");
+        var adminB = TestData.Person(Factory, "Ben", "AdminB");
+        var volunteerA = TestData.Person(Factory, "Vicky", "Volunteer");
+        TestData.Membership(Factory, adminB.UserId, orgB.Id, OrganizationRole.Admin);
+        TestData.Membership(Factory, volunteerA.UserId, orgA.Id, OrganizationRole.Volunteer);
+
+        var result = await NewService().MarkSingleCompleteAsync(
+            contentA.Id, volunteerA.UserId, adminB.UserId, "Cross-org vouch");
+
+        Assert.Equal(TrainingCompletionResult.ManualMarkPermissionDenied, result);
+    }
+
+    [Fact]
+    public async Task MarkSingleCompleteAsync_VolunteerNotInOrg_ReturnsNotInOrg()
+    {
+        // The volunteer being marked must actually be a member of the
+        // content's org — otherwise we'd be writing a training record
+        // for a stranger who never joined. Mirrors RecordCompletionAsync.
+        var orgA = TestData.Org(Factory, "Org A");
+        var orgB = TestData.Org(Factory, "Org B");
+        var contentA = TestData.TrainingContent(Factory, orgA.Id, "Safe Spaces");
+        var coordA = TestData.Person(Factory, "Chris", "Coord");
+        var stranger = TestData.Person(Factory, "Stranger", "McNobody");
+        TestData.Membership(Factory, coordA.UserId, orgA.Id, OrganizationRole.Coordinator);
+        // Intentionally NO Membership for stranger.
+
+        var result = await NewService().MarkSingleCompleteAsync(
+            contentA.Id, stranger.UserId, coordA.UserId, "I vouch for them");
+
+        Assert.Equal(TrainingCompletionResult.NotInOrg, result);
+    }
+
+    [Fact]
+    public async Task MarkSingleCompleteAsync_HappyPath_Coordinator_RecordsWithAuditFields()
+    {
+        // Decision Q6: bypasses the engagement gate. No SyncActivityAsync
+        // call → ordinarily would return InsufficientEngagement, but the
+        // coordinator's manual path asserts competence out of band.
+        var org = TestData.Org(Factory, "Org A");
+        var content = TestData.TrainingContent(Factory, org.Id, "Safe Spaces");
+        var coord = TestData.Person(Factory, "Chris", "Coord");
+        var volunteer = TestData.Person(Factory, "Vicky", "Volunteer");
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, volunteer.UserId, org.Id, OrganizationRole.Volunteer);
+
+        var result = await NewService().MarkSingleCompleteAsync(
+            content.Id, volunteer.UserId, coord.UserId, "Walked Vicky through the material in person 2026-07-06.");
+
+        Assert.Equal(TrainingCompletionResult.ManualMarkRecorded, result);
+
+        await using var db = await Factory.CreateDbContextAsync();
+        var completion = await db.TrainingCompletions.SingleAsync(c =>
+            c.PersonUserId == volunteer.UserId && c.TrainingContentId == content.Id);
+        // Audit-trail triple: source + marker + notes.
+        Assert.Equal(TrainingCompletionSource.CoordinatorManualSingle, completion.CompletionSource);
+        Assert.Equal(coord.UserId, completion.MarkedCompleteByUserId);
+        Assert.Equal("Walked Vicky through the material in person 2026-07-06.", completion.ManualCompletionNotes);
+    }
+
+    [Fact]
+    public async Task MarkSingleCompleteAsync_HappyPath_Admin_RecordsWithAuditFields()
+    {
+        // Same contract for Admin role — pin that the role-arbitrary
+        // authority works for Admins too, not just Coordinators.
+        var org = TestData.Org(Factory, "Org A");
+        var content = TestData.TrainingContent(Factory, org.Id, "Safety Drill");
+        var admin = TestData.Person(Factory, "Alex", "Admin");
+        var volunteer = TestData.Person(Factory, "Vicky", "Volunteer");
+        TestData.Membership(Factory, admin.UserId, org.Id, OrganizationRole.Admin);
+        TestData.Membership(Factory, volunteer.UserId, org.Id, OrganizationRole.Volunteer);
+
+        var result = await NewService().MarkSingleCompleteAsync(
+            content.Id, volunteer.UserId, admin.UserId, "Admin override: veteran firefighter");
+
+        Assert.Equal(TrainingCompletionResult.ManualMarkRecorded, result);
+
+        await using var db = await Factory.CreateDbContextAsync();
+        var completion = await db.TrainingCompletions.SingleAsync(c =>
+            c.PersonUserId == volunteer.UserId && c.TrainingContentId == content.Id);
+        Assert.Equal(TrainingCompletionSource.CoordinatorManualSingle, completion.CompletionSource);
+        Assert.Equal(admin.UserId, completion.MarkedCompleteByUserId);
+        Assert.Equal("Admin override: veteran firefighter", completion.ManualCompletionNotes);
+    }
+
+    [Fact]
+    public async Task MarkSingleCompleteAsync_ExistingCompletion_OverwritesInPlace()
+    {
+        // Decision Q7: latest-wins. The audit trail captures who marked
+        // most recently AND what they wrote. Earlier record (UserOnline
+        // for instance) is replaced wholesale by the manual mark.
+        var org = TestData.Org(Factory, "Org A");
+        var content = TestData.TrainingContent(Factory, org.Id, "Safe Spaces");
+        var coord = TestData.Person(Factory, "Chris", "Coord");
+        var volunteer = TestData.Person(Factory, "Vicky", "Volunteer");
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, volunteer.UserId, org.Id, OrganizationRole.Volunteer);
+        // Seed an existing completion that would normally be user-online.
+        TestData.Completion(Factory, volunteer.UserId, content.Id, DateTime.UtcNow);
+
+        var result = await NewService().MarkSingleCompleteAsync(
+            content.Id, volunteer.UserId, coord.UserId, "Reaffirming after audit.");
+
+        Assert.Equal(TrainingCompletionResult.ManualMarkRecorded, result);
+
+        await using var db = await Factory.CreateDbContextAsync();
+        var completions = await db.TrainingCompletions
+            .Where(c => c.PersonUserId == volunteer.UserId && c.TrainingContentId == content.Id)
+            .ToListAsync();
+        // Still ONE row — latest-wins means in-place overwrite, not append.
+        Assert.Single(completions);
+        Assert.Equal(TrainingCompletionSource.CoordinatorManualSingle, completions[0].CompletionSource);
+        Assert.Equal(coord.UserId, completions[0].MarkedCompleteByUserId);
+        Assert.Equal("Reaffirming after audit.", completions[0].ManualCompletionNotes);
+    }
+
+    [Fact]
+    public async Task MarkSingleCompleteAsync_YearlyCadenceExpiryDerived()
+    {
+        // Cadence=Yearly → ExpiresUtc is CompletionUtc + 1 year. Locks
+        // in the requirement-derived expiry math mirror so the manual
+        // path and the engagement-verified path age completion rows
+        // identically.
+        var org = TestData.Org(Factory, "Org A");
+        var content = TestData.TrainingContent(Factory, org.Id, "Safe Spaces");
+        TestData.Requirement(Factory, content.Id, orgId: org.Id, cadence: TrainingCadence.Yearly);
+        var coord = TestData.Person(Factory, "Chris", "Coord");
+        var volunteer = TestData.Person(Factory, "Vicky", "Volunteer");
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, volunteer.UserId, org.Id, OrganizationRole.Volunteer);
+
+        var result = await NewService().MarkSingleCompleteAsync(
+            content.Id, volunteer.UserId, coord.UserId, "Manual mark for annual training.");
+
+        Assert.Equal(TrainingCompletionResult.ManualMarkRecorded, result);
+
+        await using var db = await Factory.CreateDbContextAsync();
+        var completion = await db.TrainingCompletions.SingleAsync(c =>
+            c.PersonUserId == volunteer.UserId && c.TrainingContentId == content.Id);
+        Assert.NotNull(completion.ExpiresUtc);
+        // Yearly cadence + completion has no other anchor; we just need
+        // the expiry to be in the future and roughly a year out.
+        Assert.True(completion.ExpiresUtc > DateTime.UtcNow.AddDays(360));
+        Assert.True(completion.ExpiresUtc < DateTime.UtcNow.AddDays(367));
+    }
+
+    [Fact]
+    public async Task MarkSingleCompleteAsync_OneTimeCadenceExpiryIsNull()
+    {
+        // OneTime cadence → completion lives forever (ExpiresUtc = null),
+        // so the volunteer's "completed" status never rolls off. Locks
+        // in the cadence-branch behavior so a future enum-add won't
+        // silently default to Yearly here.
+        var org = TestData.Org(Factory, "Org A");
+        var content = TestData.TrainingContent(Factory, org.Id, "One-time onboarding");
+        TestData.Requirement(Factory, content.Id, orgId: org.Id, cadence: TrainingCadence.OneTime);
+        var coord = TestData.Person(Factory, "Chris", "Coord");
+        var volunteer = TestData.Person(Factory, "Vicky", "Volunteer");
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, volunteer.UserId, org.Id, OrganizationRole.Volunteer);
+
+        var result = await NewService().MarkSingleCompleteAsync(
+            content.Id, volunteer.UserId, coord.UserId, "Onboarding completed manually.");
+
+        Assert.Equal(TrainingCompletionResult.ManualMarkRecorded, result);
+
+        await using var db = await Factory.CreateDbContextAsync();
+        var completion = await db.TrainingCompletions.SingleAsync(c =>
+            c.PersonUserId == volunteer.UserId && c.TrainingContentId == content.Id);
+        Assert.Null(completion.ExpiresUtc);
+    }
+
+    [Fact]
+    public async Task MarkSingleCompleteAsync_BypassesEngagementGate()
+    {
+        // Decision Q6: explicit contract — a coarse proof that the
+        // volunteer hasn't engaged, but the manual mark still succeeds.
+        // Without SyncActivityAsync: HighestWatchedSec=0, ViewedPages=[],
+        // Activity row absent → RecordCompletionAsync would return
+        // InsufficientEngagement; MarkSingleCompleteAsync must NOT.
+        var org = TestData.Org(Factory, "Org A");
+        var content = TestData.TrainingContent(Factory, org.Id, "Safe Spaces");
+        var coord = TestData.Person(Factory, "Chris", "Coord");
+        var volunteer = TestData.Person(Factory, "Vicky", "Volunteer");
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, volunteer.UserId, org.Id, OrganizationRole.Volunteer);
+        // NO SyncActivityAsync call.
+
+        var result = await NewService().MarkSingleCompleteAsync(
+            content.Id, volunteer.UserId, coord.UserId, "Bypass contract: out-of-band competence.");
+
+        Assert.Equal(TrainingCompletionResult.ManualMarkRecorded, result);
+
+        await using var db = await Factory.CreateDbContextAsync();
+        // No activity row was added by the manual path — confirms the
+        // service didn't silently downgrade to user-engagement mode.
+        Assert.False(await db.TrainingActivities.AnyAsync(a =>
+            a.PersonUserId == volunteer.UserId && a.TrainingContentId == content.Id));
+    }
 }

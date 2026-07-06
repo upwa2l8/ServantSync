@@ -22,6 +22,28 @@ public enum TrainingCompletionResult
     /// with a progress pill so the volunteer knows what's missing.
     /// </summary>
     InsufficientEngagement,
+
+    // -------- Round-FR-2 manual-mark outcomes below --------
+
+    /// <summary>
+    /// Round-FR-2: a coord/admin's manual mark succeeded (either
+    /// <see cref="ITrainingService.MarkSingleCompleteAsync"/> or
+    /// <see cref="ITrainingSessionService.MarkAttendeesCompleteAsync"/>).
+    /// </summary>
+    ManualMarkRecorded,
+
+    /// <summary>
+    /// Round-FR-2 decision Q5: the marker submitted empty / whitespace-only
+    /// notes. Manual marks always require a non-empty reason. Pages
+    /// surface this as an inline form error.
+    /// </summary>
+    ManualMarkNotesRequired,
+
+    /// <summary>
+    /// Round-FR-2: caller isn't Admin/Coordinator of the content's org,
+    /// so the manual mark was refused.
+    /// </summary>
+    ManualMarkPermissionDenied,
 }
 
 /// <summary>
@@ -175,5 +197,31 @@ public interface ITrainingService
     /// </summary>
     Task<List<TrainingContent>> ListManageableTrainingAsync(
         string adminUserId,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Round-FR-2: coordinator / admin manually marks a volunteer
+    /// complete without going through the engagement-verified
+    /// <see cref="RecordCompletionAsync"/> path. Bypasses the
+    /// engagement-eligibility gate entirely (decision Q6): the marker
+    /// is asserting out-of-band competence ("this volunteer knows
+    /// the material"). Notes REQUIRED (decision Q5) — empty
+    /// <paramref name="markerNotes"/> returns
+    /// <see cref="TrainingCompletionResult.ManualMarkNotesRequired"/>
+    /// so the page can render an inline error. Permission gate:
+    /// caller must be Admin/Coordinator of the content's org.
+    ///
+    /// The completion row is written with
+    /// <see cref="TrainingCompletion.CompletionSource"/> = CoordinatorManualSingle,
+    /// <see cref="TrainingCompletion.MarkedCompleteByUserId"/> = markerUserId,
+    /// <see cref="TrainingCompletion.ManualCompletionNotes"/> = markerNotes.
+    /// Existing row for the same (person, content, version) is
+    /// overwritten (decision Q7 latest-wins).
+    /// </summary>
+    Task<TrainingCompletionResult> MarkSingleCompleteAsync(
+        int trainingContentId,
+        string personUserId,
+        string markerUserId,
+        string markerNotes,
         CancellationToken ct = default);
 }

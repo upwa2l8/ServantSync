@@ -94,6 +94,12 @@ public class TrainingService : ITrainingService
             CompletionUtc = completionUtc,
             ExpiresUtc = expiresUtc,
             Notes = notes,
+            // Round-FR-2: explicit default-zero source on the
+            // engagement-verified path even though it's the enum's
+            // default — pinning here makes the round-AV-and-prior
+            // baseline behavior obvious to future readers and protects
+            // against a future enum reorder moving UserOnline off zero.
+            CompletionSource = TrainingCompletionSource.UserOnline,
         };
         db.TrainingCompletions.Add(completion);
         await db.SaveChangesAsync(ct);
@@ -452,5 +458,104 @@ public class TrainingService : ITrainingService
             .OrderBy(c => c.Organization!.Name)
             .ThenBy(c => c.Title)
             .ToListAsync(ct);
+    }
+
+    // -----------------------------------------------------------------
+    // Round-FR-2.2: MarkSingleCompleteAsync — coordinator/admin
+    // ad-hoc manual mark without an in-person session. Bypasses the
+    // engagement-eligibility gate entirely (decision Q6): the marker
+    // asserts out-of-band competence. Notes REQUIRED (decision Q5).
+    // -----------------------------------------------------------------
+    public async Task<TrainingCompletionResult> MarkSingleCompleteAsync(
+        int trainingContentId,
+        string personUserId,
+        string markerUserId,
+        string markerNotes,
+        CancellationToken ct = default)
+    {
+        // Decision Q5: notes REQUIRED on every manual mark.
+        if (string.IsNullOrWhiteSpace(markerNotes))
+            return TrainingCompletionResult.ManualMarkNotesRequired;
+
+        await using var db = await _factory.CreateDbContextAsync(ct);
+
+        var content = await db.TrainingContents
+            .AsNoTracking()
+            .FirstOrDefaultAsync(c => c.Id == trainingContentId, ct);
+        if (content is null) return TrainingCompletionResult.ContentNotFound;
+
+        // Permission gate: caller must be Admin/Coordinator of the
+        // content's org. Mirrors the audit story — a marker asserts
+        // competence out of band, so the gate is "this caller has the
+        // authority to assert competence for this org's training".
+        var callerRole = await db.OrganizationMemberships
+            .Where(m => m.PersonUserId == markerUserId && m.OrganizationId == content.OrganizationId)
+            .Select(m => (OrganizationRole?)m.Role)
+            .FirstOrDefaultAsync(ct);
+        if (callerRole != OrganizationRole.Admin && callerRole != OrganizationRole.Coordinator)
+            return TrainingCompletionResult.ManualMarkPermissionDenied;
+
+        // The volunteer being marked must be a member of the content's
+        // org — otherwise we'd be writing a training record for a
+        // stranger who never joined. Mirrors RecordCompletionAsync's
+        // NotInOrg branch.
+        var volunteerInOrg = await db.OrganizationMemberships
+            .AnyAsync(m => m.PersonUserId == personUserId && m.OrganizationId == content.OrganizationId, ct);
+        if (!volunteerInOrg) return TrainingCompletionResult.NotInOrg;
+
+        // Cadence-derived expiry (matches RecordCompletionAsync). The
+        // Yearly fallback executes if no TrainingRequirement references
+        // the content — admins sometimes add training before wiring
+        // it into a requirement; we still want expiration-aware
+        // completion semantics.
+        var req = await db.TrainingRequirements
+            .Where(r => r.TrainingContentId == trainingContentId)
+            .OrderBy(r => r.Id)
+            .FirstOrDefaultAsync(ct);
+        var nowUtc = DateTime.UtcNow;
+        DateTime? expiresUtc = req?.Cadence switch
+        {
+            TrainingCadence.OneTime => null,
+            TrainingCadence.Yearly => nowUtc.AddYears(1),
+            TrainingCadence.EveryMonths => nowUtc.AddMonths(req.CadenceMonths ?? 12),
+            _ => nowUtc.AddYears(1),
+        };
+
+        // Decision Q7: latest-wins. Upsert in place so a second manual
+        // mark overwrites the first one's source/marker/notes/utc/expires
+        // — the audit trail captures WHO marked most recently AND what
+        // they wrote. A separate TrainingCompletionAudit table is a
+        // future-round opportunity if multi-mark history becomes a real
+        // need.
+        var existing = await db.TrainingCompletions
+            .FirstOrDefaultAsync(c => c.PersonUserId == personUserId
+                && c.TrainingContentId == trainingContentId
+                && c.TrainingContentVersion == content.Version, ct);
+
+        if (existing is not null)
+        {
+            existing.CompletionSource = TrainingCompletionSource.CoordinatorManualSingle;
+            existing.MarkedCompleteByUserId = markerUserId;
+            existing.ManualCompletionNotes = markerNotes;
+            existing.CompletionUtc = nowUtc;
+            existing.ExpiresUtc = expiresUtc;
+        }
+        else
+        {
+            db.TrainingCompletions.Add(new TrainingCompletion
+            {
+                PersonUserId = personUserId,
+                TrainingContentId = trainingContentId,
+                TrainingContentVersion = content.Version,
+                CompletionUtc = nowUtc,
+                ExpiresUtc = expiresUtc,
+                CompletionSource = TrainingCompletionSource.CoordinatorManualSingle,
+                MarkedCompleteByUserId = markerUserId,
+                ManualCompletionNotes = markerNotes,
+            });
+        }
+
+        await db.SaveChangesAsync(ct);
+        return TrainingCompletionResult.ManualMarkRecorded;
     }
 }
