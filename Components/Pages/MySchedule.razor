@@ -78,15 +78,9 @@ else
     {
         @if (!_calendarEvents.Any())
         {
-            @* Round-EMPTY-HERO: marketing wordmark above the calendar-view
-               empty-state mirror of the list-view splash above. *@
-            <figure class="text-center mt-3 mb-3" aria-hidden="true">
-                <img src="@Assets["img/servantsync-marketing.svg"]"
-                     alt="ServantSync wordmark"
-                     width="120"
-                     loading="lazy"
-                     class="img-fluid" />
-            </figure>
+            @* Wordmark above the calendar-view empty-state. Mirror
+               of the list-view splash below. See WordmarkSplash. *@
+            <WordmarkSplash Width="120" Loading="lazy" />
             <div class="alert alert-info">Nothing on the schedule in this window.</div>
         }
         else
@@ -100,17 +94,9 @@ else
         <h4 class="mt-2">Upcoming assignments</h4>
         @if (!_assignments.Any())
         {
-            @* Round-EMPTY-HERO: marketing wordmark above the no-assignments
-               empty-state -- completes the brand rollout on the volunteer-
-               facing empty surfaces. Same 120 px width pattern as /Home +
-               /Open. *@
-            <figure class="text-center mt-3 mb-3" aria-hidden="true">
-                <img src="@Assets["img/servantsync-marketing.svg"]"
-                     alt="ServantSync wordmark"
-                     width="120"
-                     loading="lazy"
-                     class="img-fluid" />
-            </figure>
+            @* Wordmark above the list-view no-assignments empty-state.
+               See WordmarkSplash. *@
+            <WordmarkSplash Width="120" Loading="lazy" />
             <div class="alert alert-info">
                 Nothing on the schedule. Find a <a href="Organizations">ministry</a> to volunteer with.
             </div>

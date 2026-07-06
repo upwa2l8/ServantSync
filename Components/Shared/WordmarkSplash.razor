@@ -1,0 +1,76 @@
+@* WordmarkSplash — single-source-of-truth for the ServantSync
+   marketing wordmark. Used on the auth surface (Login + Register)
+   and on volunteer-facing empty states (Home / Open / MySchedule).
+   See BRANDING.md "Two assets, two roles" for the asset rationale.
+
+   Centralization:
+     - The asset path (img/servantsync-marketing.svg) is hard-coded
+       here so a future re-brand only needs to touch this file (and
+       possibly the SVG itself), not 9 call sites scattered across
+       the app.
+     - The Width / Loading / Caption params absorb the 3 distinct
+       sizes currently in use (180/140/120 px) and the eager/lazy
+       loading split (auth surface above the LCP fold = eager,
+       in-app empty states below the LCP fold = lazy).
+     - The FigureClass param lets each call site preserve its
+       surrounding vertical rhythm (mt-4 for Login which is the
+       page's only content, mt-3 for the in-app surfaces which
+       sit above an alert that's already padded).
+     - aria-hidden lives on the <img>, not on the <figure>, so a
+       future contributor can drop in a meaningful <figcaption>
+       (e.g. a screen-reader-only line of copy) and have it stay
+       accessible without re-architecting the splash. *@
+
+<figure class="@FigureClass">
+    <img src="@Assets["img/servantsync-marketing.svg"]"
+         alt="ServantSync wordmark"
+         width="@Width.ToString()"
+         loading="@Loading"
+         aria-hidden="true"
+         class="img-fluid" />
+    @if (!string.IsNullOrEmpty(Caption))
+    {
+        <figcaption class="text-muted small mt-2 mb-0">
+            @Caption
+        </figcaption>
+    }
+</figure>
+
+@code {
+    /// <summary>
+    /// Intrinsic width of the wordmark image in CSS pixels. The
+    /// marketing wordmark SVG has a tall-portrait viewBox so a
+    /// 120/140/180 px intrinsic keeps the aspect ratio honest on
+    /// the auth + empty-state surfaces. Bootstrap's .img-fluid
+    /// (max-width: 100%; height: auto) on the img still scales
+    /// the figure down for narrow viewports.
+    /// </summary>
+    [Parameter, EditorRequired] public int Width { get; set; }
+
+    /// <summary>
+    /// Optional figcaption (e.g. the breadth tagline on Login).
+    /// When set, the <figcaption> is rendered below the <img> with
+    /// muted-small styling; when null/empty, the figure contains
+    /// only the <img>. The figcaption is NOT aria-hidden (the
+    /// <img> is), so a screen reader navigating the figure will
+    /// announce only the caption text.
+    /// </summary>
+    [Parameter] public string? Caption { get; set; }
+
+    /// <summary>
+    /// Native <img loading="..."> attribute. "eager" for the auth
+    /// surface (Login + Register) where the wordmark is above the
+    /// LCP fold and the user is deciding whether to engage; "lazy"
+    /// for the in-app empty states where the wordmark is below the
+    /// fold and the alert prose is the primary content.
+    /// </summary>
+    [Parameter] public string Loading { get; set; } = "eager";
+
+    /// <summary>
+    /// CSS class on the outer <figure>. Default centers the figure
+    /// and applies mt-3 mb-3 (the in-app empty-state rhythm).
+    /// Call sites that need a different vertical rhythm (Login
+    /// uses mt-4 mb-4) override this.
+    /// </summary>
+    [Parameter] public string FigureClass { get; set; } = "text-center mt-3 mb-3";
+}
