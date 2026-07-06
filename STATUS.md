@@ -16,6 +16,8 @@ implemented. Each entry is a self-contained spec in PLAN.md the next
 contributor (or a future round) can pick up without re-deriving the
 design.
 
+> **Spec readiness note.** Every Round-FR-1…4 spec has its 25 open questions RESOLVED (decisions live inline in PLAN.md under each spec's "Decisions (open questions resolved during spec authoring session)" sub-section). When implementation starts, there are no more "ask the user" gates — the design is decision-complete.
+
 - **Round-FR-1: per-slot printable calendar PDF with QR codes** — see
   [`PLAN.md` → Feature requests → Round-FR-1](PLAN.md#round-fr-1-per-slot-printable-calendar-pdf-with-qr-codes).
   Coordinators want to print a one-page (or few-page) calendar for a
