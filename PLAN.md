@@ -367,3 +367,212 @@ chronological order:
   each; 2 sites verified clean (`ScheduleSeries.razor` +
   `Teams/Players.razor`). Per-site comments cross-reference the
   Known-quirks entry. ✅
+
+## Feature requests (queued for future rounds; not yet built)
+
+These are user-requested capabilities that have been scoped, library-decided,
+and acceptance-criteria'd, but not yet implemented. Each entry is a
+self-contained spec the next contributor (or a future round) can pick up
+without re-deriving the design.
+
+### Round-FR-1: per-slot printable calendar PDF with QR codes
+
+**User ask (verbatim intent).** Coordinators want to print a one-page (or
+few-page) calendar for a `ServiceSlot` that:
+1. Lists the slot's upcoming occurrences in a clear month / week / day layout.
+2. Embeds an **org-join QR** so a passerby who scans the printed sheet is
+   taken to `/Account/Register?token=<orgToken>` and auto-joins the org as a
+   volunteer.
+3. Embeds a **per-open-occurrence QR** so a volunteer who scans a specific
+   time block is taken to that specific occurrence's sign-up flow.
+4. Is selectable at three scopes: **month**, **week**, or **single day**.
+
+**Why now.** Coordinators in the seeded org (a small Methodist church) are
+already taping handwritten sign-up sheets to the volunteer kiosk; a
+printable PDF with QR codes is a one-step upgrade that closes the
+"phone-pic-to-sign-up" loop without requiring the volunteer to retype a URL.
+
+**RBAC.** Reuse the existing `IOrgAuthService.CanManageSlotAsync` gate
+(slot coord, ministry coord, or org Admin) — same gate that
+`ServiceSlots/Schedule.razor` already enforces. The PDF endpoint MUST
+re-check server-side; the Razor page MUST hide the "Print calendar" button
+for non-managers (same pattern as the Edit/Schedule/Series buttons on
+`ServiceSlots/Detail.razor`).
+
+**Library decisions.**
+- **PDF: QuestPDF (MIT for non-commercial / community; commercial license
+  required for paid deployments).** Fluent layout DSL, fluent text +
+  image + table primitives, pure-managed, no native deps. Alternatives
+  considered: PdfSharpCore (works but is layout-imperative — much more
+  code for tables + grids), iText7 (AGPL — viral license, wrong for a
+  volunteer platform that might be forked). If the project ever wants
+  commercial-friendly licensing, switch to PdfSharpCore; the
+  `ICalendarPdfBuilder` interface below is library-agnostic so the swap
+  is a single class.
+- **QR: QRCoder (MIT, pure C#).** Emits PNG or SVG; PNG embeds cleanly in
+  QuestPDF's `Image` element. Alternatives: Net.Codecrete.QrCodeGenerator
+  (Apache-2.0, fine — fallback if QRCoder maintenance lapses).
+
+**Route surface.** New minimal-API endpoint
+`GET /Organizations/{OrgId:int}/Ministries/{MinId:int}/Roles/{Id:int}/Calendar.pdf?scope=month&start=2026-07-01&tz=America/Chicago`
+→ `Content-Type: application/pdf` stream. The 5 segment matches the
+existing `ServiceSlots/Detail.razor` page route exactly so a `<a>` link
+copy-pastes cleanly. Query params:
+- `scope` ∈ {`month`, `week`, `day`}, default `month`.
+- `start` ISO date (`yyyy-MM-dd`), default today in the requested zone.
+- `tz` IANA id, default = `Organization.TimeZoneId` (round-AV column) →
+  `UserTimeZoneProvider.TimeZoneId` (browser-detected) → `Local` (the
+  same 3-tier chain `LocalTime.razor` already uses, just hoisted into
+  a static helper `Components.Shared.TimeZoneResolver.ResolveForPdf`).
+
+The page button on `ServiceSlots/Detail.razor` becomes a Bootstrap
+`<div class="btn-group">` with three links (one per scope) + a small
+zone-picker dropdown whose value becomes the `tz` query param. No JS
+required — the dropdown is a plain `<select>` that submits via a
+sibling `<form method="get">`.
+
+**PDF layout (per scope).**
+- **Cover band (every page):** typographic wordmark in `#3730a3`
+  (reusing the round-EMAIL-BRAND text approach — text IS the brand,
+  no PNG dependency), org name in 18pt semibold, slot name in 14pt
+  regular, "as of <date>" + "Times shown in <tz>" in 9pt muted. A
+  thin 1px `#3730a3` rule separates the band from the body.
+- **Month view:** 1 page. 5×7 (or 6×7) grid with day-numbered cells;
+  each cell lists up to 3 occurrences as `HH:MM–HH:MM` lines +
+  `(N more)` overflow. A small filled-circle icon next to a filled
+  occurrence distinguishes it from an open one. A "key" row at the
+  bottom of the page explains the icons.
+- **Week view:** 1 page. 7 columns (Mon–Sun) × N hourly rows
+  (configurable 6am–10pm default; coordinator's preference).
+  Each cell either empty, or contains one occurrence's
+  `HH:MM–HH:MM` line.
+- **Day view:** 1 page. Vertical 24-hour timeline with every
+  occurrence plotted at its start time, labeled with slot name +
+  assigned volunteer (if any) or "open".
+- **QR placement:**
+  - Org-join QR: bottom-right corner of the cover band, 1.5cm × 1.5cm,
+    with 0.5cm caption "Scan to join <OrgName>".
+  - Per-open-occurrence QR: rendered inside the day cell or timeline
+    row next to the `HH:MM–HH:MM` line, 1.0cm × 1.0cm, with a
+    0.3cm caption "Scan to sign up". Filled occurrences do NOT get a
+    QR (the row shows "filled — <VolunteerName>" instead).
+- **Footer (every page):** "Generated <UTC timestamp> · Verify
+  availability before traveling · ServantSync calendar" in 8pt muted,
+  centered.
+
+**QR targets + format.**
+- **Org-join QR** encodes `${Nav.BaseUri}Account/Register?token=${org.RegistrationToken}`. If
+  `org.RegistrationToken` is null (admin hasn't generated one yet),
+  the cover-band QR slot becomes a printed-text fallback: "Ask a
+  coordinator for the invite link or sign up at
+  <Nav.BaseUri>Account/Register". Existing
+  `Components/Pages/Organizations/Detail.razor` already shows the
+  rotate-confirm warning; same UX.
+- **Per-occurrence QR** encodes a new deep link `${Nav.BaseUri}Open?occ=<SlotOccurrenceId>`. The `/Open` page
+  already lists open slots; adding `?occ=` makes the new
+  `OpenSlotOccurrenceViewModel` resolution auto-scroll to the row +
+  pop a "You're signing up for <date/time>" confirmation modal that
+  posts to the existing `AssignmentService.SignUpAsync` endpoint.
+  No new routes required; the existing `/Open` Razor page gains one
+  query param + one `@query` block.
+- **Error correction level: M (15% recovery).** Good balance for
+  print degradation + a phone camera at 1-2m.
+- **Module size: 4px per module.** Quiet zone: 4 modules.
+
+**Time zone default + fallback.** As above (3-tier chain hoisted into
+`TimeZoneResolver.ResolveForPdf`). The PDF header always declares
+"Times shown in <tz>" so a coordinator who printed the sheet in one
+zone and is handing it out in another has the disambiguation in
+plain sight.
+
+**Offline-stale-URL handling.** Printed sheets can be stale by the time
+the volunteer scans. Two cases:
+- *Org-join token rotated between print and scan:* the existing
+  `/Account/Register?token=...` page already shows "This invitation
+  code didn't match any organization. Please ask the admin who
+  shared the link to re-send it." — no new code required. The PDF
+  footer adds a "As of <timestamp>" line so a volunteer who sees the
+  failure can verify with the coordinator instead of assuming the QR
+  is broken.
+- *Per-occurrence slot filled between print and scan:* the new
+  `?occ=` handler on `/Open` shows the existing open-shift
+  confirmation modal but with the existing assignment displayed
+  under it; the volunteer sees "this shift is already filled — pick
+  another?" instead of being allowed to sign up for a closed slot.
+  The PDF footer adds a "Verify before you go" line.
+
+**Edge cases + behavior.**
+- *No registration token yet:* cover-band QR slot becomes printed
+  text + an instruction pointer to the public register URL.
+- *No occurrences in the selected window:* body of the page shows
+  "No shifts scheduled in this window. Check back after the
+  coordinator adds the next round of assignments." — no QRs.
+- *Many occurrences (e.g. 50 in a month):* month view shows up to
+  3 per cell + `(N more)` overflow; week + day views have no
+  practical cap.
+- *Org has no ministry or slot under it (config error):* endpoint
+  404s with a "slot not found" page; the same NotFound UX pattern
+  `Components/Pages/Organizations/Detail.razor` uses.
+- *QR encode-failure (extremely long URL overflows QR capacity):*
+  QRCoder throws; the page falls back to the printed-text variant
+  + a log warning. Capped at the practical URL-length limit
+  (~2000 chars = version 40 QR).
+
+**File naming convention.** Content-Disposition header:
+`servantsync-calendar-{orgSlug}-{slotSlug}-{scope}-{startDate}.pdf`
+where `{orgSlug}` and `{slotSlug}` are kebab-cased ASCII (non-ASCII
+→ ASCII transliteration, falling back to `id-<n>`). Example:
+`servantsync-calendar-demo-church-sound-tech-month-2026-07-01.pdf`.
+
+**i18n / localization.** Spec is English-only to match the rest of
+the app. The `ICalendarPdfBuilder` accepts a `string culture` param
+defaulted to `CultureInfo.CurrentUICulture.Name` so a future
+localization pass wires through cleanly without an interface bump.
+
+**Open questions for the user before implementation starts.**
+1. **QuestPDF license posture:** is this project's deployment
+   non-commercial (churches, schools, non-profits) or commercial
+   (paid SaaS)? QuestPDF Community is MIT-licensed; commercial
+   deployment requires the paid license. If commercial, prefer
+   PdfSharpCore upfront.
+2. **Volunteer-name visibility in the PDF:** should the day-view
+   timeline show the assigned volunteer's name next to a filled
+   occurrence, or just "filled"? Names aid in-the-moment coverage
+   ("oh Sara's already on") but leak PII on a publicly-postered
+   sheet. Default off, with a coordinator-side toggle to enable.
+3. **Multiple slots per PDF:** out of scope for this round
+   (spec is per-slot). A "print the whole ministry" or "print the
+   whole org" view is a likely follow-up once the per-slot flow
+   is battle-tested.
+4. **Cover-page customization (org logo upload):** out of scope
+   for this round. The text wordmark is the brand.
+
+**Files this round would touch (when implementation starts).**
+- NEW: `Services/CalendarPdf/ICalendarPdfBuilder.cs` +
+  `QuestPdfCalendarPdfBuilder.cs` (or `PdfSharpCalendarPdfBuilder.cs`
+  per the license question).
+- NEW: `Components/Shared/TimeZoneResolver.cs` (hoist the 3-tier
+  chain from `LocalTime.razor` into a static helper).
+- NEW: `Services/CalendarPdf/QrCodeBuilder.cs` (thin wrapper over
+  QRCoder for test seam).
+- `Program.cs`: register the builder + QR service in DI; add the
+  minimal-API endpoint with the auth gate.
+- `Components/Pages/ServiceSlots/Detail.razor`: add the
+  Print-calendar btn-group with 3 scope links + the zone-picker
+  dropdown.
+- `Components/Pages/Open.razor`: gain `?occ=` query param handling
+  + the "this shift is already filled" disambiguation.
+- `Components/Shared/WordmarkSplash.razor`: extract the
+  typographic text wordmark into a sibling
+  `WordmarkText.razor` (or extend `WordmarkSplash` with a
+  `RenderMode="Svg|Text"` param) so the PDF builder can reuse the
+  same mark logic that the email + login + register + empty-state
+  surfaces use.
+- `BRANDING.md`: add a new "Printed material" section cross-linking
+  the PDF surface to the same brand tokens + text-wordmark rationale.
+- NEW tests: `tests/ServantSync.Tests/CalendarPdfBuilderTests.cs`
+  (PDF byte-stream non-empty + page count per scope + brand-text
+  present), `tests/ServantSync.Tests/QrCodeBuilderTests.cs` (encodes
+  expected URL + reasonable byte size), and a `PageAccessTests` entry
+  for the new endpoint's auth gate.
+
