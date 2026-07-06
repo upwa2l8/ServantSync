@@ -13,10 +13,17 @@
 }
 else if (_manageableOrgs.Count == 0)
 {
-    <div class="alert alert-secondary">
-        You're not a coordinator or admin in any organization yet. Ask an admin to add you,
-        or browse <a href="Organizations">available organizations</a>.
-    </div>
+    @if (_isSystemAdmin)
+    {
+        <div class="alert alert-secondary">No organizations in the database yet. Use <a href="Organizations/New">+ New organization</a> to create the first one.</div>
+    }
+    else
+    {
+        <div class="alert alert-secondary">
+            You're not a coordinator or admin in any organization yet. Ask an admin to add you,
+            or browse <a href="Organizations">available organizations</a>.
+        </div>
+    }
 }
 else
 {
@@ -128,6 +135,12 @@ else
     private bool _loading = true;
     private List<OrgMini> _manageableOrgs = new();
     private int _selectedOrgId;
+    // Round-BB SystemAdmin dual-branch flag, parallel to Organizations/
+    // Index.razor and Leagues/Index.razor. Drives the org-picker query
+    // AND the empty-state copy. NOT widen the per-row mutation gates —
+    // SysAdmin cannot use this page to mutate an arbitrary org's
+    // schedule; visibility only.
+    private bool _isSystemAdmin;
     private DateTime _fromUtc = DateTime.UtcNow;
     private DateTime _toUtc = DateTime.UtcNow.AddDays(14);
     private DateTime _anchorDate = new(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1);
@@ -138,7 +151,9 @@ else
     private List<AssignmentRow> _rawRows = new();
     private Kpis _kpis = new();
 
-    private string _windowDescription => $"Across ministries you can manage. Window: {RangeLabel(_fromUtc, _toUtc)}.";
+    private string _windowDescription => _isSystemAdmin
+        ? $"Across every ministry in the database. Window: {RangeLabel(_fromUtc, _toUtc)}."
+        : $"Across ministries you can manage. Window: {RangeLabel(_fromUtc, _toUtc)}.";
 
     private static string RangeLabel(DateTime from, DateTime to)
     {
@@ -201,12 +216,26 @@ else
 
             await using var db = await DbFactory.CreateDbContextAsync();
 
-            _manageableOrgs = await db.OrganizationMemberships
-                .Where(m => m.PersonUserId == userId
-                    && (m.Role == OrganizationRole.Admin || m.Role == OrganizationRole.Coordinator))
-                .Select(m => new OrgMini { Id = m.OrganizationId, Name = m.Organization.Name })
-                .OrderBy(o => o.Name)
-                .ToListAsync();
+            // Round-BB SystemAdmin dual-branch. Pattern mirrors
+            // Organizations/Index.razor (round-AZ) and Leagues/Index.razor
+            // (this round): SysAdmin sees EVERY organization in the
+            // database, non-SysAdmins keep the strict per-membership
+            // Admin/Coordinator scope. The OrgAuthService.IsSystemAdminAsync
+            // call is already cached so we don't pay a fresh role-id
+            // resolve on each page load.
+            _isSystemAdmin = await OrgAuth.IsSystemAdminAsync(userId);
+
+            _manageableOrgs = _isSystemAdmin
+                ? await db.Organizations
+                    .OrderBy(o => o.Name)
+                    .Select(o => new OrgMini { Id = o.Id, Name = o.Name })
+                    .ToListAsync()
+                : await db.OrganizationMemberships
+                    .Where(m => m.PersonUserId == userId
+                        && (m.Role == OrganizationRole.Admin || m.Role == OrganizationRole.Coordinator))
+                    .Select(m => new OrgMini { Id = m.OrganizationId, Name = m.Organization.Name })
+                    .OrderBy(o => o.Name)
+                    .ToListAsync();
 
             var orgIds = _manageableOrgs.Select(o => o.Id).ToList();
             if (orgIds.Count == 0)

@@ -1,0 +1,51 @@
+RBAC: round-BB /Leagues + /Dashboard dual-branch for SystemAdmin
+
+Closes the second gap in the SystemAdmin visibility surface:
+SystemAdmin was seeing the global /Organizations list (round-AZ)
+but neither the /Leagues index nor the /Dashboard's "Upcoming
+shifts" / org picker respected the SystemAdmin role. This round
+applies the same `_isSystemAdmin || orgIds.Contains(...)` pattern
+established on /Organizations to both pages.
+
+CHANGED FILES:
+
+- Components/Pages/Leagues/Index.razor
+  * Added @inject IOrgAuthService OrgAuth (page previously had no
+    OrgAuthService dependency; widening visibility surface requires
+    the role lookup).
+  * Added _isSystemAdmin flag, resolved in OnInitializedAsync via
+    OrgAuthService.IsSystemAdminAsync (the round-AW foundation;
+    role id is cached so per-load cost is one join).
+  * orgIds-fetch skips for SysAdmin (predicate short-circuits in
+    C# so EF sees no WHERE for that branch).
+  * Predicate `_isSystemAdmin || orgIds.Contains(m.OrganizationId)`
+    on the ministries query — same EF short-circuit pattern as
+    Organizations/Index.razor.
+  * Heading description text differentiates SysAdmin ("Every
+    league across every organization") vs non-SysAdmin ("Ministries
+    you can view").
+  * Empty-state copy differentiates the same way.
+
+- Components/Pages/Dashboard.razor
+  * Added _isSystemAdmin flag alongside _loading / _selectedOrgId.
+  * _manageableOrgs query branches: SysAdmin -> db.Organizations
+    (every org); non-SysAdmin -> existing per-membership Admin/
+    Coordinator scope.
+  * Empty-state copy differentiates:
+      SysAdmin: "No organizations in the database yet. Use +
+        New organization..."
+      Non-SysAdmin: "You're not a coordinator or admin in any
+        organization yet. Ask an admin to add you..."
+  * _windowDescription updated for SysAdmin:
+      SysAdmin: "Across every ministry in the database. Window: ..."
+      Non-SysAdmin: "Across ministries you can manage. Window: ..."
+    Avoids the misleading "manage" wording for the visibility-only
+    SysAdmin role.
+
+NO changes: services, tests, migrations.
+
+PageAccessTests doesn't exercise Razor-page-level queries (these
+pages don't go through service wrappers); the underlying
+IsSystemAdminAsync is already pinned by 8 OrgAuthServiceTests
+(round-AW orthogonality + negative-path pin). Build green, 340/340
+tests pass (no regressions).

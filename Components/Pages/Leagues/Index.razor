@@ -5,7 +5,16 @@
 <PageTitle>Leagues</PageTitle>
 
 <h1>Leagues</h1>
-<p class="text-muted">Ministries you can view. A "league" is any ministry that has sports teams; the term is interchangeable here.</p>
+<p class="text-muted">
+    @if (_isSystemAdmin)
+    {
+        <text>Every league across every organization (SystemAdmin view).</text>
+    }
+    else
+    {
+        <text>Ministries you can view. A "league" is any ministry that has sports teams; the term is interchangeable here.</text>
+    }
+</p>
 
 @if (_rows is null)
 {
@@ -13,10 +22,17 @@
 }
 else if (!_rows.Any())
 {
-    <div class="alert alert-secondary">
-        You're not a member of any ministry yet. Browse
-        <a href="Organizations">organizations</a> to find one.
-    </div>
+    @if (_isSystemAdmin)
+    {
+        <div class="alert alert-secondary">No leagues yet across any organization in the database.</div>
+    }
+    else
+    {
+        <div class="alert alert-secondary">
+            You're not a member of any ministry yet. Browse
+            <a href="Organizations">organizations</a> to find one.
+        </div>
+    }
 }
 else
 {
@@ -47,8 +63,16 @@ else
 
 @inject IDbContextFactory<ApplicationDbContext> DbFactory
 @inject AuthenticationStateProvider Auth
+@inject IOrgAuthService OrgAuth
 @code {
     private List<LeagueRow>? _rows;
+    // Round-BB SystemAdmin dual-branch flag. When true the page query
+    // bypasses the myOrgIds filter and shows every league in the database.
+    // The OrgAuthService.IsSystemAdminAsync call is cached at the service
+    // layer (role id resolved once, then per-user ID-lookup only) so this
+    // adds a single indexed query to OnInitializedAsync for the SysAdmin
+    // case and nothing for the negative fast-path.
+    private bool _isSystemAdmin;
 
     protected override async Task OnInitializedAsync()
     {
@@ -56,22 +80,38 @@ else
         var userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
         if (string.IsNullOrEmpty(userId)) { _rows = new(); return; }
 
+        // Single source of truth: OrgAuthService.IsSystemAdminAsync (the
+        // round-AW foundation). A non-empty userId but _isSystemAdmin=false
+        // means non-SysAdmin, so the existing myOrgIds scope-clause still
+        // applies.
+        _isSystemAdmin = await OrgAuth.IsSystemAdminAsync(userId);
+
         await using var db = await DbFactory.CreateDbContextAsync();
 
-        // Ministries the user can VIEW: every ministry in every org they're a member of.
-        var orgIds = await db.OrganizationMemberships
-            .Where(m => m.PersonUserId == userId)
-            .Select(m => m.OrganizationId)
-            .Distinct()
-            .ToListAsync();
-        if (orgIds.Count == 0) { _rows = new(); return; }
+        // Ministries the user can VIEW: every ministry in every org
+        // they're a member of. Round-BB dual-branch: SystemAdmin skips
+        // the membership lookup entirely (the predicate below
+        // `_isSystemAdmin || orgIds.Contains(...)` short-circuits in
+        // C#, so EF sees a no-WHERE clause for the SysAdmin path —
+        // matches the round-AZ Organizations/Index.razor pattern).
+        var orgIds = _isSystemAdmin
+            ? new List<int>()
+            : await db.OrganizationMemberships
+                .Where(m => m.PersonUserId == userId)
+                .Select(m => m.OrganizationId)
+                .Distinct()
+                .ToListAsync();
+        if (!_isSystemAdmin && orgIds.Count == 0) { _rows = new(); return; }
 
         // "League" = a ministry that has at least one team. Ministries
         // without teams (e.g. Worship Team, Children's Ministry) are still
         // reachable via the Organizations page; the Leagues nav is for the
         // sports surface specifically.
+        // `_isSystemAdmin || orgIds.Contains(m.OrganizationId)` short-
+        // circuits client-side for SysAdmin (no WHERE emitted), so EF
+        // returns every league in the database for that path.
         var ministries = await db.Ministries
-            .Where(m => orgIds.Contains(m.OrganizationId))
+            .Where(m => _isSystemAdmin || orgIds.Contains(m.OrganizationId))
             .Where(m => m.Teams.Any())
             .Include(m => m.Organization)
             .Include(m => m.Teams)
