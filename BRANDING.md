@@ -53,15 +53,20 @@ The 4 email types (confirmation link, password reset link, password reset code, 
 | `Components/App.razor`                            | `<link rel="icon" type="image/svg+xml" href="@Assets["img/servantsync-mark.svg"]" />` |
 | `Components/Layout/NavMenu.razor`                 | `<img src="@Assets["img/servantsync-mark.svg"]" alt="ServantSync" width="36" height="36" class="navbar-brand-mark" />` |
 | `README.md`                                       | `![ServantSync marketing lockup](wwwroot/img/servantsync-marketing.svg)`              |
-| `Components/Shared/WordmarkSplash.razor`          | The single source of truth for the marketing wordmark on the web. Consumed by:      |
-| `Components/Account/Pages/Login.razor`            | `<WordmarkSplash Width="180" Caption="Volunteer management & scheduling for churches, sports leagues, and on-call rotas." FigureClass="text-center mt-4 mb-4" />` |
-| `Components/Account/Pages/Register.razor`         | `<WordmarkSplash Width="140" />`                                                     |
-| `Components/Pages/Home.razor`                     | 2× `<WordmarkSplash Width="120" Loading="lazy" />` (no-org + has-org-no-ministries)   |
-| `Components/Pages/Open.razor`                     | 3× `<WordmarkSplash Width="120" Loading="lazy" />` (no-membership + filter-induced + no-shifts) |
-| `Components/Pages/MySchedule.razor`               | 2× `<WordmarkSplash Width="120" Loading="lazy" />` (list-view + calendar-view)        |
+| `Components/Shared/WordmarkSplash.razor`          | **Single source of truth for the marketing wordmark on the web.** 7 call sites consume it: Login (`Width=180` + breadth caption + `mt-4 mb-4` rhythm), Register (`Width=140`), and 2× Home / 3× Open / 2× MySchedule empty states (`Width=120` + `Loading="lazy"` for below-the-fold). The brand asset path is hard-coded in this component so a future rebrand is a 1-file edit, not 7. |
 | `Services/MailKitEmailSender.cs`                  | `EmailBranding.WrapHtmlBody` renders the typographic text wordmark in the email header |
 
-If you add a new surface that needs the brand, add a row to that table.
+The WordmarkSplash call sites are NOT enumerated row-by-row because the
+single source of truth IS the component — every call site is just a
+`<WordmarkSplash Width="..." Loading="..." />` invocation. A
+`grep -rn "WordmarkSplash" Components/` returns the full set in
+one command.
+
+If you add a new surface that needs the brand, add a row to that table
+only if it's a NEW file or NEW mechanism (e.g. the future
+`Components/Pages/ServiceSlots/CalendarPdf.razor` per PLAN.md
+Round-FR-1). New `<WordmarkSplash>` invocations on existing pages
+do NOT warrant a new row.
 
 ## Fork / rebrand checklist
 
