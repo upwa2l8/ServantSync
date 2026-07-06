@@ -10,12 +10,19 @@ rotas, conference staffing) without a schema rewrite.
 The two brand assets in this repo are intentionally complementary:
 
   * `wwwroot/img/servantsync-marketing.svg` — the typographic wordmark above.
-    Marketing surface only (README, splash page, email signatures). Transparent
-    canvas, brand-purple gradient, composes on dark or light backgrounds. NOT
-    used as the navbar/favicon.
+    Marketing surface (README, splash page, in-app empty states, email header).
+    Transparent canvas, brand-purple gradient, composes on dark or light
+    backgrounds. NOT used as the navbar/favicon.
   * `wwwroot/img/servantsync-mark.svg` — the existing heart-shaped two-figure
     mark with sync arcs. The product brand: navbar, favicon, apple-touch-icon.
     Same brand-purple + amber-rose gradient (cool ↔ warm duality).
+
+Both are centralized through `Components/Shared/WordmarkSplash.razor` on the
+web (the single source of truth for splash sites on Login, Register, Home,
+Open, and MySchedule) and as a typographic text lockup in
+`Services/MailKitEmailSender.cs` -> `EmailBranding.WrapHtmlBody` for outbound
+email. See `BRANDING.md` for the asset inventory, color tokens, and the
+why-two-assets rationale.
 
 No religious symbols in either asset by design (no crosses, no liturgical
 ornamentation) so the wordmark composes well on secular surfaces like
