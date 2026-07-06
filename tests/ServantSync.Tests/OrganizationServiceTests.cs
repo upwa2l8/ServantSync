@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using ServantSync.Data;
@@ -429,9 +430,7 @@ public class OrganizationServiceTests : SqliteTestBase
         await using var db = await Factory.CreateDbContextAsync();
         var org = await db.Organizations.SingleAsync(o => o.Id == newId);
         Assert.Null(org.TimeZoneId);
-    }
-
-    [Fact]
+    }    [Fact]
     public async Task CreateOrg_WithTimeZoneId_TrimsTrailingWhitespace()
     {
         var seedOrg = TestData.Org(Factory);
@@ -442,11 +441,126 @@ public class OrganizationServiceTests : SqliteTestBase
             callerUserId: admin.UserId,
             name: "Trimmed TZ Org",
             description: null, address: null, contactEmail: null, contactPhone: null,
-                timeZoneId: "  Europe/London  ");
+            timeZoneId: "  Europe/London  ");
 
         Assert.NotNull(newId);
         await using var db = await Factory.CreateDbContextAsync();
         var org = await db.Organizations.SingleAsync(o => o.Id == newId);
         Assert.Equal("Europe/London", org.TimeZoneId);
+    }
+
+    // ─── Round-AW: SystemAdmin god-mode create-org path ────────────────
+    // The user requirement was "only the systemadmin can add organizations"
+    // — which combined with the "no per-org Admin for a fresh tenant"
+    // admission policy means a fresh SystemAdmin who hasn't been Admin of
+    // anything yet must be able to bootstrap the first tenant. The
+    // IsAnyOrgAdminAsync branch is preserved unchanged for back-compat;
+    // the IsSystemAdminAsync branch is the new god-mode path. Org-edit
+    // gates elsewhere in the codebase are NOT widened — the strict
+    // visibility-only decision is enforced at the per-org method layer
+    // (see CanManageOrgAsync_* tests for the orthogonality pin).
+
+    [Fact]
+    public async Task CreateOrg_FreshSystemAdmin_WithoutAnyOrgs_InsertsRow_AndIsAdminBootstrap()
+    {
+        // Caller is SystemAdmin but has NO OrganizationMembership rows
+        // anywhere. This is the canonical fresh-SysAdmin-tenant-bootstrap
+        // path — the prior rule (IsAnyOrgAdminAsync) would have denied
+        // the request. Now it must succeed AND the caller must become
+        // Admin of the new org via the same transaction that inserts it.
+        var sysAdmin = TestData.Person(Factory);
+        await SeedSystemAdminRoleAsync(sysAdmin.UserId);
+
+        var newId = await NewSvc().CreateOrgAsync(
+            callerUserId: sysAdmin.UserId,
+            name: "Fresh SysAdmin Bootstrap",
+            description: "First tenant for a brand-new SystemAdmin",
+            address: null, contactEmail: null, contactPhone: null,
+            timeZoneId: null);
+
+        Assert.NotNull(newId);
+
+        await using var db = await Factory.CreateDbContextAsync();
+        var org = await db.Organizations.SingleAsync(o => o.Id == newId);
+        Assert.Equal("Fresh SysAdmin Bootstrap", org.Name);
+
+        // The bootstrap membership invariant (mirrors the existing
+        // round-trip tests above): the calling SystemAdmin is now Admin
+        // of the brand-new org they just created.
+        var row = await db.OrganizationMemberships.SingleAsync(m =>
+            m.OrganizationId == newId && m.PersonUserId == sysAdmin.UserId);
+        Assert.Equal(OrganizationRole.Admin, row.Role);
+    }
+
+    [Fact]
+    public async Task CreateOrg_SystemAdminAlsoAdminOfExistingOrg_StillInsertsRow()
+    {
+        // Back-compat: a caller who is BOTH SystemAdmin AND
+        // OrganizationRole.Admin of an existing org must keep working
+        // through the IsAnyOrgAdminAsync branch (the log line semantics
+        // differ — the Information-level "SystemAdmin bootstrapped"
+        // message only fires when they're NOT already an admin of any
+        // — but the functional outcome is identical).
+        var seedOrg = TestData.Org(Factory, "Seed Org");
+        var sysAdmin = TestData.Person(Factory);
+        TestData.Membership(Factory, sysAdmin.UserId, seedOrg.Id, OrganizationRole.Admin);
+        await SeedSystemAdminRoleAsync(sysAdmin.UserId);
+
+        var newId = await NewSvc().CreateOrgAsync(
+            callerUserId: sysAdmin.UserId,
+            name: "Backcompat SysAdmin+Admin",
+            description: null, address: null, contactEmail: null, contactPhone: null,
+            timeZoneId: null);
+
+        Assert.NotNull(newId);
+        await using var db = await Factory.CreateDbContextAsync();
+        Assert.True(await db.Organizations.AnyAsync(o => o.Name == "Backcompat SysAdmin+Admin"));
+    }
+
+    [Fact]
+    public async Task CreateOrg_Coordinator_NotSystemAdmin_ReturnsNull()
+    {
+        // Pin that the god-mode widening is SystemAdmin-ONLY, not
+        // Coordinator-by-extension. A Coordinator of an existing org
+        // who is NOT a SystemAdmin must be denied exactly as before —
+        // a regression that broadened the gate to any manager role
+        // (admin-of-some-org OR coord-of-some-org OR SystemAdmin) would
+        // silently let coordinators with zero OrgAdmin context create
+        // tenants, exactly what the original "Admin of existing org"
+        // gate prevents.
+        var seedOrg = TestData.Org(Factory);
+        var coordinator = TestData.Person(Factory);
+        TestData.Membership(Factory, coordinator.UserId, seedOrg.Id, OrganizationRole.Coordinator);
+        // Deliberately NOT SeedingSystemAdmin here.
+
+        var newId = await NewSvc().CreateOrgAsync(
+            callerUserId: coordinator.UserId,
+            name: "Coord Should Not Exist",
+            description: null, address: null, contactEmail: null, contactPhone: null,
+            timeZoneId: null);
+
+        Assert.Null(newId);
+        await using var db = await Factory.CreateDbContextAsync();
+        Assert.False(await db.Organizations.AnyAsync(o => o.Name == "Coord Should Not Exist"));
+    }
+
+    // Helper: ensure the SystemAdmin IdentityRole exists, then add a
+    // single IdentityUserRole join row for the supplied userId. Mirrors
+    // the same helper in OrgAuthServiceTests so a test that needs a
+    // SystemAdmin caller can opt-in with one line.
+    private async Task SeedSystemAdminRoleAsync(string userId)
+    {
+        await using var db = await Factory.CreateDbContextAsync();
+        var role = await db.Roles.FirstOrDefaultAsync(r => r.NormalizedName == "SYSTEMADMIN");
+        if (role is null)
+        {
+            role = new IdentityRole { Name = "SystemAdmin", NormalizedName = "SYSTEMADMIN" };
+            db.Roles.Add(role);
+            await db.SaveChangesAsync();
+        }
+        if (string.IsNullOrEmpty(userId)) return;
+        if (await db.UserRoles.AnyAsync(ur => ur.UserId == userId && ur.RoleId == role.Id)) return;
+        db.UserRoles.Add(new IdentityUserRole<string> { UserId = userId, RoleId = role.Id });
+        await db.SaveChangesAsync();
     }
 }

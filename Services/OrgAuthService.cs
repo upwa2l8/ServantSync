@@ -65,11 +65,34 @@ public interface IOrgAuthService
     /// page.
     /// </summary>
     Task<bool> IsParentOfAnyPlayerOnTeamAsync(string userId, int teamId, CancellationToken ct = default);
+
+    /// <summary>
+    /// True if the user holds the ASP.NET Core Identity role
+    /// <c>"SystemAdmin"</c>. SystemAdmin is a strictly visibility-only
+    /// tier: it lets the caller see every org/person/assignment via the
+    /// UI, but it does NOT widen per-org write gates. To mutate a
+    /// specific org's roster / training / schedule the caller still
+    /// needs <see cref="IsOrgAdminAsync"/> for THAT org (a regression
+    /// here would silently grant god-mode write access to every church
+    /// in the database, which is exactly what the user requirement
+    /// forbids). The single exception is org-create / org-delete /
+    /// org-edit tenants, which IS god-mode for SystemAdmin — see
+    /// <c>OrganizationService.CreateOrgAsync</c>.
+    /// </summary>
+    Task<bool> IsSystemAdminAsync(string userId, CancellationToken ct = default);
 }
 
 public class OrgAuthService : IOrgAuthService
 {
     private readonly IDbContextFactory<ApplicationDbContext> _factory;
+    // Cached "SystemAdmin" IdentityRole.Id, resolved lazily on the
+    // first IsSystemAdminAsync call. IdentityRole rows rarely change,
+    // so a per-app-startup resolution is plenty; the semaphore keeps
+    // concurrent first-callers from racing. Stored as empty string
+    // (not null) when the role row hasn't been seeded yet so the
+    // IsSystemAdminAsync fast-path can return false without re-querying.
+    private string _systemAdminRoleId = "";
+    private readonly SemaphoreSlim _systemAdminRoleGate = new(1, 1);
 
     public OrgAuthService(IDbContextFactory<ApplicationDbContext> factory)
     {
@@ -192,5 +215,48 @@ public class OrgAuthService : IOrgAuthService
             .AnyAsync(p => p.TeamId == teamId
                 && p.PrimaryContactPersonUserId == userId
                 && (p.LeftUtc == null || p.LeftUtc > DateTime.UtcNow), ct);
+    }
+
+    public async Task<bool> IsSystemAdminAsync(string userId, CancellationToken ct = default)
+    {
+        if (string.IsNullOrEmpty(userId)) return false;
+        var roleId = await ResolveSystemAdminRoleIdAsync(ct);
+        // Empty role id means SystemAdmin wasn't seeded yet — every
+        // read returns false rather than querying an unmatchable empty
+        // key. The seeder bootstraps the role on every startup, so a
+        // production deployment's first call after seeder run will
+        // resolve the role id and start returning real answers.
+        if (string.IsNullOrEmpty(roleId)) return false;
+
+        await using var db = await _factory.CreateDbContextAsync(ct);
+        return await db.UserRoles
+            .AnyAsync(r => r.UserId == userId && r.RoleId == roleId, ct);
+    }
+
+    // Lazy resolution of the SystemAdmin role id. Called on each
+    // IsSystemAdminAsync invocation but only ONE database lookup hits
+    // IdentityRoles for the lifetime of the app — subsequent calls hit
+    // the cached string field. Semaphore gates concurrent first-callers
+    // (Blazor InteractiveServer's parallel circuit timing occasionally
+    // fires two auth-state refreshes at the same moment).
+    private async Task<string> ResolveSystemAdminRoleIdAsync(CancellationToken ct)
+    {
+        if (!string.IsNullOrEmpty(_systemAdminRoleId)) return _systemAdminRoleId;
+        await _systemAdminRoleGate.WaitAsync(ct);
+        try
+        {
+            if (!string.IsNullOrEmpty(_systemAdminRoleId)) return _systemAdminRoleId;
+            await using var db = await _factory.CreateDbContextAsync(ct);
+            var id = await db.Roles
+                .Where(r => r.NormalizedName == "SYSTEMADMIN")
+                .Select(r => r.Id)
+                .FirstOrDefaultAsync(ct);
+            _systemAdminRoleId = id ?? "";
+            return _systemAdminRoleId;
+        }
+        finally
+        {
+            _systemAdminRoleGate.Release();
+        }
     }
 }

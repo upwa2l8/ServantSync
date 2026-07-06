@@ -83,12 +83,30 @@ public class OrganizationService : IOrganizationService
         // rule from Edit.razor's IsAnyOrgAdminAsync gate. Comment in that
         // file explains the bootstrap assumption (seeded admin@demo.local
         // in Demo Church is the typical first caller).
-        if (!await _orgAuth.IsAnyOrgAdminAsync(callerUserId, ct))
+        //
+        // Round-AW: widen to ALSO accept SystemAdmin so a freshly-
+        // bootstrapped SystemAdmin who isn't admin of any existing org
+        // yet can create the first tenant. The IsAnyOrgAdminAsync branch
+        // is preserved unchanged so existing back-compat stays intact;
+        // the SystemAdmin branch is the new path. Per-org writes
+        // elsewhere in the codebase are NOT widened — only org-creation
+        // is god-mode for SystemAdmin (the user requirement was "only
+        // the systemadmin can add organizations"). Per-org edits still
+        // require IsOrgAdminAsync on that specific org, by design.
+        var isExistingOrgAdmin = await _orgAuth.IsAnyOrgAdminAsync(callerUserId, ct);
+        var isSystemAdmin = await _orgAuth.IsSystemAdminAsync(callerUserId, ct);
+        if (!isExistingOrgAdmin && !isSystemAdmin)
         {
             _log.LogWarning(
                 "Permission denied: caller {CallerUserId} attempted to create organization {OrgName}.",
                 callerUserId, name);
             return null;
+        }
+        if (isSystemAdmin && !isExistingOrgAdmin)
+        {
+            _log.LogInformation(
+                "SystemAdmin {CallerUserId} bootstrapped a new tenant {OrgName} via god-mode create.",
+                callerUserId, name);
         }
 
         await using var db = await _factory.CreateDbContextAsync(ct);

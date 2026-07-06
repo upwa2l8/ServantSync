@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using ServantSync.Data;
 using ServantSync.Models;
@@ -369,5 +370,137 @@ public class OrgAuthServiceTests : SqliteTestBase
         // OnInitialized gate doesn't crash on first SSR frame.
         var org = TestData.Org(Factory);
         Assert.False(await NewSvc().CanManageOrgAsync("", org.Id));
+    }
+
+    // ─── IsSystemAdminAsync (ASP.NET Core Identity role check) ─────────
+    // SystemAdmin is the strictly-visibility-only role added in the
+    // round-AW RBAC refactor. It lets the caller see every org/person/
+    // assignment but does NOT widen per-org ADMIN write gates — the
+    // IsOrgAdminAsync / CanManageOrgAsync / CanManageSlotAsync / etc.
+    // checks above are unchanged. The single per-org-write
+    // intentional widening is in OrganizationService.CreateOrgAsync
+    // (org-create is god-mode for SystemAdmin because the user
+    // requirement was "only the systemadmin can add organizations").
+    //
+    // The tests below seed the IdentityRole + IdentityUserRole rows
+    // directly via the EF context (AddToRoleAsync would require a
+    // full UserManager<IdentityUser> DI registration in the test
+    // fixture, which is heavier than the schema-level insert that
+    // exercises the same code path IsSystemAdminAsync reads).
+
+    [Fact]
+    public async Task IsSystemAdminAsync_AssignedIdentityRole_True()
+    {
+        var admin = TestData.Person(Factory);
+        await SeedSystemAdminRoleAsync(admin.UserId);
+
+        Assert.True(await NewSvc().IsSystemAdminAsync(admin.UserId));
+    }
+
+    [Fact]
+    public async Task IsSystemAdminAsync_NotInRole_False()
+    {
+        // Caller exists in Identity but has no UserRoles row pointing
+        // at the SystemAdmin IdentityRole. Even though they're an
+        // OrganizationRole.Admin they should NOT pass this check — the
+        // API is STRICTLY the identity role, not the per-org RBAC tier.
+        var org = TestData.Org(Factory);
+        var orgAdmin = TestData.Person(Factory);
+        TestData.Membership(Factory, orgAdmin.UserId, org.Id, OrganizationRole.Admin);
+        await SeedSystemAdminRoleAsync(/* leave this user out */ "other-user-id");
+
+        Assert.False(await NewSvc().IsSystemAdminAsync(orgAdmin.UserId));
+    }
+
+    [Fact]
+    public async Task IsSystemAdminAsync_EmptyUserId_False()
+    {
+        // Same sentinel pattern as the other gate tests — anonymous /
+        // not-yet-resolved auth state should not throw.
+        await SeedSystemAdminRoleAsync(/* leave caller empty by skipping user row */ "");
+        Assert.False(await NewSvc().IsSystemAdminAsync(""));
+    }
+
+    [Fact]
+    public async Task IsSystemAdminAsync_RoleNotInSchema_False()
+    {
+        // Sanity: when the IdentityRoles table has no SystemAdmin row
+        // at all (e.g. a freshly-created DB where seeder hasn't yet
+        // run), the API returns false rather than throwing. The
+        // cached role id stays empty; subsequent calls re-check the
+        // schema on the off-chance the seeder runs mid-app-lifetime.
+        var nobody = TestData.Person(Factory);
+        // Don't seed SystemAdmin role this time.
+        Assert.False(await NewSvc().IsSystemAdminAsync(nobody.UserId));
+    }
+
+    [Fact]
+    public async Task IsSystemAdminAsync_DoesNotWidenPerOrgAdminGate()
+    {
+        // The whole point of the "strict visibility-only" decision:
+        // a SystemAdmin who is NOT OrganizationRole.Admin of org A
+        // must NOT suddenly pass CanManageOrgAsync for org A. We
+        // verify the inverse: assigning SystemAdmin alone is NOT
+        // enough to make an org-writable caller. This pins "the two
+        // tiers remain orthogonal".
+        var org = TestData.Org(Factory);
+        var sysOnly = TestData.Person(Factory);
+        await SeedSystemAdminRoleAsync(sysOnly.UserId);
+        Assert.False(await NewSvc().CanManageOrgAsync(sysOnly.UserId, org.Id));
+        Assert.False(await NewSvc().IsOrgAdminAsync(sysOnly.UserId, org.Id));
+    }
+
+    // Helper: ensure the SystemAdmin IdentityRole exists, then add a
+    // single IdentityUserRole join row for the supplied userId. Bypasses
+    // UserManager.AddToRoleAsync because the test fixture doesn't
+    // register UserManager<IdentityUser> as a DI service — a direct
+    // EF insert is both faster and exercises only the schema path
+    // IsSystemAdminAsync reads in production.
+    //
+    // The IdentityUser FK on UserRoles.UserId means the join insert
+    // needs a matching IdentityUser row. When a test passes a synthetic
+    // userId (e.g. "other-user-id" to assert "this other person has the
+    // role but my actual caller does not") we create a throwaway
+    // IdentityUser row so the FK constraint doesn't fail with a
+    // confusing error. Empty userId means "ensure the role exists but
+    // grant nobody" — useful for testing the cached-resolver negative
+    // path against a non-empty role id.
+    private async Task SeedSystemAdminRoleAsync(string userId)
+    {
+        await using var db = await Factory.CreateDbContextAsync();
+
+        // Ensure the SystemAdmin role row exists FIRST so the
+        // subsequent UserRoles insert has a resolved RoleId FK target.
+        var role = await db.Roles.FirstOrDefaultAsync(r => r.NormalizedName == "SYSTEMADMIN");
+        if (role is null)
+        {
+            role = new IdentityRole { Name = "SystemAdmin", NormalizedName = "SYSTEMADMIN" };
+            db.Roles.Add(role);
+            await db.SaveChangesAsync();
+        }
+
+        // Empty userId = "ensure role only, grant nobody".
+        if (string.IsNullOrEmpty(userId)) return;
+
+        // Auto-provision an IdentityUser row for synthetic ids so the
+        // UserRoles FK constraint doesn't trip. Real tests that care
+        // about a Person's identity use TestData.Person which already
+        // does this via the shared EnsureIdentityUser helper.
+        if (!await db.Users.AnyAsync(u => u.Id == userId))
+        {
+            db.Users.Add(new IdentityUser
+            {
+                Id = userId,
+                UserName = userId,
+                NormalizedUserName = userId.ToUpperInvariant(),
+                Email = userId,
+                NormalizedEmail = userId.ToUpperInvariant(),
+                EmailConfirmed = true,
+            });
+            await db.SaveChangesAsync();
+        }
+        if (await db.UserRoles.AnyAsync(ur => ur.UserId == userId && ur.RoleId == role.Id)) return;
+        db.UserRoles.Add(new IdentityUserRole<string> { UserId = userId, RoleId = role.Id });
+        await db.SaveChangesAsync();
     }
 }

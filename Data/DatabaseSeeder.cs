@@ -21,17 +21,20 @@ public class DatabaseSeeder
 {
     private readonly IDbContextFactory<ApplicationDbContext> _factory;
     private readonly UserManager<IdentityUser> _userManager;
+    private readonly RoleManager<IdentityRole> _roleManager;
     private readonly IUploadPathProvider _uploadPaths;
     private readonly ILogger<DatabaseSeeder> _log;
 
     public DatabaseSeeder(
         IDbContextFactory<ApplicationDbContext> factory,
         UserManager<IdentityUser> userManager,
+        RoleManager<IdentityRole> roleManager,
         IUploadPathProvider uploadPaths,
         ILogger<DatabaseSeeder> log)
     {
         _factory = factory;
         _userManager = userManager;
+        _roleManager = roleManager;
         _uploadPaths = uploadPaths;
         _log = log;
     }
@@ -59,6 +62,19 @@ public class DatabaseSeeder
         var parent2User      = await EnsureUserAsync("parent2@demo.local",      "Passw0rd!", ct);
 
         await using var db = await _factory.CreateDbContextAsync(ct);
+
+        // ---- SystemAdmin role + bootstrap promotion ----
+        // Runs on EVERY startup (not gated on the Organizations-empty
+        // early-return below) so a deployment that adds an email to
+        // SERVANTSYNC_BOOTSTRAP_SYSTEMADMIN_EMAILS picks it up on
+        // restart without a DB wipe. Promotion is monotonic: we never
+        // remove anyone from the role here. The role-name literal
+        // "SystemAdmin" matches OrgAuthService.IsSystemAdminAsync's
+        // NormalizedName lookup so the two are wired against a single
+        // source-of-truth string.
+        await EnsureSystemAdminRoleAsync(ct);
+        await PromoteSystemAdminEmailsAsync(ct);
+
         if (await db.Organizations.AnyAsync(ct))
         {
             _log.LogInformation("DatabaseSeeder: skipping data seed — Organizations already has data.");
@@ -402,6 +418,73 @@ public class DatabaseSeeder
 
         _log.LogInformation(
             "DatabaseSeeder: complete. 13 users seeded (all Passw0rd!), 1 org, 5 ministries (3 sub-ministries of the soccer league), 3 service slots (church) + 7 service slots (soccer), 1 training content (Safe Spaces) + 1 training content (Concussion) + 3 requirements, 4 training completions, 6 church assignments (1 intentional overlap), 3 arenas, 4 teams, 16 players, 6 games (1 played, 1 intentional arena double-book on next Saturday at Field 1), 2 sample shared documents on the Sound Tech slot.");
+    }
+
+    /// <summary>
+    /// Idempotent role-row provider. If the role already exists this is
+    /// a single SELECT no-op; otherwise we CreateAsync with the
+    /// canonical name. Naming uses Title-Case "SystemAdmin" — the
+    /// NormalizedName-pattern match in OrgAuthService.IsSystemAdminAsync
+    /// is case-insensitive via the standard ASP.NET Core normalization
+    /// convention (Identity upper-cases on save), so the lookup key is
+    /// "SYSTEMADMIN" regardless of how we name it here.
+    /// </summary>
+    private async Task EnsureSystemAdminRoleAsync(CancellationToken ct)
+    {
+        if (await _roleManager.RoleExistsAsync("SystemAdmin")) return;
+        var result = await _roleManager.CreateAsync(new IdentityRole("SystemAdmin"));
+        if (!result.Succeeded)
+        {
+            _log.LogError(
+                "DatabaseSeeder: failed to create SystemAdmin role: {Errors}",
+                string.Join("; ", result.Errors.Select(e => e.Description)));
+        }
+    }
+
+    /// <summary>
+    /// Promotes every email in the bootstrap set to the SystemAdmin
+    /// role. The demo convenience email admin@demo.local is always
+    /// included; the env var SERVANTSYNC_BOOTSTRAP_SYSTEMADMIN_EMAILS
+    /// (semicolon-separated) adds production deployments without a DB
+    /// edit. Unknown emails are skipped silently — a deployment whose
+    /// Identity user table doesn't yet have row X for X@example.com
+    /// just logs a Warning and continues so a half-bootstrapped prod
+    /// doesn't 500 out.
+    /// </summary>
+    private async Task PromoteSystemAdminEmailsAsync(CancellationToken ct)
+    {
+        var emails = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "admin@demo.local" };
+        var envAdmins = Environment.GetEnvironmentVariable("SERVANTSYNC_BOOTSTRAP_SYSTEMADMIN_EMAILS");
+        if (!string.IsNullOrWhiteSpace(envAdmins))
+        {
+            foreach (var raw in envAdmins.Split(';', StringSplitOptions.RemoveEmptyEntries))
+            {
+                var trimmed = raw.Trim();
+                if (trimmed.Length > 0) emails.Add(trimmed);
+            }
+        }
+
+        foreach (var email in emails)
+        {
+            var user = await _userManager.FindByEmailAsync(email);
+            if (user is null)
+            {
+                _log.LogWarning("DatabaseSeeder: SystemAdmin bootstrap email {Email} has no Identity row; skipping.", email);
+                continue;
+            }
+            if (await _userManager.IsInRoleAsync(user, "SystemAdmin")) continue;
+            var add = await _userManager.AddToRoleAsync(user, "SystemAdmin");
+            if (!add.Succeeded)
+            {
+                _log.LogError(
+                    "DatabaseSeeder: failed to promote {Email} to SystemAdmin: {Errors}",
+                    email, string.Join("; ", add.Errors.Select(e => e.Description)));
+            }
+            else
+            {
+                _log.LogInformation("DatabaseSeeder: promoted {Email} to SystemAdmin.", email);
+            }
+        }
     }
 
     /// <summary>
