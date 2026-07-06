@@ -96,12 +96,12 @@ else
     // affordance OR-branch + the per-row Edit columns for orgs they
     // Admin).
     private bool _isAnyAdmin;
-    // Round-AZ: round-AW ASP.NET Core Identity role flag. Drives the
-    // query-branch below (SystemAdmin sees every org) and widens the
-    // "+ New organization" affordance so a fresh-SysAdmin-with-no-orgs
-    // can bootstrap the first tenant via the Organizations/New page.
-    // The per-row CanEdit column is NOT widened here — strictly per-
-    // org Admin only — so SysAdmin without per-org Admin is view-only.
+    // Round-AZ ASP.NET Core Identity role flag. Drives the query-branch
+    // below (SystemAdmin sees every org) and widens the "+ New
+    // organization" affordance so a fresh-SysAdmin-with-no-orgs can
+    // bootstrap the first tenant via the Organizations/New page. The
+    // per-row CanEdit column is NOT widened here — strictly per-org
+    // Admin only — so SysAdmin without per-org Admin is view-only.
     private bool _isSystemAdmin;
 
     protected override async Task OnInitializedAsync()
@@ -112,8 +112,8 @@ else
         // below without conflating the two privilege tiers. _isSystemAdmin
         // is the identity-role check (AspNetUserRoles) and is independent
         // of _isAnyAdmin (OrganizationRole.Admin of any org).
-        _isAnyAdmin = !string.IsNullOrEmpty(_userId) && await OrgAuth.IsAnyOrgAdminAsync(_userId);
-        _isSystemAdmin = !string.IsNullOrEmpty(_userId) && await OrgAuth.IsSystemAdminAsync(_userId);
+        _isAnyAdmin = await OrgAuth.IsAnyOrgAdminAsync(_userId);
+        _isSystemAdmin = await OrgAuth.IsSystemAdminAsync(_userId);
 
         await using var db = await DbFactory.CreateDbContextAsync();
 
@@ -125,7 +125,7 @@ else
         // still driven by the actual OrganizationRole.Admin membership so a
         // SystemAdmin who isn't Admin of an org can VIEW it but not edit
         // it (consistent with the strict-visibility-only contract).
-        var myOrgIds = string.IsNullOrEmpty(_userId) || _isSystemAdmin
+        var myOrgIds = _isSystemAdmin
             ? new List<int>()
             : await db.OrganizationMemberships
                 .Where(m => m.PersonUserId == _userId)
@@ -138,14 +138,12 @@ else
         // off: SystemAdmin who is ALSO OrganizationRole.Admin of an org
         // gets a true; pure-Identity-role SystemAdmin gets all-false,
         // locking them out of edit affordances for non-Admin rows.
-        var adminOrgIds = string.IsNullOrEmpty(_userId)
-            ? new HashSet<int>()
-            : (await db.OrganizationMemberships
-                .Where(m => m.PersonUserId == _userId
-                    && m.Role == OrganizationRole.Admin)
-                .Select(m => m.OrganizationId)
-                .ToListAsync())
-                .ToHashSet();
+        var adminOrgIds = (await db.OrganizationMemberships
+            .Where(m => m.PersonUserId == _userId
+                && m.Role == OrganizationRole.Admin)
+            .Select(m => m.OrganizationId)
+            .ToListAsync())
+            .ToHashSet();
 
         // Query branches: SystemAdmin skips the myOrgIds constraint
         // entirely and pulls every Organization in the DB. The
