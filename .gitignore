@@ -488,3 +488,24 @@ servantsync.db-wal
 
 # Windows reserved device name accidentally left over from prior diagnostics
 nul
+
+# Brand-asset audit HTML (round-AU+ rounds). Designers/devs open these
+# locally to compare logo variants at different sizes; they're proof-of-
+# work artifacts, not part of the app. The leading underscore on the
+# img-prefixed variant is deliberate so the real img/* page links still
+# resolve. The top-level audit.html is the equivalent prototype page
+# opened from the repo root during brand review.
+audit.html
+wwwroot/img/_audit*.html
+
+# User-uploaded training content. The slot upload feature writes
+# user-uploaded PDFs (and the occasional .pptx) into this directory on
+# every browser-test session — those are NOT source code and don't
+# belong in the repo. The 11 PDFs + 1 .pptx committed at initial commit
+# (5605c61) are intentional seeded demo content referenced by
+# seeded TrainingContent rows and remain tracked; this rule ONLY blocks
+# future uploads from being swept into commits by an over-eager
+# `git add -A`. Slot uploads (wwwroot/uploads/slots/) are intentionally
+# NOT ignored — those are part of the demo data set.
+wwwroot/uploads/training/*.pdf
+wwwroot/uploads/training/*.pptx
