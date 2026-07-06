@@ -1229,4 +1229,514 @@ public class TrainingSessionServiceTests : SqliteTestBase
         Assert.True(await db.TrainingSessionAttendees.AnyAsync(a =>
             a.TrainingSessionId == s.Id && a.PersonUserId == volunteer.UserId));
     }
+
+    // ─── Round-FR-2.3 polish-3 follow-up (i): SetAttendedAsync ──────
+    // Per-row single-row counterpart of MarkAttendeesCompleteAsync.
+    // Same security boundary (admin/coordinator of the session's
+    // org) + same audit-trail shape, but with the marker's actual
+    // notes captured at the call site. Replaces the round-1 synthetic
+    // "Per-row mark from session detail page" notes string.
+
+    [Fact]
+    public async Task SetAttendedAsync_AttendedTrue_WithNotes_WritesCompletionWithCoordinatorManualSingle()
+    {
+        var org = TestData.Org(Factory, "Org A");
+        var content = TestData.TrainingContent(Factory, org.Id, "Safe Spaces");
+        var coord = TestData.Person(Factory, "Chris", "Coord");
+        var volunteer = TestData.Person(Factory, "Vicky", "Volunteer");
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, volunteer.UserId, org.Id, OrganizationRole.Volunteer);
+        var s = TestData.TrainingSession(Factory, org.Id, trainingContentId: content.Id);
+        TestData.TrainingSessionAttendee(Factory, s.Id, volunteer.UserId);
+
+        var result = await NewService().SetAttendedAsync(
+            s.Id, coord.UserId, volunteer.UserId, attended: true,
+            notes: "Verified attendance at the door.");
+
+        Assert.Equal(TrainingSessionMutationResult.Succeeded, result);
+
+        await using var db = await Factory.CreateDbContextAsync();
+        var attendee = await db.TrainingSessionAttendees.SingleAsync(a =>
+            a.TrainingSessionId == s.Id && a.PersonUserId == volunteer.UserId);
+        Assert.True(attendee.Attended);
+
+        var completion = await db.TrainingCompletions.SingleAsync(c =>
+            c.PersonUserId == volunteer.UserId && c.TrainingContentId == content.Id);
+        // Per-row single source — distinct from the bulk mark's
+        // CoordinatorManual so the audit trail can distinguish
+        // "session-attended bulk" from "per-row ad-hoc mark".
+        Assert.Equal(TrainingCompletionSource.CoordinatorManualSingle, completion.CompletionSource);
+        Assert.Equal(coord.UserId, completion.MarkedCompleteByUserId);
+        Assert.Equal("Verified attendance at the door.", completion.ManualCompletionNotes);
+    }
+
+    [Fact]
+    public async Task SetAttendedAsync_AttendedTrue_NoLinkedContent_OnlyAttendedFlagSet()
+    {
+        // Free-form session with no linked TrainingContent → marker
+        // just records the attendee's attended flag. No completion
+        // row (no content to claim against). Mirrors the bulk
+        // MarkAttendeesCompleteAsync behavior on the same shape.
+        var org = TestData.Org(Factory, "Org A");
+        var coord = TestData.Person(Factory, "Chris", "Coord");
+        var volunteer = TestData.Person(Factory, "Vicky", "Volunteer");
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, volunteer.UserId, org.Id, OrganizationRole.Volunteer);
+        var s = TestData.TrainingSession(Factory, org.Id, trainingContentId: null);
+        TestData.TrainingSessionAttendee(Factory, s.Id, volunteer.UserId);
+
+        var result = await NewService().SetAttendedAsync(
+            s.Id, coord.UserId, volunteer.UserId, attended: true,
+            notes: "General orientation: notes not consulted when no content linked.");
+
+        Assert.Equal(TrainingSessionMutationResult.Succeeded, result);
+
+        await using var db = await Factory.CreateDbContextAsync();
+        var attendee = await db.TrainingSessionAttendees.SingleAsync(a =>
+            a.TrainingSessionId == s.Id && a.PersonUserId == volunteer.UserId);
+        Assert.True(attendee.Attended);
+        Assert.Empty(await db.TrainingCompletions.ToListAsync());
+    }
+
+    [Fact]
+    public async Task SetAttendedAsync_AttendedTrue_WithContent_NoNotes_ValidationFailed()
+    {
+        // Decision Q5 carries over from the bulk path: notes are
+        // required when attended=true AND the session has linked
+        // training content. The audit trail must distinguish online
+        // completions from coordinator marks; missing notes can't
+        // be that distinction. Notes are NOT consulted when the
+        // session has no linked content (covered in the prior test).
+        var org = TestData.Org(Factory, "Org A");
+        var content = TestData.TrainingContent(Factory, org.Id, "Safe Spaces");
+        var coord = TestData.Person(Factory, "Chris", "Coord");
+        var volunteer = TestData.Person(Factory, "Vicky", "Volunteer");
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, volunteer.UserId, org.Id, OrganizationRole.Volunteer);
+        var s = TestData.TrainingSession(Factory, org.Id, trainingContentId: content.Id);
+        TestData.TrainingSessionAttendee(Factory, s.Id, volunteer.UserId);
+
+        var result = await NewService().SetAttendedAsync(
+            s.Id, coord.UserId, volunteer.UserId, attended: true, notes: "");
+
+        Assert.Equal(TrainingSessionMutationResult.ValidationFailed, result);
+
+        // Defense in depth: Attended flag is NOT set when the call
+        // is refused — the page can show a hint and let the user
+        // retry with notes without leaving the session in a half-
+        // marked state.
+        await using var db = await Factory.CreateDbContextAsync();
+        var attendee = await db.TrainingSessionAttendees.SingleAsync(a =>
+            a.TrainingSessionId == s.Id && a.PersonUserId == volunteer.UserId);
+        Assert.Null(attendee.Attended);
+        Assert.Empty(await db.TrainingCompletions.ToListAsync());
+    }
+
+    [Fact]
+    public async Task SetAttendedAsync_AttendedFalse_NoCompletionRow()
+    {
+        // No-shows recorded as attended=false. No completion row
+        // written — the volunteer wasn't there, so the content
+        // claim doesn't apply even if the session has
+        // TrainingContentId. Mirrors the bulk method's behavior.
+        var org = TestData.Org(Factory, "Org A");
+        var content = TestData.TrainingContent(Factory, org.Id, "Safe Spaces");
+        var coord = TestData.Person(Factory, "Chris", "Coord");
+        var volunteer = TestData.Person(Factory, "Vicky", "Volunteer");
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, volunteer.UserId, org.Id, OrganizationRole.Volunteer);
+        var s = TestData.TrainingSession(Factory, org.Id, trainingContentId: content.Id);
+        TestData.TrainingSessionAttendee(Factory, s.Id, volunteer.UserId);
+
+        var result = await NewService().SetAttendedAsync(
+            s.Id, coord.UserId, volunteer.UserId, attended: false,
+            notes: "Did not show up.");
+
+        Assert.Equal(TrainingSessionMutationResult.Succeeded, result);
+
+        await using var db = await Factory.CreateDbContextAsync();
+        var attendee = await db.TrainingSessionAttendees.SingleAsync(a =>
+            a.TrainingSessionId == s.Id && a.PersonUserId == volunteer.UserId);
+        Assert.False(attendee.Attended);
+        Assert.Empty(await db.TrainingCompletions.ToListAsync());
+    }
+
+    [Fact]
+    public async Task SetAttendedAsync_WalkIn_NotOnRoster_AutoAdded()
+    {
+        // Marker records attendance for a volunteer who wasn't on
+        // the original roster (showed up after the fact). The new
+        // single-row service auto-adds them in the same call so
+        // the marker doesn't have to do a two-step "add then mark"
+        // flow (the walk-in card in the page handles the same path
+        // via this method now too).
+        var org = TestData.Org(Factory, "Org A");
+        var content = TestData.TrainingContent(Factory, org.Id, "Safe Spaces");
+        var coord = TestData.Person(Factory, "Chris", "Coord");
+        var walkIn = TestData.Person(Factory, "Walker", "In");
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, walkIn.UserId, org.Id, OrganizationRole.Volunteer);
+        var s = TestData.TrainingSession(Factory, org.Id, trainingContentId: content.Id);
+        // walkIn is in the org but NOT on the original attendee list.
+
+        var result = await NewService().SetAttendedAsync(
+            s.Id, coord.UserId, walkIn.UserId, attended: true,
+            notes: "Walk-in attended full session.");
+
+        Assert.Equal(TrainingSessionMutationResult.Succeeded, result);
+
+        await using var db = await Factory.CreateDbContextAsync();
+        var attendee = await db.TrainingSessionAttendees.SingleAsync(a =>
+            a.TrainingSessionId == s.Id && a.PersonUserId == walkIn.UserId);
+        Assert.True(attendee.Attended);
+
+        var completion = await db.TrainingCompletions.SingleAsync(c =>
+            c.PersonUserId == walkIn.UserId && c.TrainingContentId == content.Id);
+        Assert.Equal(TrainingCompletionSource.CoordinatorManualSingle, completion.CompletionSource);
+    }
+
+    [Fact]
+    public async Task SetAttendedAsync_PlainVolunteerCaller_PermissionDenied()
+    {
+        // Only Admin/Coordinator of the session's org can mark.
+        // A volunteer who happens to be on the roster can't mark
+        // themselves (the round-1 "engagement-gate bypass" only
+        // applies to qualified markers).
+        var org = TestData.Org(Factory, "Org A");
+        var volunteer = TestData.Person(Factory, "Vicky", "Volunteer");
+        TestData.Membership(Factory, volunteer.UserId, org.Id, OrganizationRole.Volunteer);
+        var s = TestData.TrainingSession(Factory, org.Id);
+        TestData.TrainingSessionAttendee(Factory, s.Id, volunteer.UserId);
+
+        var result = await NewService().SetAttendedAsync(
+            s.Id, volunteer.UserId, volunteer.UserId, attended: true, notes: "Self-mark");
+
+        Assert.Equal(TrainingSessionMutationResult.PermissionDenied, result);
+    }
+
+    [Fact]
+    public async Task SetAttendedAsync_CoordinatorOfOtherOrg_PermissionDenied()
+    {
+        var orgA = TestData.Org(Factory, "Org A");
+        var orgB = TestData.Org(Factory, "Org B");
+        var coordB = TestData.Person(Factory, "Chris", "Coord");
+        var volunteerA = TestData.Person(Factory, "Vicky", "V");
+        TestData.Membership(Factory, coordB.UserId, orgB.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, volunteerA.UserId, orgA.Id, OrganizationRole.Volunteer);
+        var s = TestData.TrainingSession(Factory, orgA.Id);
+        TestData.TrainingSessionAttendee(Factory, s.Id, volunteerA.UserId);
+
+        var result = await NewService().SetAttendedAsync(
+            s.Id, coordB.UserId, volunteerA.UserId, attended: true, notes: "Cross-org");
+
+        Assert.Equal(TrainingSessionMutationResult.PermissionDenied, result);
+    }
+
+    [Fact]
+    public async Task SetAttendedAsync_PersonNotInOrg_ValidationFailed()
+    {
+        // Defense in depth: a marker can't forge training records
+        // for someone who isn't an org member. The marker's
+        // authority is org-scoped; the marked volunteer's org
+        // membership is checked too.
+        var org = TestData.Org(Factory, "Org A");
+        var coord = TestData.Person(Factory, "Chris", "Coord");
+        var stranger = TestData.Person(Factory, "Stranger", "McNobody");
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        // Intentionally NO Membership row for stranger.
+        var s = TestData.TrainingSession(Factory, org.Id);
+        TestData.TrainingSessionAttendee(Factory, s.Id, stranger.UserId);
+
+        var result = await NewService().SetAttendedAsync(
+            s.Id, coord.UserId, stranger.UserId, attended: true, notes: "Bogus mark");
+
+        Assert.Equal(TrainingSessionMutationResult.ValidationFailed, result);
+    }
+
+    [Fact]
+    public async Task SetAttendedAsync_EmptyCallerUserId_PermissionDenied()
+    {
+        var org = TestData.Org(Factory, "Org A");
+        var coord = TestData.Person(Factory, "Chris", "Coord");
+        var volunteer = TestData.Person(Factory, "Vicky", "Volunteer");
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, volunteer.UserId, org.Id, OrganizationRole.Volunteer);
+        var s = TestData.TrainingSession(Factory, org.Id);
+        TestData.TrainingSessionAttendee(Factory, s.Id, volunteer.UserId);
+
+        var result = await NewService().SetAttendedAsync(
+            s.Id, "", volunteer.UserId, attended: true, notes: "Empty caller");
+
+        Assert.Equal(TrainingSessionMutationResult.PermissionDenied, result);
+    }
+
+    [Fact]
+    public async Task SetAttendedAsync_EmptyPersonUserId_ValidationFailed_PersonNotInOrg()
+    {
+        // Renamed in polish-4 (was ...ValidationFailed) — empty personUserId fails the membership check, not the auth check.
+        var org = TestData.Org(Factory, "Org A");
+        var coord = TestData.Person(Factory, "Chris", "Coord");
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        var s = TestData.TrainingSession(Factory, org.Id);
+
+        var result = await NewService().SetAttendedAsync(
+            s.Id, coord.UserId, "", attended: true, notes: "Empty person");
+
+        Assert.Equal(TrainingSessionMutationResult.ValidationFailed, result);
+    }
+
+    [Fact]
+    public async Task SetAttendedAsync_CancelledSession_AlreadyCancelled()
+    {
+        // Terminal-state guard matches MarkAttendeesCompleteAsync.
+        // The marker can record attendance on a scheduled session
+        // only.
+        var org = TestData.Org(Factory, "Org A");
+        var coord = TestData.Person(Factory, "Chris", "Coord");
+        var volunteer = TestData.Person(Factory, "Vicky", "Volunteer");
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, volunteer.UserId, org.Id, OrganizationRole.Volunteer);
+        var s = TestData.TrainingSession(Factory, org.Id, status: TrainingSessionStatus.Cancelled);
+        TestData.TrainingSessionAttendee(Factory, s.Id, volunteer.UserId);
+
+        var result = await NewService().SetAttendedAsync(
+            s.Id, coord.UserId, volunteer.UserId, attended: true, notes: "Post-cancel mark");
+
+        Assert.Equal(TrainingSessionMutationResult.AlreadyCancelled, result);
+    }
+
+    [Fact]
+    public async Task SetAttendedAsync_CompletedSession_AlreadyCompleted()
+    {
+        var org = TestData.Org(Factory, "Org A");
+        var coord = TestData.Person(Factory, "Chris", "Coord");
+        var volunteer = TestData.Person(Factory, "Vicky", "Volunteer");
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, volunteer.UserId, org.Id, OrganizationRole.Volunteer);
+        var s = TestData.TrainingSession(Factory, org.Id, status: TrainingSessionStatus.Completed);
+        TestData.TrainingSessionAttendee(Factory, s.Id, volunteer.UserId);
+
+        var result = await NewService().SetAttendedAsync(
+            s.Id, coord.UserId, volunteer.UserId, attended: true, notes: "Post-complete mark");
+
+        Assert.Equal(TrainingSessionMutationResult.AlreadyCompleted, result);
+    }
+
+    [Fact]
+    public async Task SetAttendedAsync_UnknownSessionId_NotFound()
+    {
+        var org = TestData.Org(Factory, "Org A");
+        var coord = TestData.Person(Factory, "Chris", "Coord");
+        var volunteer = TestData.Person(Factory, "Vicky", "Volunteer");
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, volunteer.UserId, org.Id, OrganizationRole.Volunteer);
+
+        var result = await NewService().SetAttendedAsync(
+            999_999, coord.UserId, volunteer.UserId, attended: true, notes: "Bogus session");
+
+        Assert.Equal(TrainingSessionMutationResult.NotFound, result);
+    }
+
+    [Fact]
+    public async Task SetAttendedAsync_DoesNotFlipSessionStatusToCompleted()
+    {
+        // Per the design: SetAttendedAsync is an INTERIM update for
+        // a single row. The bulk MarkAttendeesCompleteAsync is what
+        // flips session.Status to Completed (it finalizes the
+        // attendance). Per-row marks leave the session Scheduled so
+        // the coord can keep marking volunteers one by one.
+        var org = TestData.Org(Factory, "Org A");
+        var coord = TestData.Person(Factory, "Chris", "Coord");
+        var volunteer = TestData.Person(Factory, "Vicky", "Volunteer");
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, volunteer.UserId, org.Id, OrganizationRole.Volunteer);
+        var s = TestData.TrainingSession(Factory, org.Id);
+        TestData.TrainingSessionAttendee(Factory, s.Id, volunteer.UserId);
+
+        await NewService().SetAttendedAsync(
+            s.Id, coord.UserId, volunteer.UserId, attended: true, notes: "Per-row mark");
+
+        await using var db = await Factory.CreateDbContextAsync();
+        var session = await db.TrainingSessions.SingleAsync(x => x.Id == s.Id);
+        Assert.Equal(TrainingSessionStatus.Scheduled, session.Status);
+    }
+
+    [Fact]
+    public async Task SetAttendedAsync_ExistingCompletion_OverwritesInPlace()
+    {
+        // Latest-wins (decision Q7) carries over from the bulk path.
+        // An existing user-online completion is overwritten in
+        // place with the per-row manual mark.
+        var org = TestData.Org(Factory, "Org A");
+        var content = TestData.TrainingContent(Factory, org.Id, "Safe Spaces");
+        var coord = TestData.Person(Factory, "Chris", "Coord");
+        var volunteer = TestData.Person(Factory, "Vicky", "Volunteer");
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, volunteer.UserId, org.Id, OrganizationRole.Volunteer);
+        var s = TestData.TrainingSession(Factory, org.Id, trainingContentId: content.Id);
+        TestData.TrainingSessionAttendee(Factory, s.Id, volunteer.UserId);
+        // Pre-existing user-online completion.
+        TestData.Completion(Factory, volunteer.UserId, content.Id, DateTime.UtcNow);
+
+        var result = await NewService().SetAttendedAsync(
+            s.Id, coord.UserId, volunteer.UserId, attended: true,
+            notes: "Per-row mark after online completion existed.");
+
+        Assert.Equal(TrainingSessionMutationResult.Succeeded, result);
+
+        await using var db = await Factory.CreateDbContextAsync();
+        var completions = await db.TrainingCompletions
+            .Where(c => c.PersonUserId == volunteer.UserId && c.TrainingContentId == content.Id)
+            .ToListAsync();
+        Assert.Single(completions);
+        Assert.Equal(TrainingCompletionSource.CoordinatorManualSingle, completions[0].CompletionSource);
+        Assert.Equal(coord.UserId, completions[0].MarkedCompleteByUserId);
+        Assert.Equal("Per-row mark after online completion existed.", completions[0].ManualCompletionNotes);
+    }
+
+    // ─── Round-FR-2.3 polish-3 follow-up (ii): ListMyScheduledSessionsAsync ──────
+    // New service method that powers the MySchedule.razor training-event
+    // feed wire-up. Returns Scheduled sessions in [fromUtc, toUtc) where
+    // the supplied person is on the attendee list.
+
+    [Fact]
+    public async Task ListMyScheduledSessionsAsync_ReturnsScheduledSessionsInWindow_ForMyAttendeeRoster()
+    {
+        var org = TestData.Org(Factory, "Org A");
+        var volunteer = TestData.Person(Factory, "Vicky", "Volunteer");
+        TestData.Membership(Factory, volunteer.UserId, org.Id, OrganizationRole.Volunteer);
+        var inWindow = TestData.TrainingSession(Factory, org.Id, "In-window",
+            startUtc: DateTime.UtcNow.AddDays(7), endUtc: DateTime.UtcNow.AddDays(7).AddHours(1));
+        var outOfWindow = TestData.TrainingSession(Factory, org.Id, "Out-of-window",
+            startUtc: DateTime.UtcNow.AddDays(60), endUtc: DateTime.UtcNow.AddDays(60).AddHours(1));
+        var cancelled = TestData.TrainingSession(Factory, org.Id, "Cancelled session",
+            startUtc: DateTime.UtcNow.AddDays(7), endUtc: DateTime.UtcNow.AddDays(7).AddHours(1),
+            status: TrainingSessionStatus.Cancelled);
+        var notMine = TestData.TrainingSession(Factory, org.Id, "Someone else's",
+            startUtc: DateTime.UtcNow.AddDays(7), endUtc: DateTime.UtcNow.AddDays(7).AddHours(1));
+        TestData.TrainingSessionAttendee(Factory, inWindow.Id, volunteer.UserId);
+        TestData.TrainingSessionAttendee(Factory, outOfWindow.Id, volunteer.UserId);
+        TestData.TrainingSessionAttendee(Factory, cancelled.Id, volunteer.UserId);
+        // notMine: NOT on volunteer's roster.
+
+        var fromUtc = DateTime.UtcNow;
+        var toUtc = DateTime.UtcNow.AddDays(30);
+        var result = await NewService().ListMyScheduledSessionsAsync(volunteer.UserId, fromUtc, toUtc);
+
+        var session = Assert.Single(result);
+        Assert.Equal("In-window", session.Title);
+    }
+
+    [Fact]
+    public async Task ListMyScheduledSessionsAsync_EmptyPersonUserId_ReturnsEmpty()
+    {
+        var org = TestData.Org(Factory, "Org A");
+        var session = TestData.TrainingSession(Factory, org.Id);
+        // No attendees — should not matter; empty userId short-circuits.
+
+        var result = await NewService().ListMyScheduledSessionsAsync(
+            "", DateTime.UtcNow, DateTime.UtcNow.AddDays(30));
+
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public async Task ListMyScheduledSessionsAsync_PersonNotOnAnyRoster_ReturnsEmpty()
+    {
+        var org = TestData.Org(Factory, "Org A");
+        TestData.TrainingSession(Factory, org.Id);
+        var bystander = TestData.Person(Factory, "Bystander", "McNobody");
+
+        var result = await NewService().ListMyScheduledSessionsAsync(
+            bystander.UserId, DateTime.UtcNow, DateTime.UtcNow.AddDays(30));
+
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public async Task ListMyScheduledSessionsAsync_OrdersByStartUtc_Ascending()
+    {
+        var org = TestData.Org(Factory, "Org A");
+        var volunteer = TestData.Person(Factory, "Vicky", "Volunteer");
+        TestData.Membership(Factory, volunteer.UserId, org.Id, OrganizationRole.Volunteer);
+        // Insert in non-chronological order to verify the sort.
+        var third = TestData.TrainingSession(Factory, org.Id, "Third",
+            startUtc: DateTime.UtcNow.AddDays(20), endUtc: DateTime.UtcNow.AddDays(20).AddHours(1));
+        var first = TestData.TrainingSession(Factory, org.Id, "First",
+            startUtc: DateTime.UtcNow.AddDays(5), endUtc: DateTime.UtcNow.AddDays(5).AddHours(1));
+        var second = TestData.TrainingSession(Factory, org.Id, "Second",
+            startUtc: DateTime.UtcNow.AddDays(10), endUtc: DateTime.UtcNow.AddDays(10).AddHours(1));
+        TestData.TrainingSessionAttendee(Factory, third.Id, volunteer.UserId);
+        TestData.TrainingSessionAttendee(Factory, first.Id, volunteer.UserId);
+        TestData.TrainingSessionAttendee(Factory, second.Id, volunteer.UserId);
+
+        var fromUtc = DateTime.UtcNow;
+        var toUtc = DateTime.UtcNow.AddDays(30);
+        var result = await NewService().ListMyScheduledSessionsAsync(volunteer.UserId, fromUtc, toUtc);
+
+        Assert.Equal(3, result.Count);
+        Assert.Equal("First", result[0].Title);
+        Assert.Equal("Second", result[1].Title);
+        Assert.Equal("Third", result[2].Title);
+    }
+
+    [Fact]
+    public async Task SetAttendedAsync_AttendedFalse_EmptyNotes_Succeeds()
+    {
+        // Pins the design: notes are NOT consulted for attended=false
+        // (no completion row is written, so the audit-trail distinction
+        // doesn't apply). The bulk path requires notes for any
+        // submission; the per-row single method is more lenient because
+        // each row stands alone. Future refactors that tighten this must
+        // update this test.
+        var org = TestData.Org(Factory, "Org A");
+        var content = TestData.TrainingContent(Factory, org.Id, "Safe Spaces");
+        var coord = TestData.Person(Factory, "Chris", "Coord");
+        var volunteer = TestData.Person(Factory, "Vicky", "Volunteer");
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, volunteer.UserId, org.Id, OrganizationRole.Volunteer);
+        var s = TestData.TrainingSession(Factory, org.Id, trainingContentId: content.Id);
+        TestData.TrainingSessionAttendee(Factory, s.Id, volunteer.UserId);
+
+        var result = await NewService().SetAttendedAsync(
+            s.Id, coord.UserId, volunteer.UserId, attended: false, notes: "");
+
+        Assert.Equal(TrainingSessionMutationResult.Succeeded, result);
+
+        await using var db = await Factory.CreateDbContextAsync();
+        var attendee = await db.TrainingSessionAttendees.SingleAsync(a =>
+            a.TrainingSessionId == s.Id && a.PersonUserId == volunteer.UserId);
+        Assert.False(attendee.Attended);
+        Assert.Empty(await db.TrainingCompletions.ToListAsync());
+    }
+
+    [Fact]
+    public async Task ListMyScheduledSessionsAsync_WindowInclusivity_FromUtcInclusiveToUtcExclusive()
+    {
+        // Pins the half-open [fromUtc, toUtc) window: a session starting
+        // exactly at toUtc is excluded; a session starting exactly at
+        // fromUtc is included. Future refactors that change either
+        // boundary must update this test.
+        var org = TestData.Org(Factory, "Org A");
+        var volunteer = TestData.Person(Factory, "Vicky", "Volunteer");
+        TestData.Membership(Factory, volunteer.UserId, org.Id, OrganizationRole.Volunteer);
+        var fromUtc = DateTime.UtcNow.AddDays(10);
+        var toUtc = DateTime.UtcNow.AddDays(20);
+        var atFrom = TestData.TrainingSession(Factory, org.Id, "At fromUtc (inclusive)",
+            startUtc: fromUtc, endUtc: fromUtc.AddHours(1));
+        var atTo = TestData.TrainingSession(Factory, org.Id, "At toUtc (exclusive)",
+            startUtc: toUtc, endUtc: toUtc.AddHours(1));
+        TestData.TrainingSessionAttendee(Factory, atFrom.Id, volunteer.UserId);
+        TestData.TrainingSessionAttendee(Factory, atTo.Id, volunteer.UserId);
+
+        var result = await NewService().ListMyScheduledSessionsAsync(volunteer.UserId, fromUtc, toUtc);
+
+        var session = Assert.Single(result);
+        Assert.Equal("At fromUtc (inclusive)", session.Title);
+        // Explicit half-open boundary assertion: toUtc is excluded.
+        // Without this line, a refactor that flipped both bounds to
+        // inclusive (or both to exclusive) would still pass on the
+        // "at fromUtc is included" assertion alone.
+        Assert.DoesNotContain(result, s => s.Title == "At toUtc (exclusive)");
+    }
 }

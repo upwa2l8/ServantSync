@@ -108,11 +108,16 @@ else
         </div>
     }
 
-    @* Roster + marker UI. Two roles:
-       - coord/admin: full mark UI (per-row Attended dropdown + bulk-mark with notes)
-       - volunteer: read-only roster view
-       The grid mirrors the per-attendee Attended flag (true/false/null)
-       so the marker can record no-shows as explicitly as attendance. *@
+    @* Coord/Admin mark UI. The roster carries per-row Attended selects
+       + a SESSION-SHARED notes textarea at the top. The shared notes
+       are the marker-shared audit-trail reason across all per-row
+       single marks (per-row single marks now go through the new
+       ITrainingSessionService.SetAttendedAsync, which writes the
+       marker's actual notes — replacing the round-1 synthetic
+       "Per-row mark from session detail page" placeholder). The
+       bulk-mark path still uses its own textarea + the bulk
+       MarkAttendeesCompleteAsync service method. The marker chooses
+       one path or the other per save. *@
     <h5>Roster (@_session.Attendees.Count attendee@(_session.Attendees.Count == 1 ? "" : "s"))</h5>
     @if (!_session.Attendees.Any())
     {
@@ -143,10 +148,15 @@ else
                                 <td>
                                     @* Tri-state select: null = "not marked yet",
                                        true = attended, false = no-show. The
-                                       service upserts the Attended flag in
-                                       place; the on-blur handler saves
-                                       immediately so a no-show recorded on
-                                       a phone doesn't get lost on refresh. *@
+                                       SetAttendedAsync service upserts the
+                                       Attended flag in place; the on-blur
+                                       handler saves immediately so a no-show
+                                       recorded on a phone doesn't get lost
+                                       on refresh. The shared _sharedNotes
+                                       (above) is the marker-shared audit
+                                       reason — required when attended=true
+                                       AND the session has linked training
+                                       content. *@
                                     <select class="form-select form-select-sm" style="width: auto"
                                             @bind="_attendedMap[a.PersonUserId]"
                                             @bind:after="() => PersistAttended(a.PersonUserId)">
@@ -180,25 +190,65 @@ else
         </div>
     }
 
+    @if (_markError is not null)
+    {
+        // Inline alert for per-row single-mark failures (e.g. the
+        // marker picked Attended but left the shared notes blank
+        // when the session has linked training content). The
+        // risk the FR-2.3 designer flagged: the per-row select
+        // fires on @bind:after with no explicit "save" button, so
+        // a silent discard is the worst outcome. The alert makes
+        // the validation visible without forcing the marker to
+        // re-issue the mark.
+        <div class="alert alert-warning py-2 small mb-3">@_markError</div>
+    }
+
     @* Coord/Admin bulk mark. The notes textarea is REQUIRED (decision Q5
-       in PLAN.md) — the per-row single-mark path through MarkSingleCompleteAsync
-       also enforces it. The button is only enabled when there's at least
-       one attendee with a non-empty Attended mark (the service refuses
-       empty rosters with NoAttendees). *@
+       in PLAN.md) — the per-row single-mark path through SetAttendedAsync
+       also enforces it via the shared notes field above. The button is
+       only enabled when there's at least one attendee with a non-empty
+       Attended mark (the service refuses empty rosters with NoAttendees). *@
     @if (_canManage)
     {
         <div class="card mt-3">
-            <div class="card-header"><h5 class="mb-0">Mark attendance</h5></div>
+            <div class="card-header"><h5 class="mb-0">Per-row single mark</h5></div>
             <div class="card-body">
                 <p class="text-muted small mb-2">
-                    Set the per-row <em>Attended</em> dropdown above, then add a note explaining
-                    how you confirmed attendance (e.g. <em>"Walked through the safety checklist at the door."</em>).
-                    Notes are required so the audit trail distinguishes online completions from
-                    coordinator-marked completions.
+                    Type a shared note once (e.g. <em>"Walked through the safety checklist at the door."</em>),
+                    then change the per-row <em>Attended</em> dropdown above. Each change saves immediately and
+                    the note is captured verbatim in the audit trail. Notes are required when the session
+                    has linked training content and you mark someone as Attended — otherwise the per-row
+                    change is refused so the audit trail stays consistent.
+                </p>
+                <div class="form-floating mb-2">
+                    <InputTextArea id="shared-notes" class="form-control" style="height: 5rem" @bind-Value="_sharedNotes"
+                                    aria-describedby="per-row-shared-notes-hint" />
+                    <label for="shared-notes">Shared marker notes (required for Attended+linked training)</label>
+                </div>
+                <div class="d-flex align-items-start gap-3 flex-wrap mb-2">
+                    <p id="per-row-shared-notes-hint" class="text-info small mb-0 flex-grow-1">
+                        The shared note is reused for every per-row mark you make — use the button to clear the note before starting a new audit-trail reason.
+                    </p>
+                    <button type="button" class="btn btn-outline-secondary btn-sm flex-shrink-0"
+                            @onclick="() => _sharedNotes = string.Empty"
+                            disabled="@string.IsNullOrEmpty(_sharedNotes)">
+                        Clear notes
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mt-3">
+            <div class="card-header"><h5 class="mb-0">Bulk mark</h5></div>
+            <div class="card-body">
+                <p class="text-muted small mb-2">
+                    Alternative to per-row: set the per-row <em>Attended</em> dropdown above, then add a
+                    separate note for the bulk mark. Bulk mark flips the session status to Completed and
+                    writes completion rows for every marked-Attended volunteer in one call.
                 </p>
                 <div class="form-floating mb-2">
                     <InputTextArea id="bulk-notes" class="form-control" style="height: 5rem" @bind-Value="_bulkNotes" />
-                    <label for="bulk-notes">Marker notes (required)</label>
+                    <label for="bulk-notes">Bulk marker notes (required)</label>
                 </div>
                 <div class="d-flex gap-2 align-items-center">
                     <button class="btn btn-primary" @onclick="BulkMark" disabled="@(!CanBulkMark)">
@@ -219,10 +269,12 @@ else
             </div>
         </div>
 
-        @* Walk-in add. The service auto-creates the attendee row + sets
-           Attended=true AND writes the TrainingCompletion in one call
-           (FR-2 service decision: marker can add volunteers who weren't
-           on the original roster). *@
+        @* Walk-in add. Routes through SetAttendedAsync now (per the
+           round-FR-2.3 polish) — the new service method auto-adds
+           the volunteer to the roster in the same call, so the
+           marker doesn't have to do a two-step "add then mark"
+           flow. The walk-in note is required (matches the bulk
+           path's notes-required policy). *@
         <div class="card mt-3">
             <div class="card-header"><h5 class="mb-0">Add walk-in attendee</h5></div>
             <div class="card-body">
@@ -269,6 +321,13 @@ else
     private bool _busySignUp;
     private bool _busyBulk;
     private bool _busyWalkIn;
+    // Shared notes field at the top of the roster — drives the
+    // per-row SetAttendedAsync call. Required when the marker picks
+    // Attended AND the session has linked training content (decision
+    // Q5 carries over from the bulk path; the per-row single mark
+    // service enforces it). When the session has no linked content,
+    // notes are not consulted.
+    private string _sharedNotes = "";
     private string _bulkNotes = "";
     private string _walkInUserId = "";
     private string _walkInNote = "";
@@ -282,6 +341,10 @@ else
     private List<Person> _nonAttendeeOrgMembers = new();
     // Last bulk-mark outcome, surfaced in the inline alert.
     private (bool success, string message)? _bulkResult;
+    // Last per-row single-mark error (e.g. notes required when
+    // session has linked training). Cleared on the next successful
+    // per-row mark OR on Reload.
+    private string? _markError;
 
     private bool CanBulkMark =>
         !_busyBulk
@@ -334,10 +397,7 @@ else
                 false => "false",
                 _ => "",
             });
-        // Reset the per-page name cache. PersonName() lazily populates
-        // it on first lookup; a future round can eager-load the Person
-        // nav on the session and seed it here in one query.
-        _nameCache.Clear();
+        _markError = null;
         await ReloadNonAttendeePicker();
     }
 
@@ -356,29 +416,17 @@ else
             .ToListAsync();
     }
 
-    // Per-page cache for Person display names. One DB hit per distinct
-    // attendee across the page render, then in-memory lookups.
-    // Resets to empty on each Reload(); scoped to this component
-    // instance so it can't leak across requests in the Blazor circuit.
-    // Misses (user not in the People table) are cached too, using the
-    // userId as the sentinel value, so a re-render doesn't re-query.
-    private readonly Dictionary<string, string> _nameCache = new();
-
+    // Roster name lookup. Round-FR-2.3 polish-3 follow-up (iii):
+    // GetAsync now eager-loads Person on Attendees
+    // (.ThenInclude(a => a.Person)), so this is a pure in-memory
+    // dictionary lookup — no DB hit, no per-page cache, no sync
+    // CreateDbContext. The pre-polish N+1 (one People query per
+    // distinct attendee across the page lifetime) is gone.
     private string PersonName(string userId)
     {
-        // Called inline from Razor markup (e.g. `@PersonName(a.PersonUserId)`),
-        // so this method MUST stay synchronous — Razor expression evaluation
-        // does not support await. The synchronous CreateDbContext() + sync
-        // FirstOrDefault is the intentional shape here; the future-round
-        // eager-load of Person on the session (in Reload) will eliminate
-        // this lookup entirely.
-        if (!_nameCache.TryGetValue(userId, out var cached))
-        {
-            using var db = DbFactory.CreateDbContext();
-            cached = db.People.FirstOrDefault(p => p.UserId == userId)?.DisplayName ?? userId;
-            _nameCache[userId] = cached;
-        }
-        return cached;
+        if (_session is null) return userId;
+        var attendee = _session.Attendees.FirstOrDefault(a => a.PersonUserId == userId);
+        return attendee?.Person?.DisplayName ?? userId;
     }
 
     private async Task SignUp()
@@ -441,38 +489,57 @@ else
         }
     }
 
-    // Per-row attended flag change. Saves immediately so a no-show
-    // recorded on a phone survives a refresh. The service allows
-    // setting Attended=true OR Attended=false (with the same
-    // latest-wins upsert); the TrainingCompletion row is written
-    // ONLY for the bulk path (where notes are required).
+    // Per-row attended flag change. Round-FR-2.3 polish-3 follow-up
+    // (i): routes through the new SetAttendedAsync service method
+    // (no synthetic notes) with the marker's actual notes from
+    // the shared _sharedNotes field. Saves immediately so a
+    // no-show recorded on a phone survives a refresh.
+    // ValidationFailed (e.g. attended=true with no notes when the
+    // session has linked training) surfaces in the inline _markError
+    // alert instead of silently discarding.
     private async Task PersistAttended(string personUserId)
     {
         if (_session is null) return;
         if (!_attendedMap.TryGetValue(personUserId, out var raw)) return;
         if (string.IsNullOrEmpty(raw)) return; // null = "not marked" — no-op
         var attended = raw == "true";
-        // We reuse the bulk service with a single-entry list so the
-        // upsert path is identical. The notes requirement is the one
-        // wrinkle — per-row single marks would need to use a separate
-        // service or a temporary notes value. Round-1 simplification:
-        // the single-row path also goes through MarkAttendeesCompleteAsync
-        // with a synthetic "Per-row mark" notes string so the audit
-        // trail is consistent. Round 2 could split the service.
-        var syntheticNotes = $"Per-row mark from session detail page: {(attended ? "attended" : "no-show")}.";
-        var marks = new List<AttendeeMark>
+        var result = await SessionService.SetAttendedAsync(
+            Id, _userId, personUserId, attended, _sharedNotes);
+        switch (result)
         {
-            new() { PersonUserId = personUserId, Attended = attended }
-        };
-        var result = await SessionService.MarkAttendeesCompleteAsync(Id, _userId, marks, syntheticNotes);
-        if (result == TrainingSessionMutationResult.Succeeded)
-        {
-            await Reload();
+            case TrainingSessionMutationResult.Succeeded:
+                _markError = null;
+                await Reload();
+                break;
+            case TrainingSessionMutationResult.ValidationFailed:
+                // The shared notes are blank AND the session has linked
+                // training content AND the marker picked Attended=true.
+                // SetAttendedAsync refuses the write; surface the hint
+                // so the marker can fill in the notes and retry.
+                _markError = "Marker notes are required when marking Attended on a session with linked training content.";
+                break;
+            case TrainingSessionMutationResult.PermissionDenied:
+                _markError = "You don't have permission to mark attendance.";
+                break;
+            case TrainingSessionMutationResult.AlreadyCancelled:
+                _markError = "This session was cancelled.";
+                break;
+            case TrainingSessionMutationResult.AlreadyCompleted:
+                _markError = "This session is already completed.";
+                break;
+            case TrainingSessionMutationResult.NotFound:
+                _markError = "Session or volunteer not found.";
+                break;
         }
     }
 
-    // Bulk mark. Iterates the in-memory AttendedMap, packages into
-    // the service's input shape, and surfaces the result inline.
+    // Bulk mark. Routes through MarkAttendeesCompleteAsync (unchanged
+    // from FR-2.2) — flips the session status to Completed and
+    // writes completion rows for every marked-Attended volunteer in
+    // one call. Per-row single marks use SetAttendedAsync; bulk
+    // marks use this. Two distinct paths so the audit-trail shape
+    // matches the call site (CoordinatorManual for bulk,
+    // CoordinatorManualSingle for per-row).
     private async Task BulkMark()
     {
         if (_session is null) return;
@@ -514,17 +581,18 @@ else
         }
     }
 
+    // Walk-in add. Round-FR-2.3 polish-3: routes through the new
+    // SetAttendedAsync service method, which auto-adds the volunteer
+    // to the roster in the same call. The walk-in note is required
+    // (mirrors the bulk path's notes-required policy).
     private async Task AddWalkIn()
     {
         if (_session is null || !CanAddWalkIn) return;
         _busyWalkIn = true;
         try
         {
-            var marks = new List<AttendeeMark>
-            {
-                new() { PersonUserId = _walkInUserId, Attended = true }
-            };
-            var result = await SessionService.MarkAttendeesCompleteAsync(Id, _userId, marks, _walkInNote);
+            var result = await SessionService.SetAttendedAsync(
+                Id, _userId, _walkInUserId, attended: true, notes: _walkInNote);
             if (result == TrainingSessionMutationResult.Succeeded)
             {
                 _walkInUserId = "";

@@ -167,8 +167,28 @@ public interface ITrainingSessionService
         CancellationToken ct = default);
 
     /// <summary>
-    /// Single session with eager-loaded TrainingContent + Attendees.
-    /// Null if not found. Used by Sessions/Detail.razor.
+    /// Scheduled + in-progress training sessions in <c>[fromUtc, toUtc)</c>
+    /// where the supplied <paramref name="personUserId"/> is on the
+    /// attendee list. Used by <c>MySchedule.razor</c> to surface the
+    /// user's own in-person training commitments alongside their
+    /// regular assignments. Eager-loads <see cref="TrainingSession.TrainingContent"/>
+    /// so the page can render the linked-training link without a per-row
+    /// round-trip. Sessions are filtered to Scheduled only — Completed
+    /// and Cancelled sessions are audit-trail artifacts and would just
+    /// clutter the user's "what's coming up" view.
+    /// </summary>
+    Task<List<TrainingSession>> ListMyScheduledSessionsAsync(
+        string personUserId,
+        DateTime fromUtc,
+        DateTime toUtc,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Single session with eager-loaded TrainingContent + Attendees +
+    /// Attendees.Person. Null if not found. Used by Sessions/Detail.razor.
+    /// The Person nav on Attendees is loaded so the roster renders names
+    /// without a per-row DB hit (was the round-FR-2.3 polish-3 N+1
+    /// follow-up).
     /// </summary>
     Task<TrainingSession?> GetAsync(
         int sessionId,
@@ -225,5 +245,57 @@ public interface ITrainingSessionService
         string markerUserId,
         IReadOnlyList<AttendeeMark> attendeeResults,
         string markerNotes,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Coordinator/admin sets the Attended flag for a SINGLE volunteer
+    /// on a session's roster. The single-row counterpart of
+    /// <see cref="MarkAttendeesCompleteAsync"/>. Same engagement-gate
+    /// bypass (decision Q6) and same audit-trail shape:
+    /// (a) <see cref="TrainingSessionAttendee.Attended"/> is set
+    /// unconditionally (true OR false, including no-shows);
+    /// (b) when <paramref name="attended"/>=true AND the session has a
+    /// <see cref="TrainingSession.TrainingContentId"/>, a
+    /// <see cref="TrainingCompletion"/> row is written with
+    /// CompletionSource=CoordinatorManualSingle +
+    /// MarkedCompleteByUserId=<paramref name="callerUserId"/> +
+    /// ManualCompletionNotes=<paramref name="notes"/>.
+    ///
+    /// Notes are REQUIRED when <paramref name="attended"/>=true AND
+    /// the session has linked training content (decision Q5 carries
+    /// over from the bulk path — the audit trail must distinguish
+    /// online completions from coordinator marks). Returns
+    /// <see cref="TrainingSessionMutationResult.ValidationFailed"/> if
+    /// notes are blank under that combination. When the session has
+    /// no TrainingContentId, notes are not consulted.
+    ///
+    /// If <paramref name="personUserId"/> is NOT on the attendee
+    /// roster, the volunteer is auto-added (latest-wins upsert) with
+    /// the supplied Attended flag — matches the walk-in pattern from
+    /// <see cref="MarkAttendeesCompleteAsync"/>. The marker can also
+    /// pass an empty roster member here and the service adds them
+    /// without a separate walk-in flow.
+    ///
+    /// Refuses: <see cref="TrainingSessionMutationResult.NotFound"/>
+    /// (session id missing), <see cref="TrainingSessionMutationResult.PermissionDenied"/>
+    /// (caller isn't Admin/Coordinator of the session's org),
+    /// <see cref="TrainingSessionMutationResult.ValidationFailed"/>
+    /// (personUserId isn't an org member, OR notes blank when
+    /// required), <see cref="TrainingSessionMutationResult.AlreadyCancelled"/>
+    /// / <see cref="TrainingSessionMutationResult.AlreadyCompleted"/>
+    /// (session terminal-state).
+    ///
+    /// Round-FR-2.3 polish-3 follow-up (i): replaces the previous
+    /// round-1 simplification that routed per-row single marks through
+    /// <see cref="MarkAttendeesCompleteAsync"/> with a synthetic
+    /// "Per-row mark from session detail page" notes string. The
+    /// per-row path now carries the marker's actual notes.
+    /// </summary>
+    Task<TrainingSessionMutationResult> SetAttendedAsync(
+        int sessionId,
+        string callerUserId,
+        string personUserId,
+        bool attended,
+        string? notes,
         CancellationToken ct = default);
 }

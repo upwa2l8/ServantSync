@@ -199,14 +199,49 @@ public class TrainingSessionService : ITrainingSessionService
             .ToListAsync(ct);
     }
 
+    public async Task<List<TrainingSession>> ListMyScheduledSessionsAsync(
+        string personUserId,
+        DateTime fromUtc,
+        DateTime toUtc,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrEmpty(personUserId)) return new List<TrainingSession>();
+        await using var db = await _factory.CreateDbContextAsync(ct);
+        // Join the session table to the attendee table on
+        // (TrainingSessionId, PersonUserId). The composite-unique
+        // index on TrainingSessionAttendees covers this join. The
+        // person is filter-only (no nav eager-load needed — the page
+        // uses the session's title/location/start, not the attendee's
+        // person record). Eager-load TrainingContent so the page can
+        // render the linked-training link without a per-row round-trip.
+        return await db.TrainingSessions
+            .Include(s => s.TrainingContent)
+            .AsNoTracking()
+            .Where(s => s.Status == TrainingSessionStatus.Scheduled
+                && s.StartUtc >= fromUtc
+                && s.StartUtc < toUtc
+                && s.Attendees.Any(a => a.PersonUserId == personUserId))
+            .OrderBy(s => s.StartUtc)
+            .ToListAsync(ct);
+    }
+
     public async Task<TrainingSession?> GetAsync(
         int sessionId,
         CancellationToken ct = default)
     {
         await using var db = await _factory.CreateDbContextAsync(ct);
+        // Round-FR-2.3 polish-3 follow-up (iii): eager-load Person on
+        // the Attendees nav so Detail.razor's roster renders names
+        // without a per-row DB hit. The previous N+1 shape forced
+        // PersonName() to do a synchronous CreateDbContext + lookup;
+        // Person is now in-memory and PersonName() is a pure dict
+        // lookup. List methods (ListUpcomingAsync / ListPastAsync)
+        // intentionally don't include Person — the Index page only
+        // renders the Count, not names, and the extra payload would
+        // be wasted bytes on the wire.
         return await db.TrainingSessions
             .Include(s => s.TrainingContent)
-            .Include(s => s.Attendees)
+            .Include(s => s.Attendees).ThenInclude(a => a.Person)
             .AsNoTracking()
             .FirstOrDefaultAsync(s => s.Id == sessionId, ct);
     }
@@ -433,7 +468,8 @@ public class TrainingSessionService : ITrainingSessionService
             {
                 UpsertCompletion(
                     db, markInput.PersonUserId, session.TrainingContentId.Value,
-                    resolvedContentVersion.Value, markerUserId, markerNotes, expiresUtc);
+                    resolvedContentVersion.Value, markerUserId, markerNotes, expiresUtc,
+                    TrainingCompletionSource.CoordinatorManual);
             }
         }
 
@@ -447,6 +483,125 @@ public class TrainingSessionService : ITrainingSessionService
         return TrainingSessionMutationResult.Succeeded;
     }
 
+    public async Task<TrainingSessionMutationResult> SetAttendedAsync(
+        int sessionId,
+        string callerUserId,
+        string personUserId,
+        bool attended,
+        string? notes,
+        CancellationToken ct = default)
+    {
+        // Round-FR-2.3 polish-3 follow-up (i): single-row counterpart
+        // of MarkAttendeesCompleteAsync. Replaces the round-1
+        // simplification that routed per-row single marks through the
+        // bulk method with a synthetic "Per-row mark" notes string.
+        // Same security boundary (admin/coordinator of the session's
+        // org) + same audit-trail shape (Attended flag + optional
+        // TrainingCompletion row with caller + notes), but with the
+        // marker's actual notes captured at the call site.
+        if (string.IsNullOrEmpty(callerUserId))
+            return TrainingSessionMutationResult.PermissionDenied;
+        if (string.IsNullOrEmpty(personUserId))
+            return TrainingSessionMutationResult.ValidationFailed;
+
+        await using var db = await _factory.CreateDbContextAsync(ct);
+
+        var session = await db.TrainingSessions
+            .FirstOrDefaultAsync(s => s.Id == sessionId, ct);
+        if (session is null) return TrainingSessionMutationResult.NotFound;
+
+        if (!await IsCallerOrgManagerAsync(db, callerUserId, session.OrganizationId, ct))
+            return TrainingSessionMutationResult.PermissionDenied;
+
+        // Terminal-state guard: the marker can record attendance on a
+        // scheduled session, but not on a cancelled one (cancel-via-
+        // marker is an out-of-band flow not modeled in round 1) nor on
+        // a completed one (the bulk mark would have flipped status; a
+        // follow-up single mark would corrupt the audit trail).
+        if (session.Status == TrainingSessionStatus.Cancelled)
+            return TrainingSessionMutationResult.AlreadyCancelled;
+        if (session.Status == TrainingSessionStatus.Completed)
+            return TrainingSessionMutationResult.AlreadyCompleted;
+
+        // Defense in depth: the marked volunteer must be an org member.
+        // A marker can't forge training records for strangers, and a
+        // non-member walk-in should be added to the org by the coord
+        // before being marked attended.
+        var inOrg = await db.OrganizationMemberships
+            .AnyAsync(m => m.PersonUserId == personUserId
+                && m.OrganizationId == session.OrganizationId, ct);
+        if (!inOrg)
+            return TrainingSessionMutationResult.ValidationFailed;
+
+        // Find-or-create the attendee row. Matches the walk-in
+        // pattern from MarkAttendeesCompleteAsync: if the volunteer
+        // wasn't on the original roster (showed up after the fact),
+        // the marker can still record their attendance in one call
+        // without a separate walk-in flow.
+        var attendee = await db.TrainingSessionAttendees
+            .FirstOrDefaultAsync(a => a.TrainingSessionId == sessionId
+                && a.PersonUserId == personUserId, ct);
+        if (attendee is null)
+        {
+            attendee = new TrainingSessionAttendee
+            {
+                TrainingSessionId = sessionId,
+                PersonUserId = personUserId,
+            };
+            db.TrainingSessionAttendees.Add(attendee);
+        }
+        // Decision Q7: latest-wins — the Attended flag is upserted.
+        attendee.Attended = attended;
+
+        // TrainingCompletion only when attended=true AND the session
+        // has linked training content. Notes are REQUIRED in that
+        // combination (decision Q5 carries over from the bulk path —
+        // the audit trail must distinguish online completions from
+        // coordinator marks). When the session has no TrainingContentId,
+        // notes are not consulted.
+        if (attended && session.TrainingContentId.HasValue)
+        {
+            if (string.IsNullOrWhiteSpace(notes))
+                return TrainingSessionMutationResult.ValidationFailed;
+
+            var content = await db.TrainingContents
+                .AsNoTracking()
+                .FirstOrDefaultAsync(c => c.Id == session.TrainingContentId.Value, ct);
+            if (content is not null)
+            {
+                var req = await db.TrainingRequirements
+                    .Where(r => r.TrainingContentId == session.TrainingContentId.Value)
+                    .OrderBy(r => r.Id)
+                    .FirstOrDefaultAsync(ct);
+                var nowUtc = DateTime.UtcNow;
+                var expiresUtc = req?.Cadence switch
+                {
+                    TrainingCadence.OneTime => (DateTime?)null,
+                    TrainingCadence.Yearly => nowUtc.AddYears(1),
+                    TrainingCadence.EveryMonths => nowUtc.AddMonths(req.CadenceMonths ?? 12),
+                    _ => nowUtc.AddYears(1),
+                };
+                UpsertCompletion(
+                    db, personUserId, session.TrainingContentId.Value,
+                    content.Version, callerUserId, notes!, expiresUtc,
+                    TrainingCompletionSource.CoordinatorManualSingle);
+            }
+            // Content vanished under the SetNull behavior — the Attended
+            // flag is still recorded on the attendee row; we just skip
+            // the completion write rather than fail the whole call.
+        }
+
+        // Deliberately do NOT flip session.Status to Completed here.
+        // The bulk mark is the operation that finalizes the session
+        // (flips status to Completed). A per-row single mark is an
+        // interim update — the coord may still be marking volunteers
+        // one by one and the session should stay Scheduled until the
+        // bulk mark closes it out (or until the user navigates away
+        // and the status flip happens on a subsequent bulk call).
+        await db.SaveChangesAsync(ct);
+        return TrainingSessionMutationResult.Succeeded;
+    }
+
     // ---- Shared helpers ----
 
     private static void UpsertCompletion(
@@ -456,7 +611,8 @@ public class TrainingSessionService : ITrainingSessionService
         int contentVersion,
         string markerUserId,
         string markerNotes,
-        DateTime? expiresUtc)
+        DateTime? expiresUtc,
+        TrainingCompletionSource source)
     {
         var existing = db.TrainingCompletions.FirstOrDefault(c =>
             c.PersonUserId == personUserId
@@ -467,7 +623,7 @@ public class TrainingSessionService : ITrainingSessionService
             // Latest-wins (decision Q7). Marker + notes + source + utc +
             // expires are overwritten in place — the audit trail captures
             // who made the most recent mark AND what they wrote.
-            existing.CompletionSource = TrainingCompletionSource.CoordinatorManual;
+            existing.CompletionSource = source;
             existing.MarkedCompleteByUserId = markerUserId;
             existing.ManualCompletionNotes = markerNotes;
             existing.CompletionUtc = DateTime.UtcNow;
@@ -482,7 +638,7 @@ public class TrainingSessionService : ITrainingSessionService
                 TrainingContentVersion = contentVersion,
                 CompletionUtc = DateTime.UtcNow,
                 ExpiresUtc = expiresUtc,
-                CompletionSource = TrainingCompletionSource.CoordinatorManual,
+                CompletionSource = source,
                 MarkedCompleteByUserId = markerUserId,
                 ManualCompletionNotes = markerNotes,
             });

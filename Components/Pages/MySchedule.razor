@@ -119,6 +119,49 @@ else
                 </tbody>
             </table>
         }
+
+        @* Round-FR-2.3 polish-3 follow-up (ii): a separate "Upcoming
+           training" section surfaces the volunteer's own in-person
+           training sessions in the visible window. A second table
+           (vs merging with the assignment table) keeps the row
+           model typed to its native shape — Assignment vs
+           TrainingSession have different columns / link targets /
+           status colors. The "training" badge prefix matches the
+           calendar pill so the user sees a consistent visual across
+           list + calendar views. *@
+        @if (_myTrainingSessions.Any())
+        {
+            <h4 class="mt-4">Upcoming training</h4>
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>When</th>
+                        <th>Where</th>
+                        <th>Session</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var s in _myTrainingSessions)
+                    {
+                        <tr>
+                            <td><LocalTime Utc="@s.StartUtc" /> – <LocalTime Utc="@s.EndUtc" /></td>
+                            <td>@s.Location</td>
+                            <td>
+                                <a href="@($"Organizations/{s.OrganizationId}/Training/Sessions/{s.Id}")">@s.Title</a>
+                                @if (s.TrainingContent is not null)
+                                {
+                                    <div class="text-muted small">Linked: @s.TrainingContent.Title</div>
+                                }
+                            </td>
+                            <td>
+                                <span class="badge bg-info">@s.Status</span>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
     }
 
     <h4 class="mt-4">Outstanding training</h4>
@@ -145,6 +188,7 @@ else
 @inject IDbContextFactory<ApplicationDbContext> DbFactory
 @inject IAssignmentService AssignmentService
 @inject ITrainingService TrainingService
+@inject ITrainingSessionService TrainingSessionService
 @inject AuthenticationStateProvider Auth
 @code {
     private enum ViewMode { List, Calendar }
@@ -161,6 +205,13 @@ else
 
     private List<Assignment> _assignments = new();
     private List<CalendarEvent> _calendarEvents = new();
+    // Round-FR-2.3 polish-3 follow-up (ii): the volunteer's own
+    // in-person training sessions in the visible window, rendered
+    // separately in the list view and merged into _calendarEvents
+    // with IsTraining=true for the calendar view. Sessions are
+    // surfaced alongside (not merged with) regular assignments so
+    // the table layouts can stay typed to their respective DTOs.
+    private List<TrainingSession> _myTrainingSessions = new();
     private List<OutstandingRow> _outstanding = new();
 
     private string SubscribeUrl
@@ -252,7 +303,34 @@ else
                 .AsNoTracking()
                 .ToListAsync();
 
-            _calendarEvents = _assignments.Select(a => new CalendarEvent
+            // Round-FR-2.3 polish-3 follow-up (ii): fetch the user's
+            // own in-person training sessions in the same window so
+            // they show up on the calendar (with the "training" badge)
+            // and in a separate "Upcoming training" table on the list
+            // view. TrainingSessionService.ListMyScheduledSessionsAsync
+            // is a single LINQ join over TrainingSessionAttendees; the
+            // result is ordered by StartUtc ascending. Skipped when
+            // the user has no orgs at all — the service would return
+            // empty anyway, but skipping the call avoids a wasted
+            // round-trip on the no-orgs fast path.
+            if (_myOrgIds.Count > 0)
+            {
+                _myTrainingSessions = await TrainingSessionService.ListMyScheduledSessionsAsync(
+                    _userId!, _fromUtc, _toUtc);
+            }
+            else
+            {
+                _myTrainingSessions = new();
+            }
+
+            // Build the calendar view by unioning assignment events
+            // (IsTraining defaults to false on CalendarEvent) with
+            // training-session events (IsTraining=true, StatusColor=
+            // "info" so the pill stands out from regular shifts on
+            // the same day). The session links to its own
+            // /Organizations/{OrgId}/Training/Sessions/{Id} page, not
+            // a ServiceSlot route.
+            var assignmentEvents = _assignments.Select(a => new CalendarEvent
             {
                 Id = a.Id,
                 StartUtc = a.StartUtc,
@@ -265,7 +343,28 @@ else
                 Status = a.Status.ToString(),
                 StatusColor = AssignmentStatusUi.ColorFor(a.Status),
                 Href = $"Organizations/{a.ServiceSlot.Ministry.OrganizationId}/Ministries/{a.ServiceSlot.MinistryId}/Roles/{a.ServiceSlotId}",
-            }).ToList();
+            });
+            var trainingEvents = _myTrainingSessions.Select(s => new CalendarEvent
+            {
+                Id = s.Id,
+                StartUtc = s.StartUtc,
+                EndUtc = s.EndUtc,
+                Title = s.Title,
+                Subtitle = s.TrainingContent?.Title,
+                Location = s.Location,
+                Status = s.Status.ToString(),
+                // "info" (Bootstrap cyan) so training events read as a
+                // distinct color from the regular shift pills (primary/
+                // success/warning/danger). Pairs with the "training"
+                // text badge on the pill — see AssignmentCalendar.razor
+                // round-FR-2.3b comment block.
+                StatusColor = "info",
+                Href = $"Organizations/{s.OrganizationId}/Training/Sessions/{s.Id}",
+                IsTraining = true,
+            });
+            _calendarEvents = assignmentEvents.Concat(trainingEvents)
+                .OrderBy(e => e.StartUtc)
+                .ToList();
 
             // Outstanding training: across the user's orgs + every slot
             // they currently hold a non-cancelled assignment on. The

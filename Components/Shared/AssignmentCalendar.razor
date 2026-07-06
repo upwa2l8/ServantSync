@@ -52,12 +52,16 @@
                                with regular assignments on the same day.
                                Renders as a small inline pill after the
                                title; the link itself is unchanged.
-                               NOTE (round 2): no event source currently
-                               emits IsTraining=true — wired in a future
-                               round when the training-session feed is
-                               added to the call sites that populate
-                               `Events`. Until then this branch is
-                               intentionally unreachable. *@
+                               Round-FR-2.3 polish-3 follow-up (ii):
+                               MySchedule.razor now projects in-person
+                               training sessions into the same
+                               CalendarEvent list with IsTraining=true,
+                               so this branch is reachable for the
+                               volunteer's own scheduled sessions.
+                               Other call sites (Open.razor, Dashboard.razor)
+                               still default to IsTraining=false and can
+                               opt in by setting it true on their
+                               CalendarEvent projection. *@
                             @if (ev.IsTraining)
                             {
                                 <span class="badge bg-info ms-1" style="font-size: 0.6rem;">training</span>
@@ -129,9 +133,12 @@
                                a training session doesn't visually
                                compete with regular assignments in the
                                week-grid. Mirrors the month-view pill
-                               above. NOTE (round 2): same dead-code
-                               warning as the month view — no event
-                               source emits IsTraining=true yet. *@
+                               above.                               Round-FR-2.3 polish-3 follow-up (ii):
+                               wired up for MySchedule.razor — same
+                               opt-in shape as the month view; other
+                               call sites default to IsTraining=false
+                               and can opt in by setting it true on
+                               their CalendarEvent projection. *@
                             @if (ev.IsTraining)
                             {
                                 <span class="badge bg-info ms-1" style="font-size: 0.6rem;">training</span>
