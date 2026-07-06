@@ -6,10 +6,15 @@
 
 <div class="d-flex justify-content-between align-items-center mb-3">
     <h1>Organizations</h1>
-    @* Admin-only. Creating a new organization requires Admin in some existing org
-       (bootstrap-Admin pattern in OrganizationService.CreateOrgAsync), so hiding
-       the affordance here avoids a 403 on submit for non-admins. *@
-    @if (_isAnyAdmin)
+    @* Round-AZ: the "+ New organization" affordance widens to either
+       OrgAdmin (existing) OR SystemAdmin. The OR matches the actual
+       capability of OrganizationService.CreateOrgAsync — the service
+       gate widens to either branch, so hiding the button here on the
+       basis of the narrower OrgAdmin-only check would 403-on-submit a
+       SystemAdmin (who's only Admin via the identity role, not via
+       OrganizationMembership). SystemAdmin who IS NOT Admin of any
+       existing org keeps the bootstrap-tenant creation capability. *@
+    @if (_isAnyAdmin || _isSystemAdmin)
     {
         <a class="btn btn-primary" href="Organizations/New">+ New organization</a>
     }
@@ -24,9 +29,14 @@ else if (!_orgs.Any())
     @* Empty-state copy. Each branch's prose lives inside an HTML tag so the
        Razor parser stays in markup mode; bare prose inside an @if-else block
        goes back into C# mode and gets tokenized as code (a real bug we hit
-       on the first pass). *@
+       on the first pass). Round-AZ adds the SystemAdmin branch: a
+       god-mode caller sees the same "no orgs yet" copy as an anonymous
+       user because they ARE the authoritative bootstrap-Admin role and can
+       use the +New affordance to spin up the first tenant. A non-admin /
+       non-sysadmin signed-in user keeps the "ask an admin" copy — they
+       cannot bootstrap a tenant themselves. *@
     <div class="alert alert-info">
-        @if (string.IsNullOrEmpty(_userId))
+        @if (string.IsNullOrEmpty(_userId) || _isSystemAdmin)
         {
             <p class="mb-0">No organizations yet - create the first one.</p>
         }
@@ -79,47 +89,67 @@ else
     // The signed-in user's id. Empty string (never null) for safe null-checks.
     private string _userId = "";
     // True iff the user is Admin of at least one org (drives the "+ New"
-    // affordance and the per-row Edit columns).
+    // affordance OR-branch + the per-row Edit columns for orgs they
+    // Admin).
     private bool _isAnyAdmin;
+    // Round-AZ: round-AW ASP.NET Core Identity role flag. Drives the
+    // query-branch below (SystemAdmin sees every org) and widens the
+    // "+ New organization" affordance so a fresh-SysAdmin-with-no-orgs
+    // can bootstrap the first tenant via the Organizations/New page.
+    // The per-row CanEdit column is NOT widened here — strictly per-
+    // org Admin only — so SysAdmin without per-org Admin is view-only.
+    private bool _isSystemAdmin;
 
     protected override async Task OnInitializedAsync()
     {
         var state = await Auth.GetAuthenticationStateAsync();
         _userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
+        // Round-AZ: track SystemAdmin separately so the query can branch
+        // below without conflating the two privilege tiers. _isSystemAdmin
+        // is the identity-role check (AspNetUserRoles) and is independent
+        // of _isAnyAdmin (OrganizationRole.Admin of any org).
         _isAnyAdmin = !string.IsNullOrEmpty(_userId) && await OrgAuth.IsAnyOrgAdminAsync(_userId);
+        _isSystemAdmin = !string.IsNullOrEmpty(_userId) && await OrgAuth.IsSystemAdminAsync(_userId);
 
         await using var db = await DbFactory.CreateDbContextAsync();
 
-        // Per-org Admins: list ONLY orgs the user has a membership in. This
-        // is the strict-isolation model - a volunteer in Org A doesn't see
-        // Org B's existence. Admins of multiple orgs see all of their orgs.
-        // Admins-of-any-org (rare case where a user is Admin in Org B but
-        // not yet a member of Org A) still only see their memberships, since
-        // there's no admin "view all" affordance on this page.
-        var myOrgIds = string.IsNullOrEmpty(_userId)
+        // Per-org Admins / non-admin members: list ONLY orgs the user has a
+        // membership in. This is the strict-isolation model - a volunteer
+        // in Org A doesn't see Org B's existence. Admins of multiple orgs
+        // see all of their orgs. Round-AZ widens this for SystemAdmin only.
+        // SystemAdmin can SEE every org in the system; CanEdit per row is
+        // still driven by the actual OrganizationRole.Admin membership so a
+        // SystemAdmin who isn't Admin of an org can VIEW it but not edit
+        // it (consistent with the strict-visibility-only contract).
+        var myOrgIds = string.IsNullOrEmpty(_userId) || _isSystemAdmin
             ? new List<int>()
             : await db.OrganizationMemberships
                 .Where(m => m.PersonUserId == _userId)
                 .Select(m => m.OrganizationId)
                 .ToListAsync();
 
-        // Admin flag per row, computed in one trip so the markup can show /
-        // hide the per-row Edit button without a second DB roundtrip. The
-        // membership-table OrganizationId column is non-nullable, so no
-        // null guard is needed (a fix from the original draft which had a
-        // dead `m.OrganizationId != 0` filter).
-        var adminOrgIds = myOrgIds.Count == 0
+        // Per-row CanEdit is the same OrgAuth per-org check that the
+        // existing /Organizations/{Id}/Edit page enforces. Lookup fires
+        // unconditionally because it doubles as the SysAdmin-scope sign-
+        // off: SystemAdmin who is ALSO OrganizationRole.Admin of an org
+        // gets a true; pure-Identity-role SystemAdmin gets all-false,
+        // locking them out of edit affordances for non-Admin rows.
+        var adminOrgIds = string.IsNullOrEmpty(_userId)
             ? new HashSet<int>()
             : (await db.OrganizationMemberships
                 .Where(m => m.PersonUserId == _userId
-                    && myOrgIds.Contains(m.OrganizationId)
                     && m.Role == OrganizationRole.Admin)
                 .Select(m => m.OrganizationId)
                 .ToListAsync())
                 .ToHashSet();
 
+        // Query branches: SystemAdmin skips the myOrgIds constraint
+        // entirely and pulls every Organization in the DB. The
+        // EVERY-org query is naturally cheap (one SELECT + aggregate
+        // counts) and avoids the need for a separate SystemAdmin-only
+        // service method.
         _orgs = await db.Organizations
-            .Where(o => myOrgIds.Contains(o.Id))
+            .Where(o => _isSystemAdmin || myOrgIds.Contains(o.Id))
             .OrderBy(o => o.Name)
             .Select(o => new OrgRow
             {
