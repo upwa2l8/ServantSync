@@ -29,14 +29,18 @@ else if (!_orgs.Any())
     @* Empty-state copy. Each branch's prose lives inside an HTML tag so the
        Razor parser stays in markup mode; bare prose inside an @if-else block
        goes back into C# mode and gets tokenized as code (a real bug we hit
-       on the first pass). Round-AZ adds the SystemAdmin branch: a
-       god-mode caller sees the same "no orgs yet" copy as an anonymous
-       user because they ARE the authoritative bootstrap-Admin role and can
-       use the +New affordance to spin up the first tenant. A non-admin /
-       non-sysadmin signed-in user keeps the "ask an admin" copy — they
-       cannot bootstrap a tenant themselves. *@
+       on the first pass). Round-AZ: a SystemAdmin sees the "no orgs yet"
+       bootstrap copy because they ARE the authoritative bootstrap-Admin
+       identity role and can use the +New affordance to spin up the first
+       tenant. A non-SysAdmin signed-in user keeps the "ask an admin" copy
+       - they cannot bootstrap a tenant themselves.
+       (Round-BD: the [Authorize] attribute on this page (present since
+       the initial commit) guarantees a non-empty _userId before
+       OnInitializedAsync runs, so the prior "empty-userId or SystemAdmin"
+       predicate collapsed to just the SystemAdmin branch; the empty-
+       userId half of the OR was unreachable.) *@
     <div class="alert alert-info">
-        @if (string.IsNullOrEmpty(_userId) || _isSystemAdmin)
+        @if (_isSystemAdmin)
         {
             <p class="mb-0">No organizations yet - create the first one.</p>
         }
