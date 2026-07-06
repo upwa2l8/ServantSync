@@ -26,6 +26,34 @@ design.
   QR targets + format + error-correction, time-zone default + fallback,
   stale-URL handling, edge cases, file naming, and 4 open questions for
   the user before implementation starts.
+- **Round-FR-2: in-person scheduled training sessions with manual-completion
+  audit** — see
+  [`PLAN.md` → Feature requests → Round-FR-2](PLAN.md#round-fr-2-in-person-scheduled-training-sessions-with-manual-completion-audit).
+  Coordinators schedule in-person training events (date/time/location,
+  optionally linked to a `TrainingContent`), volunteers sign up, and
+  after the session a coordinator/admin marks attendees complete with
+  an audit trail showing the completion was manual (not user-clicked
+  from online training). Spec extends `TrainingCompletion` with
+  `CompletionSource` (UserOnline / CoordinatorManual /
+  CoordinatorManualSingle) + `MarkedCompleteByUserId` +
+  `ManualCompletionNotes`; adds `TrainingSession` + `TrainingSessionAttendee`
+  models; the existing `AssignmentCalendar` gains a "training" badge
+  for session events. Tightly coupled to Round-FR-3 (the manual-mark
+  flow is what unlocks stub duty-assignment).
+- **Round-FR-3: manually-added volunteers with account linking** — see
+  [`PLAN.md` → Feature requests → Round-FR-3](PLAN.md#round-fr-3-manually-added-volunteers-with-account-linking).
+  Org admins add volunteers to the system before those volunteers have
+  an email/password. The admin-entered person is a "stub" `Person`
+  (`IsStub=true`, no usable login) that can be assigned to ministries +
+  scheduled duties. When the volunteer eventually self-registers, they
+  paste the admin-provided claim token (or match by email as a
+  secondary path) and the stub's historical data (memberships,
+  assignments, training completions) re-parents to the new
+  `IdentityUser`. Spec extends `Person` with `IsStub` + `Email`
+  columns (additive migration, no FK changes); adds a `PersonClaimToken`
+  model with SHA-256 hash + 30-day expiry; the re-parent is a single
+  `UPDATE People SET UserId = @new, IsStub = 0`. Tightly coupled to
+  Round-FR-2 (the manual-mark flow is what unlocks stub duty-assignment).
 
 ## Where we are
 
