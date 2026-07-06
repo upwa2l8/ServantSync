@@ -34,6 +34,10 @@ public class ApplicationDbContext : IdentityDbContext<IdentityUser>
     public DbSet<Player> Players => Set<Player>();
     public DbSet<Game> Games => Set<Game>();
     public DbSet<SlotDocument> SlotDocuments => Set<SlotDocument>();
+    // Round-BC SystemAdmin grant/revoke audit log. Append-only by
+    // application convention (no service updates a row, no routine
+    // purges). See Services/SystemAdminManagementService.cs.
+    public DbSet<SystemAdminGrantAudit> SystemAdminGrantAudits => Set<SystemAdminGrantAudit>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -325,6 +329,19 @@ public class ApplicationDbContext : IdentityDbContext<IdentityUser>
                 .OnDelete(DeleteBehavior.Restrict);  // preserve doc history if uploader is deleted
             // Indexed for the grouped-list query (per-slot, ordered by category).
             b.HasIndex(d => new { d.ServiceSlotId, d.Category });
+        });
+
+        // ---- SystemAdminGrantAudit (round-BC) ----
+        // Append-only log row. No FK to AspNetUsers on ActorUserId /
+        // TargetUserId because a deleted user must NOT cascade-delete
+        // their audit history — the forensics view must outlive the
+        // user. Identity rows cascade-delete; the audit log is
+        // intentionally NOT wired to cascade so a SysAdmin removing
+        // their own account can never erase their own grant history.
+        modelBuilder.Entity<SystemAdminGrantAudit>(b =>
+        {
+            b.HasIndex(a => a.TimestampUtc);
+            b.Property(a => a.Reason).HasMaxLength(80);
         });
     }
 }

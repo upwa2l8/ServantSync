@@ -88,6 +88,18 @@
                         <span class="bi bi-person-circle-nav-menu" aria-hidden="true"></span> Account
                     </NavLink>
                 </div>
+                @* SystemAdmin-only nav link — only renders when the round-BC
+                   IsSystemAdminAsync lookup succeeds. Stays invisible for
+                   non-SysAdmin signed-in users; OrgAdmins/Coordinators do
+                   not see this link. *@
+                @if (_isSystemAdmin)
+                {
+                    <div class="nav-item px-3">
+                        <NavLink class="nav-link" href="SystemAdmin">
+                            <span class="bi bi-shield-lock-nav-menu" aria-hidden="true"></span> System admin
+                        </NavLink>
+                    </div>
+                }
                 <div class="nav-item px-3">
                     <form method="post" action="Account/Logout">
                         <AntiforgeryToken />
@@ -130,6 +142,12 @@
     // (see /People/Index.razor + People/Detail.razor + OrganizationService
     // for the read/write orthogonality pin).
     private bool _isManager;
+    // Round-BC SystemAdmin nav-link gate. Distinct from _isManager so
+    // the SystemAdmin link can render even for a SysAdmin who isn't a
+    // per-org Admin/Coordinator. The IsSystemAdminAsync call is already
+    // cached at the OrgAuthService layer so the second flag adds one
+    // indexed join per nav refresh at most.
+    private bool _isSystemAdmin;
     // Toolbar logger: created in OnInitialized so we don't allocate on
     // every auth-state tick. Logging takes the place of a silent catch so
     // a logic bug in RefreshManagerFlagAsync is visible in production
@@ -188,6 +206,7 @@
         // session shape.
         _isManager = await OrgAuth.IsAnyOrgManagerAsync(userId)
             || await OrgAuth.IsSystemAdminAsync(userId);
+        _isSystemAdmin = await OrgAuth.IsSystemAdminAsync(userId);
     }
 
     public void Dispose()

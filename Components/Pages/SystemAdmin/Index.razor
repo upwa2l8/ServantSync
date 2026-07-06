@@ -1,0 +1,257 @@
+@page "/SystemAdmin"
+@attribute [Authorize]
+@rendermode InteractiveServer
+
+<PageTitle>System administrators</PageTitle>
+
+@if (_loading)
+{
+    <p><em>Loading…</em></p>
+}
+else if (!_canView)
+{
+    <div class="alert alert-danger">
+        <strong>Access denied.</strong> Only SystemAdmins can view this page.
+    </div>
+}
+else
+{
+    <h1>System administrators</h1>
+    <p class="text-muted">Round-BC: grant or revoke the SystemAdmin role. Every attempt is logged on the audit log below.</p>
+
+    <StatusMessage Message="@_message" IsError="@_isError" />
+
+    <div class="row g-3 mb-4">
+        <div class="col-md-6">
+            <div class="card shadow-sm">
+                <div class="card-header"><h5 class="mb-0">Current SystemAdmins (@_admins.Count)</h5></div>
+                <ul class="list-group list-group-flush">
+                    @if (_admins.Count == 0)
+                    {
+                        <li class="list-group-item text-muted">Nobody holds the SystemAdmin role.</li>
+                    }
+                    else
+                    {
+                        @foreach (var a in _admins)
+                        {
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                <div>
+                                    <strong>@a.DisplayName</strong>
+                                    <div class="text-muted small">@a.Email · granted @FormatTimestamp(a.GrantedUtc)</div>
+                                </div>
+                                @* Cannot revoke self — disabled button when this row IS the caller. The
+                                   page-markup guard mirrors the service's SelfRevokeRefused result so the
+                                   click never even leaves the page in the self-revoke attempt. *@
+                                @if (a.UserId == _userId)
+                                {
+                                    <button class="btn btn-sm btn-outline-secondary" disabled title="You can't revoke yourself — ask another SystemAdmin to revoke you.">Revoke (self)</button>
+                                }
+                                else
+                                {
+                                    <button class="btn btn-sm btn-outline-danger" @onclick="() => RevokeAsync(a.UserId)" disabled="@_busy">Revoke</button>
+                                }
+                            </li>
+                        }
+                    }
+                </ul>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card shadow-sm">
+                <div class="card-header"><h5 class="mb-0">Grant SystemAdmin to a user</h5></div>
+                <div class="card-body">
+                    <p class="text-muted small mb-2">Enter the user's email — we'll look up their Identity row and grant the role.</p>
+                    <div class="input-group">
+                        <input class="form-control" placeholder="user@example.com" @bind="_grantEmail" />
+                        <button class="btn btn-primary" @onclick="GrantByEmailAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_grantEmail))">Grant</button>
+                    </div>
+                    @if (_grantTarget is not null)
+                    {
+                        <div class="mt-2 text-muted small">Resolved: <strong>@_grantTarget.DisplayName</strong> (@_grantTarget.UserId)</div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <h3>Recent audit log</h3>
+    <p class="text-muted small">Last @_audits.Count grant/revoke attempts across all SystemAdmin actors. Newest first.</p>
+    <table class="table table-sm">
+        <thead><tr><th>When (UTC)</th><th>Actor</th><th>Action</th><th>Target</th><th>Result</th><th>Reason</th></tr></thead>
+        <tbody>
+            @foreach (var a in _audits)
+            {
+                <tr class="@((a.Success ? "" : "table-warning"))">
+                    <td><LocalTime Utc="@a.TimestampUtc" Format="yyyy-MM-dd HH:mm:ss" /></td>
+                    <td>@a.ActorDisplayName</td>
+                    <td>@(a.Action == SystemAdminAuditAction.Grant ? "Grant" : "Revoke")</td>
+                    <td>@a.TargetDisplayName</td>
+                    <td>@(a.Success ? "OK" : "Refused")</td>
+                    <td>@a.Reason</td>
+                </tr>
+            }
+            @if (_audits.Count == 0)
+            {
+                <tr><td colspan="6" class="text-muted text-center">No audit rows yet — make a grant / revoke to populate this list.</td></tr>
+            }
+        </tbody>
+    </table>
+}
+
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject AuthenticationStateProvider Auth
+@inject IOrgAuthService OrgAuth
+@inject ISystemAdminManagementService SysAdmin
+@inject UserManager<IdentityUser> UserManager
+@code {
+    private bool _loading = true;
+    private bool _canView;
+    private bool _busy;
+    private string? _message;
+    private bool _isError;
+    private string _userId = "";
+    private List<SystemAdminRow> _admins = new();
+    private List<SystemAdminAuditRow> _audits = new();
+    private string _grantEmail = "";
+    private SystemAdminRow? _grantTarget;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await Auth.GetAuthenticationStateAsync();
+        _userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
+        // Page-level gate mirror: IsSystemAdminAsync is the same check
+        // the service uses; we render a friendly 403 panel if it fails.
+        // The page is still @attribute [Authorize] so an anonymous user
+        // is blocked by Blazor's authorize filter before this code runs.
+        _canView = !string.IsNullOrEmpty(_userId) && await OrgAuth.IsSystemAdminAsync(_userId);
+        if (!_canView)
+        {
+            _loading = false;
+            return;
+        }
+        await ReloadAsync();
+        _loading = false;
+    }
+
+    private async Task ReloadAsync()
+    {
+        _admins = (await SysAdmin.ListAsync()).ToList();
+        _audits = (await SysAdmin.ListRecentAuditsAsync()).ToList();
+    }
+
+    private async Task ResolveGrantTargetAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_grantEmail))
+        {
+            _grantTarget = null;
+            return;
+        }
+        var user = await UserManager.FindByEmailAsync(_grantEmail);
+        if (user is null)
+        {
+            _grantTarget = null;
+            return;
+        }
+        // Display-name resolution matches SysAdmin.ListAsync style for consistency.
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var person = await db.People.FirstOrDefaultAsync(p => p.UserId == user.Id);
+        _grantTarget = new SystemAdminRow
+        {
+            UserId = user.Id,
+            Email = user.Email ?? _grantEmail,
+            DisplayName = person is null
+                ? (user.Email ?? user.Id)
+                : $"{person.FirstName} {person.LastName}".Trim(),
+        };
+    }
+
+    private async Task GrantByEmailAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_grantEmail)) return;
+        _busy = true;
+        _message = null;
+        try
+        {
+            await ResolveGrantTargetAsync();
+            if (_grantTarget is null)
+            {
+                _isError = true;
+                _message = $"No Identity user with email '{_grantEmail}'.";
+                return;
+            }
+            var result = await SysAdmin.GrantAsync(_userId, _grantTarget.UserId);
+            switch (result)
+            {
+                case SystemAdminGrantResult.Success:
+                    _isError = false;
+                    _message = $"Granted SystemAdmin to {_grantTarget.DisplayName}.";
+                    _grantEmail = "";
+                    _grantTarget = null;
+                    break;
+                case SystemAdminGrantResult.AlreadyHasRole:
+                    _isError = true;
+                    _message = $"{_grantTarget.DisplayName} already has SystemAdmin.";
+                    break;
+                case SystemAdminGrantResult.TargetUserNotFound:
+                    _isError = true;
+                    _message = $"No Identity user found for '{_grantEmail}'.";
+                    break;
+                case SystemAdminGrantResult.PermissionDenied:
+                default:
+                    _isError = true;
+                    _message = "Permission denied.";
+                    break;
+            }
+            await ReloadAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task RevokeAsync(string targetUserId)
+    {
+        _busy = true;
+        _message = null;
+        try
+        {
+            var result = await SysAdmin.RevokeAsync(_userId, targetUserId);
+            switch (result)
+            {
+                case SystemAdminRevokeResult.Success:
+                    _isError = false;
+                    _message = "SystemAdmin revoked.";
+                    break;
+                case SystemAdminRevokeResult.DoesNotHaveRole:
+                    _isError = true;
+                    _message = "That user didn't have SystemAdmin.";
+                    break;
+                case SystemAdminRevokeResult.SelfRevokeRefused:
+                    _isError = true;
+                    _message = "You can't revoke your own SystemAdmin role.";
+                    break;
+                case SystemAdminRevokeResult.TargetUserNotFound:
+                    _isError = true;
+                    _message = "User not found.";
+                    break;
+                case SystemAdminRevokeResult.PermissionDenied:
+                default:
+                    _isError = true;
+                    _message = "Permission denied.";
+                    break;
+            }
+            await ReloadAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private static string FormatTimestamp(DateTime utc)
+    {
+        if (utc == DateTime.MinValue) return "—";
+        return utc.ToString("yyyy-MM-dd HH:mm") + " UTC";
+    }
+}

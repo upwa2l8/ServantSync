@@ -119,6 +119,11 @@ builder.Services.AddScoped<IOrganizationMinistryService, OrganizationMinistrySer
 // markup thin and lets PageAccessTests pin the gate the same way it
 // already does for ministries/arenas/members.
 builder.Services.AddScoped<ISlotManagementService, SlotManagementService>();
+// Round-BC: SystemAdminManagementService hosts the grant/revoke flow
+// behind a SystemAdmin gate. Sole application pathway for mutating
+// the SystemAdmin Identity role — every grant/revoke lands an audit
+// row in SystemAdminGrantAudits.
+builder.Services.AddScoped<ISystemAdminManagementService, SystemAdminManagementService>();
 builder.Services.AddScoped<IMinistryInterestService, MinistryInterestService>();
 builder.Services.AddScoped<ICoordinatorAssignmentsService, CoordinatorAssignmentsService>();
 // Round-AI: self-heal handler. The Take page calls this on every

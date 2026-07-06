@@ -74,3 +74,14 @@ public enum GameStatus
     Postponed = 4,
     Forfeit = 5,
 }
+
+/// <summary>
+/// Action recorded on a <see cref="SystemAdminGrantAudit"/> row. The
+/// stored int matches the row order — Grant = 0, Revoke = 1 — but
+/// the codebase reads through the enum so a future re-order is safe.
+/// </summary>
+public enum SystemAdminAuditAction
+{
+    Grant = 0,
+    Revoke = 1,
+}
