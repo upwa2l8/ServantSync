@@ -59,6 +59,19 @@ else
             {
                 <a class="btn btn-outline-secondary" href="@($"Organizations/{OrgId}/Ministries/{Id}/Edit")">Edit ministry</a>
             }
+            @* Round-AW: ministry coordinator (Admin/Coordinator of the
+               owning org OR the ministry's own CoordinatorPersonUserId
+               OR a parent-ministry coordinator) gets the Signups link
+               so they can see who has marked the ministry as followed.
+               _canManageMinistry already covers Admin/Coordinator of
+               the parent org via CanManageMinistryAsync; SystemAdmin is
+               added by the Signups page's own gate (read-side widening
+               is fine even though navigation visibility here stays
+               per-org scoped). *@
+            @if (_canManageMinistry)
+            {
+                <a class="btn btn-outline-primary" href="@($"Organizations/{OrgId}/Ministries/{Id}/Signups")">View signups</a>
+            }
         </div>
     </div>
 

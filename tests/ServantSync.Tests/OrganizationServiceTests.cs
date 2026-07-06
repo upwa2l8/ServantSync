@@ -469,7 +469,7 @@ public class OrganizationServiceTests : SqliteTestBase
         // the request. Now it must succeed AND the caller must become
         // Admin of the new org via the same transaction that inserts it.
         var sysAdmin = TestData.Person(Factory);
-        await SeedSystemAdminRoleAsync(sysAdmin.UserId);
+        await TestData.SeedSystemAdminRoleAsync(Factory, sysAdmin.UserId);
 
         var newId = await NewSvc().CreateOrgAsync(
             callerUserId: sysAdmin.UserId,
@@ -504,7 +504,7 @@ public class OrganizationServiceTests : SqliteTestBase
         var seedOrg = TestData.Org(Factory, "Seed Org");
         var sysAdmin = TestData.Person(Factory);
         TestData.Membership(Factory, sysAdmin.UserId, seedOrg.Id, OrganizationRole.Admin);
-        await SeedSystemAdminRoleAsync(sysAdmin.UserId);
+        await TestData.SeedSystemAdminRoleAsync(Factory, sysAdmin.UserId);
 
         var newId = await NewSvc().CreateOrgAsync(
             callerUserId: sysAdmin.UserId,
@@ -544,23 +544,9 @@ public class OrganizationServiceTests : SqliteTestBase
         Assert.False(await db.Organizations.AnyAsync(o => o.Name == "Coord Should Not Exist"));
     }
 
-    // Helper: ensure the SystemAdmin IdentityRole exists, then add a
-    // single IdentityUserRole join row for the supplied userId. Mirrors
-    // the same helper in OrgAuthServiceTests so a test that needs a
-    // SystemAdmin caller can opt-in with one line.
-    private async Task SeedSystemAdminRoleAsync(string userId)
-    {
-        await using var db = await Factory.CreateDbContextAsync();
-        var role = await db.Roles.FirstOrDefaultAsync(r => r.NormalizedName == "SYSTEMADMIN");
-        if (role is null)
-        {
-            role = new IdentityRole { Name = "SystemAdmin", NormalizedName = "SYSTEMADMIN" };
-            db.Roles.Add(role);
-            await db.SaveChangesAsync();
-        }
-        if (string.IsNullOrEmpty(userId)) return;
-        if (await db.UserRoles.AnyAsync(ur => ur.UserId == userId && ur.RoleId == role.Id)) return;
-        db.UserRoles.Add(new IdentityUserRole<string> { UserId = userId, RoleId = role.Id });
-        await db.SaveChangesAsync();
-    }
+    // The actionable helper used to live here as a private method; it
+    // moved to TestData.SeedSystemAdminRoleAsync(Factory, userId) so
+    // OrgAuthServiceTests could reuse the same FK-safe seed path
+    // without copy-pasting the IdentityRole + IdentityUser + UserRoles
+    // trio. Tests above call TestData.SeedSystemAdminRoleAsync(Factory, …).
 }

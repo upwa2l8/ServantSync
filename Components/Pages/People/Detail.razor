@@ -136,26 +136,26 @@ else
         }
         else if (!string.IsNullOrEmpty(_userId))
         {
-            // Admin-of-shared-org access: caller is Admin of at least one
-            // org the target is also a member of. Single query joining the
-            // two memberships set.
-            //
-            // Note: Coordinators are intentionally NOT included. The user
-            // requirement is that volunteer's personal info is hidden from
-            // non-admins; Coordinators see the ministry's CoordinatorEmail
-            // and the org's Members tab, but not volunteer profiles. If a
-            // future requirement adds "Coordinator sees the people they
-            // coordinate with", the gate expands from Admin-only to
-            // Admin-or-Coordinator of a shared org.
+            // Round-AW: SystemAdmin gets a third access path. They'd
+            // previously have been denied under the older gate unless they
+            // ALSO happened to be OrgAdmin of a shared org — now they can
+            // view any volunteer's profile. Strictly visibility-only: they
+            // cannot mutate the target's data; only Admin-of-shared-org
+            // can do that (the page's existing edit affordances live in
+            // Members tab on /Organizations/{Id} and remain per-org gated).
+            // Short-circuit: SystemAdmin skips the shared-org EF round-trip
+            // entirely.
+            var isSysAdmin = await OrgAuth.IsSystemAdminAsync(_userId);
             await using var db = await DbFactory.CreateDbContextAsync();
-            _canView = await db.OrganizationMemberships
-                .Where(my =>
-                    my.PersonUserId == _userId
-                    && my.Role == OrganizationRole.Admin
-                    && db.OrganizationMemberships.Any(target =>
-                        target.PersonUserId == UserId
-                        && target.OrganizationId == my.OrganizationId))
-                .AnyAsync();
+            _canView = isSysAdmin
+                || await db.OrganizationMemberships
+                    .Where(my =>
+                        my.PersonUserId == _userId
+                        && my.Role == OrganizationRole.Admin
+                        && db.OrganizationMemberships.Any(target =>
+                            target.PersonUserId == UserId
+                            && target.OrganizationId == my.OrganizationId))
+                    .AnyAsync();
         }
 
         if (!_canView) { _hasLoaded = true; return; }

@@ -80,4 +80,36 @@ public interface IMinistryInterestService
     Task<List<MinistryInterest>> ListJoinedAsync(
         string personUserId,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// The inverse-side query: list the people who have marked
+    /// <paramref name="ministryId"/> as interested (a MinistryInterest
+    /// row exists for them). Used by the ministry-coordinator's
+    /// "Signups" view to surface the volunteers who have opted in
+    /// to this ministry so a coordinator can reach out without
+    /// searching People one-by-one.
+    ///
+    /// <para>
+    /// When <paramref name="includeSubMinistries"/> is true, the
+    /// query also picks up interests on any DIRECT sub-ministry
+    /// (Ministry.ParentMinistryId == ministryId). The Round-AW Signups
+    /// page passes true because the user's mental model is "the people
+    /// interested in my ministry AND its direct sub-ministries" —
+    /// mirroring the parent-coordinator-owns-sub-ministries rule
+    /// already baked into <c>OrgAuthService.CanManageMinistryAsync</c>.
+    /// The deeper-ancestor case (sub-sub-ministries) is intentionally
+    /// NOT included — coordinator ownership is a one-level transitive
+    /// rule, not a chain.
+    /// </para>
+    /// <para>
+    /// Caller gating is the page's responsibility
+    /// (<c>OrgAuthService.CanManageMinistryAsync</c>); this method is
+    /// a pure read query. Sorted alphabetically by the person's last
+    /// name then first name for stable UI order.
+    /// </para>
+    /// </summary>
+    Task<List<MinistryInterest>> ListForMinistryAsync(
+        int ministryId,
+        bool includeSubMinistries,
+        CancellationToken ct = default);
 }

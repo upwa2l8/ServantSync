@@ -114,11 +114,21 @@
 @inject ILoggerFactory LoggerFactory
 @implements IDisposable
 @code {
-    // Cached "user is Admin or Coordinator of any org" flag. AuthorizeView's
-    // <Authorized> already guaranteed an authenticated user, so the lookup
-    // is just the membership check. Default false until OnInitializedAsync
-    // finishes — that way the unauthorized user never sees a flicker of
-    // manage-only links while the auth-state await runs.
+    // Cached "user is Admin or Coordinator of any org OR is a SystemAdmin"
+    // flag. AuthorizeView's <Authorized> already guaranteed an authenticated
+    // user, so the lookup is just the membership + identity-role check.
+    // Default false until OnInitializedAsync finishes — that way the
+    // unauthorized user never sees a flicker of manage-only links while the
+    // auth-state await runs.
+    //
+    // Round-AW: the SystemAdmin OR widens the manager-only nav link set.
+    // This is a strictly-UI widening — per-org WRITE gates elsewhere still
+    // require IsOrgAdminAsync on that specific org. SystemAdmin sees
+    // manager-style nav links (Organizations / Volunteers / Leagues /
+    // Dashboard) so they can navigate the global view that the role
+    // grants them, but the click-through pages still enforce tier scoping
+    // (see /People/Index.razor + People/Detail.razor + OrganizationService
+    // for the read/write orthogonality pin).
     private bool _isManager;
     // Toolbar logger: created in OnInitialized so we don't allocate on
     // every auth-state tick. Logging takes the place of a silent catch so
@@ -172,7 +182,12 @@
             _isManager = false;
             return;
         }
-        _isManager = await OrgAuth.IsAnyOrgManagerAsync(userId);
+        // Round-AW: SystemAdmin widens to true here. The short-circuit OR
+        // means an OrgAuth lookup is skipped when SystemAdmin is true,
+        // keeping the nav-flag refresh cheap on the common sysadmin-only
+        // session shape.
+        _isManager = await OrgAuth.IsAnyOrgManagerAsync(userId)
+            || await OrgAuth.IsSystemAdminAsync(userId);
     }
 
     public void Dispose()

@@ -146,4 +146,47 @@ public class MinistryInterestService : IMinistryInterestService
             .AsNoTracking()
             .ToListAsync(ct);
     }
+
+    public async Task<List<MinistryInterest>> ListForMinistryAsync(
+        int ministryId,
+        bool includeSubMinistries,
+        CancellationToken ct = default)
+    {
+        if (ministryId <= 0) return new();
+        await using var db = await _factory.CreateDbContextAsync(ct);
+        // Eager-load Person + Person.User (display-name + email) AND Ministry
+        // (the Signups page renders `via @s.Ministry.Name` next to each row
+        // — without an explicit Include the navigation would be null on the
+        // materialized row, since ListForMinistryAsync is a per-call pure-
+        // read query with its own short-lived DbContext that doesn't carry
+        // lazy-loading state across boundaries). One-shot query so the page
+        // renders in a single round-trip.
+        IQueryable<MinistryInterest> query = db.MinistryInterests
+            .Include(i => i.Person).ThenInclude(p => p.User)
+            .Include(i => i.Ministry);
+        if (includeSubMinistries)
+        {
+            // Direct sub-ministries' signups flow through to the
+            // parent-ministry coordinator. The query is REPLACED (not
+            // chained) here — IQueryable.Where composes with AND over
+            // prior Wheres, so a .Where(MinistryId==X).Where(MinistryId==X
+            // || ParentMinistryId==X) yields "MinistryId==X AND (X || …)" =
+            // "MinistryId==X", silently dropping the sub-ministry branch.
+            // Setting query = db.MinistryInterests... at the top and
+            // picking the right predicate below avoids that trap.
+            // The deeper-ancestor case is intentionally NOT included —
+            // see IMinistryInterestService for the WHY on the
+            // one-level-transitive boundary.
+            query = query.Where(i => i.MinistryId == ministryId
+                || i.Ministry.ParentMinistryId == ministryId);
+        }
+        else
+        {
+            query = query.Where(i => i.MinistryId == ministryId);
+        }
+        return await query
+            .OrderBy(i => i.Person.LastName).ThenBy(i => i.Person.FirstName)
+            .AsNoTracking()
+            .ToListAsync(ct);
+    }
 }

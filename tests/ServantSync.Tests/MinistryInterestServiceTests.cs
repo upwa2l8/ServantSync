@@ -413,4 +413,146 @@ public class MinistryInterestServiceTests : SqliteTestBase
         var list = await svc.ListJoinedAsync(user.UserId);
         Assert.Equal(2, list.Count);
     }
+
+    // ─── ListForMinistryAsync (round-AW ministry signups view) ───────────
+    // Inverse of ListJoinedAsync: ministry coordinators pull the people
+    // who have FOLLOWED a ministry so they can reach out without
+    // searching People one-by-one. Same eager-load choreography as
+    // ListJoinedAsync so the page renders in one DB round-trip; same
+    // per-tier gating lives on the page itself (CanManageMinistryAsync
+    // extended by SystemAdmin); this method is a pure read.
+    //   - includeSubMinistries=false → only this ministry's direct rows
+    //   - includeSubMinistries=true  → also picks up direct sub-ministries'
+    //                                 signups (transitive one level deep)
+
+    [Fact]
+    public async Task ListForMinistryAsync_DirectOnly_ExcludesSubMinistrySignups()
+    {
+        // Pin the default flag: includeSubMinistries=false returns ONLY
+        // direct signups. A coordinator inspecting the parent list gets a
+        // clean signal of who is following THIS ministry. Sub-ministry
+        // signups are hidden so callers don't conflate the two tiers.
+        var org = TestData.Org(Factory);
+        var parent = TestData.Ministry(Factory, org.Id, "Referees");
+        var sub = TestData.Ministry(Factory, org.Id, "Head Referees");
+        // Sub-ministry has the parent as ParentMinistryId.
+        await using (var db = await Factory.CreateDbContextAsync())
+        {
+            var s = await db.Ministries.FindAsync(sub.Id);
+            s!.ParentMinistryId = parent.Id;
+            await db.SaveChangesAsync();
+        }
+        // One volunteer follows parent directly; another follows the sub.
+        var parentFollower = TestData.Person(Factory, "Pat", "ParentFan");
+        var subFollower = TestData.Person(Factory, "Sam", "SubFan");
+        TestData.Membership(Factory, parentFollower.UserId, org.Id, OrganizationRole.Volunteer);
+        TestData.Membership(Factory, subFollower.UserId, org.Id, OrganizationRole.Volunteer);
+
+        var svc = NewService();
+        await svc.JoinAsync(parentFollower.UserId, parentFollower.UserId, parent.Id);
+        await svc.JoinAsync(subFollower.UserId, subFollower.UserId, sub.Id);
+
+        var direct = await svc.ListForMinistryAsync(parent.Id, includeSubMinistries: false);
+        Assert.Single(direct);
+        Assert.Equal(parentFollower.UserId, direct[0].PersonUserId);
+        Assert.Equal(parent.Id, direct[0].MinistryId);
+    }
+
+    [Fact]
+    public async Task ListForMinistryAsync_IncludeSubMinistries_ReturnsBothDirectAndSub()
+    {
+        // Pin the recursive flag: includeSubMinistries=true widens the
+        // query to also include parent-ministry-id matches. List contains
+        // BOTH the direct follower AND the sub-ministry follower; the
+        // sub-ministry row's MinistryId is the sub's (not the parent's),
+        // so the page can show "(via <sub-ministry> name)" — preserves
+        // the original-funnel signal for coordinators.
+        var org = TestData.Org(Factory);
+        var parent = TestData.Ministry(Factory, org.Id, "Referees");
+        var sub = TestData.Ministry(Factory, org.Id, "Head Referees");
+        await using (var db = await Factory.CreateDbContextAsync())
+        {
+            var s = await db.Ministries.FindAsync(sub.Id);
+            s!.ParentMinistryId = parent.Id;
+            await db.SaveChangesAsync();
+        }
+        var parentFollower = TestData.Person(Factory, "Pat", "ParentFan");
+        var subFollower = TestData.Person(Factory, "Sam", "SubFan");
+        TestData.Membership(Factory, parentFollower.UserId, org.Id, OrganizationRole.Volunteer);
+        TestData.Membership(Factory, subFollower.UserId, org.Id, OrganizationRole.Volunteer);
+
+        var svc = NewService();
+        await svc.JoinAsync(parentFollower.UserId, parentFollower.UserId, parent.Id);
+        await svc.JoinAsync(subFollower.UserId, subFollower.UserId, sub.Id);
+
+        var all = await svc.ListForMinistryAsync(parent.Id, includeSubMinistries: true);
+        Assert.Equal(2, all.Count);
+        Assert.Contains(all, i => i.PersonUserId == parentFollower.UserId && i.MinistryId == parent.Id);
+        Assert.Contains(all, i => i.PersonUserId == subFollower.UserId && i.MinistryId == sub.Id);
+        // Signups on GRANDCHILD sub-ministries are intentionally NOT
+        // included — see IMinistryInterestService for the WHY on the
+        // one-level-transitive boundary. Pin that here so a future
+        // refactor that drops the depth check breaks loudly.
+        var grandchild = TestData.Ministry(Factory, org.Id, "Elite Head Referees");
+        var grandchildFollower = TestData.Person(Factory, "G", "GrandChildFan");
+        TestData.Membership(Factory, grandchildFollower.UserId, org.Id, OrganizationRole.Volunteer);
+        await using (var db2 = await Factory.CreateDbContextAsync())
+        {
+            var g = await db2.Ministries.FindAsync(grandchild.Id);
+            g!.ParentMinistryId = sub.Id;
+            await db2.SaveChangesAsync();
+            db2.MinistryInterests.Add(new MinistryInterest
+            {
+                PersonUserId = grandchildFollower.UserId,
+                MinistryId = grandchild.Id,
+                JoinedUtc = DateTime.UtcNow,
+            });
+            await db2.SaveChangesAsync();
+        }
+
+        var restricted = await svc.ListForMinistryAsync(parent.Id, includeSubMinistries: true);
+        // Still 2 — grandchild row is excluded by the depth limit.
+        Assert.DoesNotContain(restricted, i => i.PersonUserId == grandchildFollower.UserId);
+    }
+
+    [Fact]
+    public async Task ListForMinistryAsync_SortedByPersonNameAscending_AndEmptyInputsReturnEmpty()
+    {
+        // Two-pronged invariant pinned in a single test for compactness:
+        //  (a) ordering is by LastName asc THEN FirstName asc so the page
+        //      renders rows in a stable volunteer-directory order, AND
+        //  (b) the empty-input sentinel (ministryId <= 0 OR no signups in
+        //      the DB) returns an empty list rather than throwing. Both
+        //      behaviors matter for empty-state rendering on the page.
+        var org = TestData.Org(Factory);
+        var ministry = TestData.Ministry(Factory, org.Id);
+        var lastA = TestData.Person(Factory, "Aaron", lastName: "Zenith");
+        var lastB = TestData.Person(Factory, "Mia", lastName: "Alpha");
+        var lastC = TestData.Person(Factory, "Zara", lastName: "Zenith");
+        TestData.Membership(Factory, lastA.UserId, org.Id, OrganizationRole.Volunteer);
+        TestData.Membership(Factory, lastB.UserId, org.Id, OrganizationRole.Volunteer);
+        TestData.Membership(Factory, lastC.UserId, org.Id, OrganizationRole.Volunteer);
+
+        var svc = NewService();
+        // Insert in a non-alphabetical order so the query's ORDER BY
+        // is what's producing the sorted result, not the insert order.
+        await svc.JoinAsync(lastA.UserId, lastA.UserId, ministry.Id);
+        await svc.JoinAsync(lastC.UserId, lastC.UserId, ministry.Id);
+        await svc.JoinAsync(lastB.UserId, lastB.UserId, ministry.Id);
+
+        var sorted = await svc.ListForMinistryAsync(ministry.Id, includeSubMinistries: false);
+        Assert.Equal(new[] { "Alpha", "Zenith", "Zenith" },
+            sorted.Select(i => i.Person.LastName).ToArray());
+        // Within ties (both Zenith), the secondary key is FirstName
+        // ascending: "Aaron" < "Zara".
+        Assert.Equal(new[] { "Aaron", "Zara" },
+            sorted.Where(i => i.Person.LastName == "Zenith")
+                  .Select(i => i.Person.FirstName).ToArray());
+
+        // Empty-state branches: no signups → empty; invalid id → empty.
+        var otherMinistry = TestData.Ministry(Factory, org.Id, "Other");
+        Assert.Empty(await svc.ListForMinistryAsync(otherMinistry.Id, includeSubMinistries: false));
+        Assert.Empty(await svc.ListForMinistryAsync(ministryId: 0, includeSubMinistries: false));
+        Assert.Empty(await svc.ListForMinistryAsync(ministryId: -1, includeSubMinistries: false));
+    }
 }

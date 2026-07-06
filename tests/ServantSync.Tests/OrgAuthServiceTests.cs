@@ -392,7 +392,7 @@ public class OrgAuthServiceTests : SqliteTestBase
     public async Task IsSystemAdminAsync_AssignedIdentityRole_True()
     {
         var admin = TestData.Person(Factory);
-        await SeedSystemAdminRoleAsync(admin.UserId);
+        await TestData.SeedSystemAdminRoleAsync(Factory, admin.UserId);
 
         Assert.True(await NewSvc().IsSystemAdminAsync(admin.UserId));
     }
@@ -407,7 +407,7 @@ public class OrgAuthServiceTests : SqliteTestBase
         var org = TestData.Org(Factory);
         var orgAdmin = TestData.Person(Factory);
         TestData.Membership(Factory, orgAdmin.UserId, org.Id, OrganizationRole.Admin);
-        await SeedSystemAdminRoleAsync(/* leave this user out */ "other-user-id");
+        await TestData.SeedSystemAdminRoleAsync(Factory, /* leave this user out */ "other-user-id");
 
         Assert.False(await NewSvc().IsSystemAdminAsync(orgAdmin.UserId));
     }
@@ -417,7 +417,7 @@ public class OrgAuthServiceTests : SqliteTestBase
     {
         // Same sentinel pattern as the other gate tests — anonymous /
         // not-yet-resolved auth state should not throw.
-        await SeedSystemAdminRoleAsync(/* leave caller empty by skipping user row */ "");
+        await TestData.SeedSystemAdminRoleAsync(Factory, /* leave caller empty by skipping user row */ "");
         Assert.False(await NewSvc().IsSystemAdminAsync(""));
     }
 
@@ -445,62 +445,14 @@ public class OrgAuthServiceTests : SqliteTestBase
         // tiers remain orthogonal".
         var org = TestData.Org(Factory);
         var sysOnly = TestData.Person(Factory);
-        await SeedSystemAdminRoleAsync(sysOnly.UserId);
+        await TestData.SeedSystemAdminRoleAsync(Factory, sysOnly.UserId);
         Assert.False(await NewSvc().CanManageOrgAsync(sysOnly.UserId, org.Id));
         Assert.False(await NewSvc().IsOrgAdminAsync(sysOnly.UserId, org.Id));
     }
 
-    // Helper: ensure the SystemAdmin IdentityRole exists, then add a
-    // single IdentityUserRole join row for the supplied userId. Bypasses
-    // UserManager.AddToRoleAsync because the test fixture doesn't
-    // register UserManager<IdentityUser> as a DI service — a direct
-    // EF insert is both faster and exercises only the schema path
-    // IsSystemAdminAsync reads in production.
-    //
-    // The IdentityUser FK on UserRoles.UserId means the join insert
-    // needs a matching IdentityUser row. When a test passes a synthetic
-    // userId (e.g. "other-user-id" to assert "this other person has the
-    // role but my actual caller does not") we create a throwaway
-    // IdentityUser row so the FK constraint doesn't fail with a
-    // confusing error. Empty userId means "ensure the role exists but
-    // grant nobody" — useful for testing the cached-resolver negative
-    // path against a non-empty role id.
-    private async Task SeedSystemAdminRoleAsync(string userId)
-    {
-        await using var db = await Factory.CreateDbContextAsync();
-
-        // Ensure the SystemAdmin role row exists FIRST so the
-        // subsequent UserRoles insert has a resolved RoleId FK target.
-        var role = await db.Roles.FirstOrDefaultAsync(r => r.NormalizedName == "SYSTEMADMIN");
-        if (role is null)
-        {
-            role = new IdentityRole { Name = "SystemAdmin", NormalizedName = "SYSTEMADMIN" };
-            db.Roles.Add(role);
-            await db.SaveChangesAsync();
-        }
-
-        // Empty userId = "ensure role only, grant nobody".
-        if (string.IsNullOrEmpty(userId)) return;
-
-        // Auto-provision an IdentityUser row for synthetic ids so the
-        // UserRoles FK constraint doesn't trip. Real tests that care
-        // about a Person's identity use TestData.Person which already
-        // does this via the shared EnsureIdentityUser helper.
-        if (!await db.Users.AnyAsync(u => u.Id == userId))
-        {
-            db.Users.Add(new IdentityUser
-            {
-                Id = userId,
-                UserName = userId,
-                NormalizedUserName = userId.ToUpperInvariant(),
-                Email = userId,
-                NormalizedEmail = userId.ToUpperInvariant(),
-                EmailConfirmed = true,
-            });
-            await db.SaveChangesAsync();
-        }
-        if (await db.UserRoles.AnyAsync(ur => ur.UserId == userId && ur.RoleId == role.Id)) return;
-        db.UserRoles.Add(new IdentityUserRole<string> { UserId = userId, RoleId = role.Id });
-        await db.SaveChangesAsync();
-    }
+    // The actionable helper used to live here as a private method; it
+    // moved to TestData.SeedSystemAdminRoleAsync(Factory, userId) so
+    // OrganizationServiceTests could reuse the same FK-safe seed path
+    // without copy-pasting the IdentityRole + IdentityUser + UserRoles
+    // trio. Tests above call TestData.SeedSystemAdminRoleAsync(Factory, …).
 }

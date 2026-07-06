@@ -188,6 +188,66 @@ public static class TestData
             SurfaceType = "Grass",
         });
 
+    /// <summary>
+    /// Round-AW helper: ensure the SystemAdmin ASP.NET Core Identity
+    /// role exists, then add a single <c>IdentityUserRole&lt;string&gt;</c>
+    /// join row for the supplied userId. Bypasses <c>UserManager.AddToRoleAsync</c>
+    /// because the test fixture doesn't register a UserManager DI
+    /// service — a direct EF insert is both faster and exercises the
+    /// same schema path <see cref="OrgAuthService.IsSystemAdminAsync"/>
+    /// reads in production.
+    /// <para>
+    /// Identity FK constraint: the <c>UserRoles.UserId</c> FK points at
+    /// <c>aspnetusers.Id</c>. When a test passes a synthetic userId
+    /// (e.g. <c>"other-user-id"</c> to assert "this other person has the
+    /// role but my actual caller does not") we auto-create a throwaway
+    /// <c>IdentityUser</c> row so the FK constraint doesn't trip with a
+    /// confusing error. Real tests that care about a Person's identity
+    /// use <see cref="Person"/> which already does this via the shared
+    /// <c>EnsureIdentityUser</c> helper.
+    /// </para>
+    /// <para>
+    /// Passing an empty <paramref name="userId"/> means "ensure role
+    /// exists but grant nobody" — useful for testing the cached-resolver
+    /// negative path against a non-empty role id.
+    /// </para>
+    /// </summary>
+    public static async Task SeedSystemAdminRoleAsync(IDbContextFactory<ApplicationDbContext> factory, string userId)
+    {
+        await using var db = await factory.CreateDbContextAsync();
+
+        // Ensure the SystemAdmin role row exists FIRST so the
+        // subsequent UserRoles insert has a resolved RoleId FK target.
+        var role = await db.Roles.FirstOrDefaultAsync(r => r.NormalizedName == "SYSTEMADMIN");
+        if (role is null)
+        {
+            role = new IdentityRole { Name = "SystemAdmin", NormalizedName = "SYSTEMADMIN" };
+            db.Roles.Add(role);
+            await db.SaveChangesAsync();
+        }
+
+        if (string.IsNullOrEmpty(userId)) return;
+
+        // Auto-provision an IdentityUser row for synthetic ids so the
+        // UserRoles FK constraint doesn't trip.
+        if (!await db.Users.AnyAsync(u => u.Id == userId))
+        {
+            db.Users.Add(new IdentityUser
+            {
+                Id = userId,
+                UserName = userId,
+                NormalizedUserName = userId.ToUpperInvariant(),
+                Email = userId,
+                NormalizedEmail = userId.ToUpperInvariant(),
+                EmailConfirmed = true,
+            });
+            await db.SaveChangesAsync();
+        }
+        if (await db.UserRoles.AnyAsync(ur => ur.UserId == userId && ur.RoleId == role.Id)) return;
+        db.UserRoles.Add(new IdentityUserRole<string> { UserId = userId, RoleId = role.Id });
+        await db.SaveChangesAsync();
+    }
+
     public static Assignment Assignment(
         IDbContextFactory<ApplicationDbContext> factory,
         string userId, int slotId, DateTime startUtc, DateTime endUtc,

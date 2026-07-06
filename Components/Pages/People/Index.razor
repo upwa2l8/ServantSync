@@ -6,12 +6,23 @@
 
 <h1>Volunteers</h1>
 
-@* Privacy model: the global /People listing is gated to Org Admins (single
-   source of truth via OrgAuthService.IsAnyOrgAdminAsync). Non-admins see a
-   "no access" panel and use the org's Members tab (Organizations/Detail)
-   for org-scoped views. Matches the user requirement that volunteers
-   shouldn't see other volunteers' information — the org-scoped Members
-   tab is where intra-org visibility belongs. *@
+@* Privacy model: the global /People listing visibility is tier-scoped
+   (single source of truth via OrgAuthService). Round-AW wires SystemAdmin
+   to the global-acccess tier:
+
+     - SystemAdmin: sees every Person across every org. Strictly
+       visibility-only — they cannot edit other orgs' rosters without
+       being OrganizationRole.Admin of those orgs.
+     - OrgAdmin (any-org): sees only Person rows who have at least one
+       OrganizationMembership in an org they Admin (the existing
+       gate; below this comment).
+     - Everyone else: "no access" panel.
+
+   The filtered query below mirrors the user's requirement that
+   volunteers shouldn't see other volunteers' information
+   cross-org. The org-scoped Members tab on /Organizations/{Id} is the
+   org-intra list; /People is the global directory for managers +
+   sysadmins only. *@
 
 @if (_loaded == false)
 {
@@ -66,7 +77,14 @@ else
 @code {
     private List<PersonRow>? _people;
     private string _filter = "";
+    // Round-AW tier flags: _isAdmin still gates the "no access" panel
+    // shape but _isSystemAdmin gets its own OR-branch in the visibility
+    // condition. The two are tracked separately so the markup's
+    // descriptions can be tier-appropriate (SystemAdmin sees the global
+    // directory; OrgAdmin sees the org-scoped directory; non-managers
+    // see the no-access panel).
     private bool _isAdmin;
+    private bool _isSystemAdmin;
     private bool? _loaded;
 
     protected override async Task OnInitializedAsync()
@@ -78,14 +96,32 @@ else
             _loaded = true;
             return;
         }
+        // Round-AW: SystemAdmin gets the global pass; OrgAdmin stays
+        // bounded by the existing IsAnyOrgAdminAsync gate. The two are
+        // OR'd on the gate but the QUERY branches so SystemAdmin sees
+        // every Person and an OrgAdmin sees the scoped set.
+        var isSysAdmin = await OrgAuth.IsSystemAdminAsync(userId);
         _isAdmin = await OrgAuth.IsAnyOrgAdminAsync(userId);
+        _isSystemAdmin = isSysAdmin;
 
         // Only fetch the listing when the gate passes; otherwise leave _people
         // null so the "no access" panel renders without an unneeded DB call.
-        if (_isAdmin)
+        if (_isAdmin || _isSystemAdmin)
         {
             await using var db = await DbFactory.CreateDbContextAsync();
-            _people = await db.People
+            var query = db.People.AsNoTracking();
+            if (!_isSystemAdmin)
+            {
+                // OrgAdmin path: only Persons who hold a current membership
+                // in an org they Admin. The Memberships.Any() filter is
+                // SQL-side so EF translates to one IN-clause over a sub-
+                // query; no per-row round-trip.
+                var myOrgIds = await db.OrganizationMemberships
+                    .Where(m => m.PersonUserId == userId && m.Role == OrganizationRole.Admin)
+                    .Select(m => m.OrganizationId).ToListAsync();
+                query = query.Where(p => p.Memberships.Any(m => myOrgIds.Contains(m.OrganizationId)));
+            }
+            _people = await query
                 .OrderBy(p => p.LastName).ThenBy(p => p.FirstName)
                 .Select(p => new PersonRow
                 {

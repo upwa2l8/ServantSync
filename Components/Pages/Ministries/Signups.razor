@@ -1,0 +1,154 @@
+@page "/Organizations/{OrgId:int}/Ministries/{Id:int}/Signups"
+@attribute [Authorize]
+@rendermode InteractiveServer
+
+<PageTitle>Signups · @(_ministry?.Name ?? "Ministry")</PageTitle>
+
+@if (!_hasLoaded)
+{
+    <p><em>Loading…</em></p>
+}
+else if (!_canManage)
+{
+    @* Round-AW: gate failure message. Coordinators and Admins of the
+       owning org + the ministry's own CoordinatorPersonUserId + the
+       parent-ministry coordinator (transitive via
+       CanManageMinistryAsync) can see this page. SystemAdmin can see
+       this page as well — strictly visibility-only; they cannot edit
+       the underlying MinistryInterests rows, only read the list. *@
+    <div class="alert alert-warning mt-3">
+        <h4>Not authorized</h4>
+        <p>You don't have permission to view signups for this ministry.</p>
+        <p class="mb-0 small">
+            Ministry coordinators (and admins of the owning org, plus
+            SystemAdmin platform administrators) can see who has signed up.
+            For a volunteer's own follow-list, use the
+            <a href="@($"Organizations/{OrgId}/Ministries/{Id}")">ministry page</a>'s Join / Leave button.
+        </p>
+    </div>
+}
+else
+{
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+            <h1 class="mb-0">Signups &middot; @_ministry!.Name</h1>
+            <div class="text-muted">
+                @_signups.Count volunteer@(_signups.Count == 1 ? "" : "s") have marked
+                this ministry @(includeSubsNote) as followed.
+            </div>
+        </div>
+        <a class="btn btn-sm btn-outline-secondary"
+           href="@($"Organizations/{OrgId}/Ministries/{Id}")">
+            Back to ministry
+        </a>
+    </div>
+
+    @if (!_signups.Any())
+    {
+        <div class="alert alert-info">
+            No volunteers have signed up for this ministry yet. Volunteers
+            see the Join button on the ministry page; once they join, their
+            row appears here.
+        </div>
+    }
+    else
+    {
+        <div class="list-group">
+            @foreach (var s in _signups)
+            {
+                <a class="list-group-item list-group-item-action"
+                   href="@($"People/{s.PersonUserId}")">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <strong>@s.Person.DisplayName</strong>
+                            <div class="text-muted small">@s.Person.User?.Email</div>
+                        </div>
+                        <span class="badge bg-secondary align-self-center">
+                            <LocalTime Utc="@s.JoinedUtc" Format="MMM d, yyyy" />
+                        </span>
+                    </div>
+                    <div class="text-muted small mt-1">
+                        via @s.Ministry.Name
+                        @if (s.MinistryId != Id)
+                        {
+                            <span>(sub-ministry)</span>
+                        }
+                    </div>
+                </a>
+            }
+        </div>
+    }
+}
+
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject IMinistryInterestService MinistryInterest
+@inject IOrgAuthService OrgAuth
+@inject AuthenticationStateProvider Auth
+@code {
+    [Parameter] public int OrgId { get; set; }
+    [Parameter] public int Id { get; set; }
+
+    private Ministry? _ministry;
+    private List<MinistryInterest> _signups = new();
+    // Server-side gate: someone who can manage THIS ministry (Admin
+    // or Coord of the parent org, or the ministry's own Coordinator,
+    // or the parent-ministry's coordinator transitive rule) OR a
+    // strictly-visibility SystemAdmin platform admin. Default false
+    // (deny) until OnInitializedAsync resolves both checks.
+    private bool _canManage;
+    // Same _hasLoaded discipline as the parallel Ministries/Detail
+    // pattern: distinguish "still loading" from a definitive outcome
+    // (not found / not authorized / no signups) so navigation never
+    // shows a spinner indefinitely.
+    private bool _hasLoaded;
+    private string _userId = "";
+    // Whether the includeSubMinistries flag flipped on at least one
+    // row — drives the "(including sub-ministries)" callout in the
+    // header so a coordinator understands WHY a Referees signup also
+    // surfaces under "Springfield Youth Soccer League".
+    private bool _hasAnySubSignup;
+
+    // Track once per ministry rather than once per row so the header
+    // note doesn't show empty when ALL signups are direct.
+    private string includeSubsNote => _hasAnySubSignup ? "(including any direct sub-ministries)" : "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await Auth.GetAuthenticationStateAsync();
+        _userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+
+        // Server-side cross-org gate: search by (Id, OrganizationId) so
+        // an out-of-org visitor can't even see the signup list by
+        // guessing the Id. _ministry stays null and the Not Found
+        // branch in the markup renders.
+        _ministry = await db.Ministries
+            .AsNoTracking()
+            .FirstOrDefaultAsync(m => m.Id == Id && m.OrganizationId == OrgId);
+        if (_ministry is null) { _hasLoaded = true; return; }
+
+        // Two-tier gate. CanManageMinistryAsync covers (a) Admin/Coord of
+        // parent org, (b) ministry's own CoordinatorPersonUserId, (c)
+        // parent-ministry's Coordinator (transitive, one level deep).
+        // SystemAdmin widens the gate per round-AW (strictly read-only
+        // — they cannot edit the underlying MinistryInterests rows but
+        // can see this list). IsSystemAdminAsync is OR'd EXTERNALLY
+        // because the OrgAuth helper itself does NOT include
+        // SystemAdmin by design — keeping per-org OrgAdmin widens out
+        // of CanManageMinistryAsync.
+        if (!string.IsNullOrEmpty(_userId))
+        {
+            _canManage = await OrgAuth.IsSystemAdminAsync(_userId)
+                || await OrgAuth.CanManageMinistryAsync(_userId, Id);
+        }
+
+        if (_canManage)
+        {
+            _signups = await MinistryInterest.ListForMinistryAsync(Id, includeSubMinistries: true);
+            _hasAnySubSignup = _signups.Any(s => s.MinistryId != Id);
+        }
+
+        _hasLoaded = true;
+    }
+}
