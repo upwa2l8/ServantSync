@@ -9,6 +9,20 @@
 
 <PageTitle>Register · ServantSync</PageTitle>
 
+@* Round-SPLASH (this): smaller (140 px) variant of the Login splash
+   hero. Same asset, no figcaption — the registration form is the
+   primary action this page asks for, so the brand asset stays small
+   and out of the way. Visual thread with Login.razor is preserved so
+   the click-through   Login -> Register -> ... does not feel like the brand disappeared. See the
+   round-SPLASH comment block on Login.razor for the splash rationale. *@
+<figure class="text-center mt-3 mb-3">
+    <img src="@Assets["img/servantsync-marketing.svg"]"
+         alt="ServantSync wordmark"
+         width="140"
+         loading="eager"
+         class="img-fluid" />
+</figure>
+
 <h1 class="h3 mb-3">Create your account</h1>
 
 @* Round-AN (this): this page is now static-SSR with a plain HTML

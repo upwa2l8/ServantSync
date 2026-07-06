@@ -6,6 +6,30 @@
 
 <PageTitle>Sign in · ServantSync</PageTitle>
 
+@* Round-SPLASH (this): marketing splash hero above the Sign-in form.
+   Uses the marketing wordmark asset (wwwroot/img/servantsync-marketing.svg)
+   at a 180 px cap so it never dominates the auth surface on phone
+   screens. img-fluid keeps the aspect ratio intact on viewports
+   narrower than 180 px. The figcaption sets domain breadth (church,
+   leagues, on-call rotas) so a first-time visitor who doesn't read the
+   README can place the product in one glance.
+
+   The existing servantsync-mark.svg stays the navbar / favicon mark.
+   The two-asset-pair decision lives in BRANDING.md "Two assets, two
+   roles" — this hero is on the marketing surface per that contract,
+   so use of servantsync-marketing.svg (not servantsync-mark.svg) is
+   intentional. *@
+<figure class="text-center mt-4 mb-4">
+    <img src="@Assets["img/servantsync-marketing.svg"]"
+         alt="ServantSync wordmark"
+         width="180"
+         loading="eager"
+         class="img-fluid" />
+    <figcaption class="text-muted small mt-2 mb-0">
+        Volunteer management &amp; scheduling for churches, sports leagues, and on-call rotas.
+    </figcaption>
+</figure>
+
 <h1 class="h3 mb-3">Sign in</h1>
 
 @* Round-AN (this): this page is now static-SSR with a plain HTML
