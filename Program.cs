@@ -116,6 +116,15 @@ builder.Services.AddScoped<IStandingsService, StandingsService>();
 builder.Services.AddScoped<ISlotDocumentService, SlotDocumentService>();
 builder.Services.AddScoped<IOrganizationService, OrganizationService>();
 builder.Services.AddScoped<IMemberManagementService, MemberManagementService>();
+// Round-FR-3.2: stub-Person + claim-token service. Sibling to
+// MemberManagementService --- same DI lifetime as the rest of the
+// domain services. CreateStubAsync / RotateClaimTokenAsync /
+// ListStubsAsync are admin-gated; ClaimStubAsync is public (the raw
+// token IS the authentication) and called from
+// /Account/PerformRegister. See Services/IPersonService.cs for the
+// full security posture + Services/PersonService.cs for the
+// re-parent strategy.
+builder.Services.AddScoped<IPersonService, PersonService>();
 builder.Services.AddScoped<IArenaService, ArenaService>();
 builder.Services.AddScoped<IOrganizationMinistryService, OrganizationMinistryService>();
 // Round-BA: SlotManagementService hosts the gate-split logic for the
