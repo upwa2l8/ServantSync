@@ -529,23 +529,11 @@ the app. The `ICalendarPdfBuilder` accepts a `string culture` param
 defaulted to `CultureInfo.CurrentUICulture.Name` so a future
 localization pass wires through cleanly without an interface bump.
 
-**Open questions for the user before implementation starts.**
-1. **QuestPDF license posture:** is this project's deployment
-   non-commercial (churches, schools, non-profits) or commercial
-   (paid SaaS)? QuestPDF Community is MIT-licensed; commercial
-   deployment requires the paid license. If commercial, prefer
-   PdfSharpCore upfront.
-2. **Volunteer-name visibility in the PDF:** should the day-view
-   timeline show the assigned volunteer's name next to a filled
-   occurrence, or just "filled"? Names aid in-the-moment coverage
-   ("oh Sara's already on") but leak PII on a publicly-postered
-   sheet. Default off, with a coordinator-side toggle to enable.
-3. **Multiple slots per PDF:** out of scope for this round
-   (spec is per-slot). A "print the whole ministry" or "print the
-   whole org" view is a likely follow-up once the per-slot flow
-   is battle-tested.
-4. **Cover-page customization (org logo upload):** out of scope
-   for this round. The text wordmark is the brand.
+**Decisions (open questions resolved during spec authoring session).**
+1. **QuestPDF license posture:** **MIT (QuestPDF Community).** ServantSync today ships for small non-profit use (churches, schools, leagues) which is squarely under QuestPDF's MIT Community license. If a future deployment wants commercial-friendly licensing, the swap is mechanical — replace `QuestPdfCalendarPdfBuilder` with a `PdfSharpCalendarPdfBuilder` because the spec routes everything through the library-agnostic `ICalendarPdfBuilder` interface. Config-time concern, not a code change.
+2. **Volunteer-name visibility in the PDF:** **default OFF, coordinator-side toggle ON per PDF.** A publicly posted sign-up sheet (think a church vestibule kiosk) leaks name through "filled — Bob Smith", so the day-view timeline shows just "filled" by default. The PDF-generation form on `ServiceSlots/Detail.razor` gains a "Show filled shifts with volunteer names" checkbox (default unchecked) so coordinators can opt-in for internal-style handouts.
+3. **Multiple slots per PDF:** **out of scope for this round.** Round-1 is per-slot. "Print the whole ministry" / "print the whole org" is a likely round-2 follow-up once the per-slot flow is battle-tested. Keeping the spec narrow now lets us ship the lib + QR + layout decisions; multi-scope is a UI multiplication, not a fundamental design change.
+4. **Cover-page customization (org logo upload):** **out of scope for this round.** The text wordmark IS the brand. Allowing a per-org logo re-introduces the cid-image attachment pipeline that the round-EMAIL-BRAND refactor just deprecated in favor of text. Round-2 followup if needed for orgs that need a custom identifier.
 
 **Files this round would touch (when implementation starts).**
 - NEW: `Services/CalendarPdf/ICalendarPdfBuilder.cs` +
@@ -728,25 +716,14 @@ compete with regular assignments. A future round could add a dedicated
 - *Volunteer cancels after being marked attended:* the cancellation is
   refused; markers can't un-mark without going through an admin.
 
-**Open questions for the user before implementation starts.**
-1. **Session capacity:** enforce `MaxAttendees` (refuse sign-ups when
-   full) or warn-only? Default enforce.
-2. **Wait list:** out of scope for round 1; flag for follow-up.
-3. **Reminder notifications:** email the attendee 24h before the session?
-   The existing `MailKitEmailSender` could carry this; out of scope for
-   round 1.
-4. **Recurring sessions:** out of scope for round 1; flag for follow-up.
-5. **Manual mark notes required:** the user said *"keep audit trail
-   that it was manual not user clicked"* — implying the notes should be
-   required, not optional. Default required (marker must type a non-empty
-   reason).
-6. **Engagement-gate bypass on manual mark:** the existing
-   `RecordCompletionAsync` gates on engagement (PDF viewed every page,
-   video 95% watched, slideshow 80% dwell). The manual mark BYPASSES
-   this — the marker asserts "yes this volunteer knows the material"
-   out-of-band. Confirm.
-7. **Re-mark semantics:** latest-wins (current spec) vs. immutable
-   (round 1 stubs a separate history table) — confirm.
+**Decisions (open questions resolved during spec authoring session).**
+1. **Session capacity:** **ENFORCE.** Sign-ups past `MaxAttendees` are refused with a "this session is at capacity" message. Consistent with the existing `ServiceSlot.MaxVolunteers`-style limits already in the schema.
+2. **Wait list:** **out of scope for round 1.** A wait list is a 5-state machine (pending / offered / accepted / declined / expired) — too heavy for round 1. Logged follow-up if a coordinator runs into the frequent-full-session pattern.
+3. **Reminder notifications:** **out of scope for round 1.** MailKit is wired and a 24h-before-session `SendAsync` would be ~30 lines, but the user has explicitly deferred notification features in other rounds. Stay consistent here.
+4. **Recurring sessions:** **out of scope for round 1.** `AssignmentService.ScheduleSeriesAsync` already exists for the assignment side; reusing it for training-session recurrence is a round-2 opportunity (sign-up join scope is the complexity).
+5. **Manual mark notes:** **REQUIRED.** The audit-trail distinction only works if every manual mark has a non-empty reason. The marker form's notes textarea is `required` + non-empty validation; submit-with-empty-notes raises an inline error pointing at the policy.
+6. **Engagement-gate bypass on manual mark:** **YES (bypass).** The whole point of FR-2 is that the marker asserts "yes this volunteer knows the material" out-of-band. The training-eligibility gate (PDF every page, video 95%, slideshow 80% dwell) is bypassed for manual marks; the marker accepts responsibility for that judgment. This is what makes the manual flow different from `RecordCompletionAsync`.
+7. **Re-mark semantics:** **latest-wins.** Round 1's `MarkSingleCompleteAsync` upserts a single `TrainingCompletion` row. The audit trail comes from `MarkedCompleteByUserId` + `ManualCompletionNotes` + `TriagedUtc` columns. If multi-mark history becomes a real need, add a `TrainingCompletionAudit` table without breaking round 1's column shape.
 
 **Files this round would touch (when implementation starts).**
 - NEW models: `Models/TrainingSession.cs`, `Models/TrainingSessionAttendee.cs`;
@@ -949,33 +926,14 @@ one can log in with it.
   via a "Re-key stub" button that generates a new `IdentityUser` and
   re-points the stub's `UserId`.
 
-**Open questions for the user before implementation starts.**
-1. **Claim mechanism: token vs. email-match.** The user said *"link
-   their account password/email"* — both are plausible. Token via
-   printed-paper handoff is more secure and works for child / elderly
-   volunteers with no email. Email-match-on-first-registration is
-   simpler but requires the stub to have an email column. **Recommend
-   token-primary + email-secondary.**
-2. **What happens to the stub's old data on claim?** Merge into the
-   new IdentityUser's history (recommended; default) vs. archive
-   separately. Default merge.
-3. **Can a stub be assigned to duties without ANY training?** The
-   current `ValidateAsync` requires training for every assignment.
-   With FR-2, the coordinator can mark training complete WITHOUT a
-   session. So the answer is yes, a coordinator can mark training
-   for a stub → stub can be assigned. The flow is *"admin adds stub
-   → coordinator marks training → coordinator assigns duty"* which
-   matches the user's exact ask.
-4. **Can a coordinator (not admin) create stubs?** The user said
-   *"organization admin"* can add — coordinators cannot. Confirm.
-5. **Person.UserId nullable vs. IsStub boolean:** nullable is cleaner
-   but is a breaking schema change. Recommend the IsStub boolean for
-   round 1 (no migration risk), refactor to nullable in a follow-up.
-6. **Stub TTL:** no TTL in round 1; admin manually deletes orphaned
-   stubs. Future round could add a "stale stub cleanup" job.
-7. **Re-parent vs. copy on claim:** recommend re-parent (one UPDATE on
-   `Person.UserId`) because every FK chain references `Person.UserId`
-   as a string. Confirm.
+**Decisions (open questions resolved during spec authoring session).**
+1. **Claim mechanism:** **BOTH token-primary + email-secondary.** Token via printed-paper handoff is more secure, works for child/elderly/no-email volunteers, and is admin-controlled (30-day expiry, rotation). Email-match-on-first-registration is the secondary prompt — if the new `IdentityUser`'s email matches a stub's stored `Email` column, the volunteer sees a "looks like this might match Sara Smith, confirm linking?" prompt on first login (with explicit user confirmation, never silent auto-merge). Admin chooses which one to hand out.
+2. **Stub data on claim:** **MERGE via re-parent.** One UPDATE on `People SET UserId = @newIdentityUserId, IsStub = 0, Email = @newEmail` re-parents the stub's historical record (memberships, assignments, training completions) to the new `IdentityUser` because every FK chain references `Person.UserId` as a string. The placeholder `IdentityUser` is soft-deleted (`LockoutEnabled=true`, `LockoutEnd=9999-12-31`) so it can't be logged into.
+3. **Stub assigned to duties without ANY training:** **NO.** The flow is `admin adds stub → coordinator marks training (via FR-2's `MarkSingleCompleteAsync`) → coordinator assigns duty`. The existing `AssignmentService.ValidateAsync` training-gate works for stubs unchanged because it reads `PersonUserId` as a string FK. FR-2 unlocks this flow; FR-3 doesn't bypass the training gate.
+4. **Coordinator (not admin) creating stubs:** **NOT ALLOWED.** User explicitly said "organization admin". Matches the RBAC tier that `MemberManagementService.AddAsync` already uses for adding real members (round-7 admin-only closure per STATUS.md).
+5. **`Person.UserId` nullable vs. `IsStub` boolean:** **KEEP `IsStub` boolean.** The PK=FK pattern (`Person.UserId` is both) is load-bearing throughout the codebase; relaxing it to nullable cascades through every EF relationship. The boolean flag is a one-time additive migration; nullable is a future round-2 refactor if a code-cleaner signal is genuinely needed.
+6. **Stub TTL:** **none in round 1.** Admin manually deletes orphaned stubs (via the same round-7 `MemberManagementService.RemoveAsync` path that handles real-member deletions). A "stale stub cleanup" job is a round-2 followup.
+7. **Re-parent vs. copy on claim:** **RE-PARENT** (consistent with Q2's decision). One UPDATE on `Person.UserId` re-parents in-place; the copy alternative would create data-merge headaches if a future claim path forgets to copy a related table. The single-UPDATE approach keeps the false-negative surface tiny.
 
 **Files this round would touch (when implementation starts).**
 - NEW models: `Models/PersonClaimToken.cs`; extend `Models/Person.cs`
@@ -1199,31 +1157,14 @@ in (New, UnderReview, Planned)"* and bulk-transition them to
   user sees the standard 503 page (the same UX any other public
   page has).
 
-**Open questions for the user before implementation starts.**
-1. **Public visibility:** should other users see existing requests
-   + upvote them? Round 1: admin-only. Round 2: public list with
-   vote count + sort. Recommend round 1 first, public visibility
-   as round 2.
-2. **Captcha:** add a simple captcha in round 1? Recommend no —
-   honeypot + rate limit is enough for a low-traffic internal
-   volunteer platform. Add reCAPTCHA v3 (invisible) only if spam
-   becomes a measured problem.
-3. **Email validation:** require a verified email? Round 1:
-   optional (the field is nullable). Round 2: send a confirmation
-   email with a link to verify before the request becomes
-   "official." Default round 1: optional.
-4. **Auto-link to existing PLAN.md spec:** when the title fuzzy-
-   matches a known spec, auto-suggest a link? Nice-to-have for
-   round 2; round 1 admin types the anchor manually.
-5. **Voting:** round 1: no (the `VoteCount` column is reserved
-   for round 2). Round 2: simple upvote + sort by count.
-6. **Status transition rules:** strict (only allow New →
-   UnderReview) or permissive (allow any → any)? Recommend
-   permissive with audit trail; round 2 could add a state machine
-   if the workflow gets more complex.
-7. **Notification on triage:** when admin triages a request, email
-   the submitter? Round 1: no. Round 2: yes, on `Completed` or
-   `Declined` transitions.
+**Decisions (open questions resolved during spec authoring session).**
+1. **Public visibility:** **round 1 admin-only; round 2 public-with-voting.** Round 1 keeps the trust boundary tight (admin-only triage queue; submitter doesn't see "declined" reasons from internal discussion; no upvote-bombing surface). Round 2 ships the public-visibility + voting decision after round-2's submitter-email-confirmation flow lands.
+2. **Captcha:** **NO in round 1.** The honeypot + IP rate limit (3/hour) is sufficient for low-traffic internal volunteer platforms. Add reCAPTCHA v3 only if real spam is measured post-launch — at that point the add is mechanical (one middleware + a config key).
+3. **Email validation:** **OPTIONAL in round 1.** Casual visitors can submit without email (the field is nullable). Round 2 adds a confirmation email-link flow once the admin flips the org's setting. This matches the standard "low-friction public form" UX pattern.
+4. **Auto-link to existing PLAN.md spec:** **MANUAL in round 1; round 2 fuzzy-match auto-suggest.** Admin types the anchor (`"Round-FR-2"` etc.) manually — a 5-second admin action vs a real-time fuzzy-index engine. Round 2 ships auto-suggest if the manual path proves friction-heavy.
+5. **Voting:** **NO in round 1; `VoteCount` column reserves the schema spot.** Round 2 ships the public-vote surface after round-2's public-visibility decision is locked. Vote-bombing detection + "I voted" cookie management both come with round 2.
+6. **Status transition rules:** **PERMISSIVE with audit trail.** Round 1 allows any → any transition (admin override). The audit fields (`TriagedByUserId`, `TriagedUtc`, `TriageNotes`, `LinkedSpecAnchor`) capture every transition; round 2 can layer a state machine on top without losing round-1 history.
+7. **Notification on triage:** **NO in round 1.** Until the round-2 submitter-email-confirmation flow lands, the submitter email is unverified — we'd be emailing unverified recipients. Round 2 with confirmed email is the right place.
 
 **Files this round would touch (when implementation starts).**
 - NEW model: `Models/FeatureRequest.cs`.
