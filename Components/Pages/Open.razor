@@ -53,6 +53,15 @@ else if (!_userIdPresent)
 }
 else if (!_hasMembership)
 {
+    @* Round-EMPTY-HERO: marketing wordmark above the no-membership empty-state.
+       Parallel to the Home no-org splash. Same 120 px pattern. *@
+    <figure class="text-center mt-3 mb-3" aria-hidden="true">
+        <img src="@Assets["img/servantsync-marketing.svg"]"
+             alt="ServantSync wordmark"
+             width="120"
+             loading="lazy"
+             class="img-fluid" />
+    </figure>
     <div class="alert alert-info">
         You're not a member of any organization yet. Once an Admin invites you,
         open slots from that org will show up here.
@@ -60,11 +69,24 @@ else if (!_hasMembership)
 }
 else if (_showOnlyJoined && _joinedMinistryIds.Count == 0)
 {
-    @* Combined "0 joined ministries + 0 open shifts" empty-state. The
-       user is filtering to a set they haven't built yet. Direct them to
-       the Home panel where they can browse ministries and start
-       following some (which will populate the pill-segment count and
-       bring shifts in here). *@
+    @* Filter-induced empty-state (NOT data-empty): the user toggled
+       the "My ministries" pill-segment and the joined set is empty, so
+       the filter provably has nothing to show. Distinct from the
+       data-empty branches above (no membership / no shifts queued) in
+       that the user has agency — switching to "All my orgs" or
+       following one ministry re-populates the page. The brand splash
+       stays for consistency with the other empty branches but the
+       WHY above names the distinction so the next maintainer doesn't
+       read "0 results + wordmark = optimism" and quietly tone it down.
+       The user is also pointed at the Home panel where following
+       ministries lives (LeftBehindOnFromHome). Round-EMPTY-HERO. *@
+    <figure class="text-center mt-3 mb-3" aria-hidden="true">
+        <img src="@Assets["img/servantsync-marketing.svg"]"
+             alt="ServantSync wordmark"
+             width="120"
+             loading="lazy"
+             class="img-fluid" />
+    </figure>
     <div class="alert alert-info">
         <h6 class="alert-heading mb-2">You haven't joined any ministries yet</h6>
         <p class="mb-2">
@@ -78,6 +100,17 @@ else if (_showOnlyJoined && _joinedMinistryIds.Count == 0)
 }
 else if (!_openShifts.Any())
 {
+    @* Round-EMPTY-HERO: marketing wordmark above the no-shifts empty-state.
+       The same 120 px splash pattern as the /Home empty-state -- completes
+       the brand rollout on the volunteer-facing empty surfaces (vs the
+       auth-surface splash already on Login + Register at 180 px). *@
+    <figure class="text-center mt-3 mb-3" aria-hidden="true">
+        <img src="@Assets["img/servantsync-marketing.svg"]"
+             alt="ServantSync wordmark"
+             width="120"
+             loading="lazy"
+             class="img-fluid" />
+    </figure>
     <div class="alert alert-info">
         Nothing open @(_showOnlyJoined && _joinedMinistryIds.Count > 0 ? "in your followed ministries" : "right now").
         Check back later, or ask a coordinator to queue a shift for a slot you care about.

@@ -108,12 +108,32 @@
                     <div class="card-body">
                         @if (!_hasAnyOrgMembership)
                         {
+                            @* Round-EMPTY-HERO: marketing wordmark above the no-org
+                               empty-state so the first-time (or just-registered) user
+                               has the brand context while they wait to be invited.
+                               Smaller (120 px) than the auth surface splash because
+                               in-app pages already own the visual weight. *@<figure class="text-center mt-3 mb-3" aria-hidden="true">
+        <img src="@Assets["img/servantsync-marketing.svg"]"
+             alt="ServantSync wordmark"
+             width="120"
+             loading="lazy"
+             class="img-fluid" />
+    </figure>
                             <p class="text-muted mb-0 small">
                                 You're not yet a member of any organization, so there are no ministries to follow.
                             </p>
                         }
                         else if (_myMinistries.Count == 0)
                         {
+                            @* Round-EMPTY-HERO: marketing wordmark above the no-ministries-followed
+                               (has-org) empty-state. Pair with the no-org splash above so a user
+                               transitioning from one to the other never loses the brand. *@<figure class="text-center mt-3 mb-3" aria-hidden="true">
+        <img src="@Assets["img/servantsync-marketing.svg"]"
+             alt="ServantSync wordmark"
+             width="120"
+             loading="lazy"
+             class="img-fluid" />
+    </figure>
                             <p class="text-muted mb-2">
                                 You're not following any ministries yet. Tap "Join this ministry" on any ministry page to start seeing its open shifts here.
                             </p>
