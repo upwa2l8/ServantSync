@@ -2,6 +2,17 @@
 
   <PropertyGroup>
     <TargetFramework>net9.0</TargetFramework>
+    <!--
+      Enable NuGet's lock-file mode so the solution commits a
+      packages.lock.json file alongside the .csproj. The GitHub
+      Actions CI's default-restore behavior ends up requiring a lock
+      file (raising "Dependencies lock file is not found" on first
+      push), while the local dev SDK defaults to no-lock-file; an
+      asymmetry that breaks CI on first push and makes builds
+      non-reproducible. Locked mode forces both environments to the
+      same restored-graph.
+    -->
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <!--
