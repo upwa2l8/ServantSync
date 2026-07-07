@@ -1,0 +1,63 @@
+# Build context exclusions. Keeps the Docker build context small
+# (the .NET 9 SDK restore step is the slowest layer; excluding these
+# from the context means Docker doesn't have to send them to the
+# buildkit daemon in the first place).
+
+# Build outputs -- they live in publish/ after `dotnet publish` and
+# would only confuse the COPY . . step.
+**/bin/
+**/obj/
+**/out/
+**/publish/
+deploy.zip
+
+# Version control + IDE state.
+.git/
+.gitignore
+.gitattributes
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.swp
+
+# Tests -- this image is the production app, not the test runner.
+# Tests are built by the separate `tests/ServantSync.Tests/ServantSync.Tests.csproj`
+# and the GitHub Actions ci.yml workflow.
+tests/
+
+# GitHub Actions config -- the workflow is what builds the image, not
+# what gets baked into it. Excluding this avoids drift if the
+# workflow changes during a build.
+.github/
+
+# Documentation + meta files that have no runtime purpose.
+*.md
+LICENSE*
+README*
+BRANDING*
+PLAN*
+STATUS*
+DEPLOY*
+
+# OS / shell clutter.
+.DS_Store
+Thumbs.db
+
+# This file itself + .dockerignore don't need to be in the image.
+Dockerfile
+.dockerignore
+
+# The diagnostic .ps1 scripts I added in this session are
+# dev-environment debugging helpers, not part of the deployed app.
+# Excluded so they don't bloat the image.
+scripts/diagnose-az.ps1
+scripts/verify-az-fix.ps1
+scripts/clear-wam-state.ps1
+scripts/az-login-precheck.ps1
+scripts/check-sub-type.ps1
+scripts/inspect-subscription.ps1
+scripts/submit-quota-request.ps1
+scripts/try-regions.ps1
+scripts/create-servantsync-plan.ps1

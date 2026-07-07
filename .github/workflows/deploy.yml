@@ -1,0 +1,146 @@
+name: Deploy to Azure Container Apps
+
+# Trigger on every push to main that touches runtime OR workflow files.
+# Pull requests don't deploy (they build via ci.yml). Manual dispatch
+# enables a "Re-run deploy" button on the Actions tab without a code push.
+# Same trigger semantics as the old App Service workflow, with the
+# Dockerfile added to the paths filter so a Dockerfile-only change
+# also triggers a deploy.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Components/**'
+      - 'Data/**'
+      - 'Models/**'
+      - 'Services/**'
+      - 'Properties/**'
+      - 'wwwroot/**'
+      - 'Program.cs'
+      - 'Dockerfile'
+      - '.dockerignore'
+      - '*.csproj'
+      - '*.sln'
+      - 'appsettings.json'
+      - 'appsettings.*.json'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Why are you redeploying? (audit trail comment only)'
+        required: false
+        default: 'Manual'
+
+# OIDC: the workflow swaps the long-lived publish-profile secret for a
+# short-lived OIDC token issued by GitHub to the App Registration's
+# federated credential. Required permissions:
+#   - id-token: write  -- request an OIDC token from GitHub
+#   - contents: read   -- checkout the repo
+#   - no other scopes  -- least-privilege
+permissions:
+  id-token: write
+  contents: read
+
+# Concurrency lock: a rapid second push (or a manual workflow_dispatch
+# while a push-deploy is mid-flight) would otherwise race two image
+# pushes + revision updates against the same Container App,
+# last-write-wins with possible intermediate-state exposure. The
+# `cancel-in-progress` setting makes the second job preempt the first;
+# only the most recent deploy wins. Same pattern as the old App
+# Service workflow.
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    name: Build & deploy to Azure Container Apps
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure login (OIDC federated)
+        # OIDC over the old publish-profile XML secret. The App
+        # Registration's federated credential must have a subject that
+        # matches `repo:<owner>/<repo>:ref:refs/heads/main` (for push
+        # triggers) and a claim that names the federated credentials
+        # in the App Registration. If you also use a `Production`
+        # protected environment for workflow_dispatch, add a second
+        # federated credential with subject
+        # `repo:<owner>/<repo>:environment:Production`.
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          enable-AzPSSession: false
+
+      - name: ACR login (via OIDC token)
+        # `az acr login` uses the AAD token from the OIDC login step
+        # to authenticate to the registry -- no `AcrPull` admin user
+        # secret is needed. The App Registration's service principal
+        # needs the `AcrPush` role on the registry.
+        run: az acr login --name ${{ secrets.ACR_NAME }}
+
+      - name: Setup Docker buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build & push image to ACR
+        # Tags the image with both the immutable commit SHA and the
+        # mutable `latest` tag. The deploy step pins the SHA so a
+        # partially-pushed image can't be deployed; the `latest` tag
+        # is left in ACR for quick manual debugging.
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.ACR_NAME }}.azurecr.io/servantsync:${{ github.sha }}
+            ${{ secrets.ACR_NAME }}.azurecr.io/servantsync:latest
+          # Skip provenance + SBOM attestations -- not required for an
+          # internal app, and they add ~30s to the push.
+          provenance: false
+          sbom: false
+          # Useful cache from the previous successful build (GitHub's
+          # built-in cache backend). First build is cold; subsequent
+          # builds re-use restored layers.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Deploy to Azure Container Apps
+        # azure/container-apps-deploy-action@v2 is the canonical action
+        # for ACA deploys. Two inputs are doing the work here:
+        #   - `imageToDeploy` overrides the placeholder `image:` in the
+        #     YAML so we never pin an old tag.
+        #   - `yamlConfigPath` points to deploy/aca.servantsync.yaml,
+        #     the single source of truth for ingress, env vars, the
+        #     /data volume mount, and scale. The action PATCHes the
+        #     live Container App from this file, preserving the
+        #     smtp-password entry already in the secret store (the
+        #     YAML references it via `secretRef`, never carrying the
+        #     value itself). See the YAML header for the schema
+        #     contract (storageName, secretRef, scale, etc.).
+        # Replaces an earlier separate `azure/cli@v2` "Attach /data
+        # volume" step, which had to pin a specific az CLI version
+        # because the local user's az didn't accept the modern volume
+        # syntax. The action's bundled az is always compatible, and a
+        # PATCH is idempotent (no spurious new revisions on re-runs).
+        uses: azure/container-apps-deploy-action@v2
+        with:
+          appSourcePath: ${{ github.workspace }}
+          acrName: ${{ secrets.ACR_NAME }}
+          containerAppName: ${{ secrets.ACA_NAME }}
+          resourceGroup: ${{ secrets.AZURE_RG }}
+          imageToDeploy: ${{ secrets.ACR_NAME }}.azurecr.io/servantsync:${{ github.sha }}
+          yamlConfigPath: deploy/aca.servantsync.yaml
+
+      - name: Smoke-check (optional)
+        # If the deploy sponsor supplies a smoke URL, GET it; otherwise skip.
+        if: ${{ secrets.SMOKE_CHECK_URL != '' }}
+        run: |
+          curl --fail --silent --show-error --max-time 30 \
+            "${{ secrets.SMOKE_CHECK_URL }}" > /dev/null
+          echo "Smoke check OK"

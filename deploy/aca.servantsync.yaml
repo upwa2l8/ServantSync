@@ -1,0 +1,106 @@
+# Declarative Azure Container Apps config for ServantSync.
+#
+# Consumed by .github/workflows/deploy.yml via
+# `azure/container-apps-deploy-action@v2`'s `yamlConfigPath` input. The
+# action does a PATCH against the live Container App, so this file is
+# the single source of truth for the structural config (ingress port,
+# env vars, volumes, scale). Implied:
+#
+#   - `image:` below is a deliberately bogus placeholder; the action
+#     overrides it with `imageToDeploy` on every deploy. If the
+#     override ever silently fails, ACA's "Running" view shows this
+#     exact string and the FQDN returns 502, making the misconfig
+#     immediately obvious rather than letting nginx (a valid image
+#     that listens on port 80) mask the failure.
+#
+#   - The secret `smtp-password` MUST already exist in the Container
+#     App's secret store before the first deploy with this file. The
+#     YAML references it via `secretRef: smtp-password`; the PATCH
+#     preserves the secret value (the YAML never carries the value
+#     itself, so it can't leak into the repo).
+#
+#   - `volumes[].storageName: servantsync-data` MUST match the
+#     env-level Azure Files storage registration name from SETUP.md
+#     Step 2 (default: `servantsync-data`).
+#
+#   - `scale.minReplicas: 0` is intentional — Consumption plan scales
+#     to zero when idle. `maxReplicas: 3` caps cost on a low-traffic
+#     internal app; bump if you see throttling.
+#
+# Schema reference: `az containerapp create --yaml` / `az containerapp
+# update --yaml` (Azure CLI 2.45+). Required fields are marked below.
+
+properties:
+  configuration:
+    # Ingress: external (public FQDN) + listens on 8080 (the ServantSync
+    # image's hardcoded ASPNETCORE_URLS=http://+:8080; nginx:alpine
+    # placeholder that ran before this YAML existed listened on 80,
+    # which is why the first deploy with this file flips the port).
+    ingress:
+      external: true
+      targetPort: 8080
+  template:
+    containers:
+      - name: servantsync                  # required; must match the existing container name
+        image: PLACEHOLDER-OVERRIDDEN-BY-IMAGE-TO-DEPLOY-DO-NOT-RUN   # see header; action overrides via imageToDeploy
+        env:
+          # The env-var list below is the single source of truth for
+          # production env vars. When you add a new key to
+          # appsettings.Production.sample.json, add the matching
+          # `name` here on the next deploy -- `azure/container-apps-deploy-action@v2`
+          # PATCHes the entire `containers[0]` array (not just the keys
+          # it sees in the YAML), so any imperative env var set on
+          # the live Container App that isn't listed here will be
+          # silently dropped on the next deploy.
+          # --- ASP.NET Core runtime ---
+          - name: ASPNETCORE_URLS
+            value: "http://+:8080"
+          - name: ASPNETCORE_FORWARDEDHEADERS_ENABLED
+            value: "true"                  # ACA ingress terminates TLS, so the app must trust X-Forwarded-Proto
+
+          # --- SQLite database (lives on the /data Azure Files share) ---
+          - name: ConnectionStrings__DefaultConnection
+            value: "Data Source=/data/servantsync.db"
+
+          # --- Periodic VACUUM INTO backup (SqliteBackupService) ---
+          - name: Backup__Enabled
+            value: "true"
+          - name: Backup__IntervalHours
+            value: "24"
+          - name: Backup__RetentionDays
+            value: "30"
+          - name: Backup__Directory
+            value: "/data/backups"         # MUST live on the persistent share, never wwwroot
+          - name: Backup__FilePrefix
+            value: "backup"
+          - name: Backup__MaxBackups
+            value: "100"
+
+          # --- SMTP (MailKitEmailSender) ---
+          # Non-secret bits are inline; the password is a secretRef so
+          # the value stays in the Container App's secret store and
+          # never lands in the repo or in `az containerapp show` output.
+          - name: Email__Smtp__Host
+            value: "smtp.sendgrid.net"
+          - name: Email__Smtp__Port
+            value: "587"
+          - name: Email__Smtp__User
+            value: "apikey"
+          - name: Email__Smtp__TlsMode
+            value: "StartTlsWhenAvailable"
+          - name: Email__FromAddress
+            value: "noreply@yourdomain.com"
+          - name: Email__FromName
+            value: "ServantSync"
+          - name: Email__Smtp__Password
+            secretRef: smtp-password       # pre-created via SETUP.md Step 4c
+        volumeMounts:
+          - volumeName: servantsync-data
+            mountPath: /data               # matches SqliteBackupService's Backup__Directory
+    scale:
+      minReplicas: 0                      # required to keep idle cost at $0
+      maxReplicas: 3                      # cap on a low-traffic internal app
+    volumes:
+      - name: servantsync-data
+        storageName: servantsync-data     # MUST match the env-level storage registration
+        storageType: AzureFile
