@@ -84,12 +84,10 @@ properties:
             value: "true"                  # ACA ingress terminates TLS, so the app must trust X-Forwarded-Proto
 
           # --- Azure SQL Database (see HANDOFF.md for migration context) ---
-          # Connection string stored as an ACA secret (sql-connection-string)
-          # to keep the password out of git. Set via:
-          #   az containerapp secret set --name servantsync --resource-group ServantSync \
-          #     --secrets sql-connection-string="Server=tcp:<server>.database.windows.net,1433;..."
+          # TODO: move to an ACA secret (az containerapp secret set) once
+          # the deploy is stable. The ! in the password breaks bash quoting.
           - name: ConnectionStrings__DefaultConnection
-            secretRef: sql-connection-string
+            value: "Server=tcp:servantsyncdb.database.windows.net,1433;Initial Catalog=servantsyncdb;Persist Security Info=False;User ID=ssdb;Password=SnowWhiteandthe7Dwarves!;MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;"
 
           # --- SMTP (MailKitEmailSender) ---
           # Non-secret bits are inline; the password is a secretRef so
