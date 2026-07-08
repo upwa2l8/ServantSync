@@ -1,5 +1,9 @@
 # ServantSync — status & next steps
 
+> **Read `[HANDOFF.md](HANDOFF.md)` FIRST if you're picking up after 2026-07-08.** It captures the current Azure Container Apps cold-boot BUSY issue (still unresolved as of Round-ACA-1.17), the 17-round timeline of what didn't work, the empirical evidence for the SMB-lease root cause, and 4 ranked escape paths the next process should consider. Without reading `HANDOFF.md`, you'll re-derive ~2 hours of dead ground.
+>
+> **Read this `STATUS.md` file SECOND.** It contains the per-round audit chains (R1.4, R1.8, R1.9, R1.10, R1.14, R1.17, etc.) and the codebase-level state.
+
 > **Read this first on every new session.** It captures the current
 > build state, the seed data, the known quirks, and the pending work,
 > so you (or the next AI) can pick up without re-deriving the
