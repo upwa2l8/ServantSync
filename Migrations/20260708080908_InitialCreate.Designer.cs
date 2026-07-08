@@ -12,7 +12,7 @@ using ServantSync.Data;
 namespace ServantSync.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20260708071121_InitialCreate")]
+    [Migration("20260708080908_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -1517,12 +1517,12 @@ namespace ServantSync.Migrations
                     b.HasOne("ServantSync.Models.Organization", "Organization")
                         .WithMany("TrainingRequirements")
                         .HasForeignKey("OrganizationId")
-                        .OnDelete(DeleteBehavior.Cascade);
+                        .OnDelete(DeleteBehavior.ClientCascade);
 
                     b.HasOne("ServantSync.Models.ServiceSlot", "ServiceSlot")
                         .WithMany("TrainingRequirements")
                         .HasForeignKey("ServiceSlotId")
-                        .OnDelete(DeleteBehavior.Cascade);
+                        .OnDelete(DeleteBehavior.ClientCascade);
 
                     b.HasOne("ServantSync.Models.TrainingContent", "TrainingContent")
                         .WithMany()

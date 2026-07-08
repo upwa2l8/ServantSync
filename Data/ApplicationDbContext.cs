@@ -218,6 +218,13 @@ public class ApplicationDbContext : IdentityDbContext<IdentityUser>
         });
 
         // ---- TrainingRequirement (exactly one scope, enforced in DB) ----
+        // ClientCascade on both FKs: the check constraint guarantees only one
+        // scope per row (OrganizationId XOR ServiceSlotId), but SQL Server
+        // detects a potential multi-path cascade at schema creation time:
+        //   Organization → TrainingRequirement (direct)
+        //   Organization → Ministry → ServiceSlot → TrainingRequirement
+        // ClientCascade tells EF to handle deletes in code instead of creating
+        // DB-level CASCADE constraints, avoiding SQL error 1785.
         modelBuilder.Entity<TrainingRequirement>(b =>
         {
             b.ToTable(t => t.HasCheckConstraint(
@@ -227,11 +234,11 @@ public class ApplicationDbContext : IdentityDbContext<IdentityUser>
             b.HasOne(r => r.Organization)
                 .WithMany(o => o.TrainingRequirements)
                 .HasForeignKey(r => r.OrganizationId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.ClientCascade);
             b.HasOne(r => r.ServiceSlot)
                 .WithMany(s => s.TrainingRequirements)
                 .HasForeignKey(r => r.ServiceSlotId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.ClientCascade);
             b.HasOne(r => r.TrainingContent)
                 .WithMany()
                 .HasForeignKey(r => r.TrainingContentId)

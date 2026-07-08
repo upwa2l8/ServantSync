@@ -1514,12 +1514,12 @@ namespace ServantSync.Migrations
                     b.HasOne("ServantSync.Models.Organization", "Organization")
                         .WithMany("TrainingRequirements")
                         .HasForeignKey("OrganizationId")
-                        .OnDelete(DeleteBehavior.Cascade);
+                        .OnDelete(DeleteBehavior.ClientCascade);
 
                     b.HasOne("ServantSync.Models.ServiceSlot", "ServiceSlot")
                         .WithMany("TrainingRequirements")
                         .HasForeignKey("ServiceSlotId")
-                        .OnDelete(DeleteBehavior.Cascade);
+                        .OnDelete(DeleteBehavior.ClientCascade);
 
                     b.HasOne("ServantSync.Models.TrainingContent", "TrainingContent")
                         .WithMany()

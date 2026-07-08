@@ -693,14 +693,12 @@ namespace ServantSync.Migrations
                         name: "FK_TrainingRequirements_Organizations_OrganizationId",
                         column: x => x.OrganizationId,
                         principalTable: "Organizations",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
+                        principalColumn: "Id");
                     table.ForeignKey(
                         name: "FK_TrainingRequirements_ServiceSlots_ServiceSlotId",
                         column: x => x.ServiceSlotId,
                         principalTable: "ServiceSlots",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
+                        principalColumn: "Id");
                     table.ForeignKey(
                         name: "FK_TrainingRequirements_TrainingContents_TrainingContentId",
                         column: x => x.TrainingContentId,
