@@ -48,7 +48,11 @@ properties:
     # roundtrip idempotency without ever carrying the password in git.
     secrets:
       - name: smtp-password
-        value: ""
+        # value intentionally omitted so the deploy action's full PUT
+        # doesn't overwrite the live smtp-password with an empty
+        # string. The ARM-template-less behavior ("no value" -> "don't
+        # touch the live secret value") is unambiguous across API
+        # versions and never carries the password in git.
     # Registries: must declare explicitly so the deploy action's
     # full PUT-yaml semantics don't blank the managed-identity config
     # we set up in Round-ACA-1. With this block present, ACA pulls
