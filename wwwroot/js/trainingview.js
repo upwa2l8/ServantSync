@@ -116,13 +116,26 @@ async function mountPdf(target, url, dotnetRef, contentId) {
     // serialized objects — not real DOM nodes — so canvasRoot.appendChild
     // throws "is not a function". Passing the id as a string and resolving
     // via document.getElementById is the portable fix. See STATUS.md round-AU.
-    const canvasRoot = typeof target === 'string' ? document.getElementById(target) : target;
-
-    // Round-AV: if the DOM element doesn't exist yet (ACA container
-    // render timing), bail early with a clear error so the C# catch
-    // block can surface the structural fallback panel + iframe.
-    if (!canvasRoot) {
-        throw new Error(`PDF viewer host element not found in the DOM: ${typeof target === 'string' ? `#${target}` : 'unknown'}. The page may still be rendering.`);
+    // Round-AV: On ACA/containers, the DOM element may not exist yet
+    // when this function fires (Blazor's render lags behind the JS
+    // interop call by a few hundred ms). Poll up to 3s for it, then
+    // fall back to a throw that the C# catch surfaces as the
+    // structural fallback iframe. Prior round-AU attempted a single
+    // document.getElementById which failed on the container. See
+    // STATUS.md round-AV.
+    let canvasRoot;
+    if (typeof target === 'string') {
+        const maxAttempts = 15;
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+            canvasRoot = document.getElementById(target);
+            if (canvasRoot) break;
+            await new Promise(r => setTimeout(r, 200));
+        }
+        if (!canvasRoot) {
+            throw new Error(`PDF viewer host #${target} not found after ~${(maxAttempts - 1) * 200}ms. The page may still be rendering.`);
+        }
+    } else {
+        canvasRoot = target;
     }
 
     // Shared error-paint helper, used by BOTH the outer catch
