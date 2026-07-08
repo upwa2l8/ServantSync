@@ -544,37 +544,23 @@ foreach (var suffix in new[] { "-journal", "-wal", "-shm" })
 }
 
 // Apply pending migrations, then seed sample data if the database is empty.
-// Round-ACA-1.14 (this): replace EF Core 9's MigrateAsync() with a manual
-// per-migration loop. EF Core 9's auto-orchestrator acquires a SECOND
-// SqliteConnection to create __EFMigrationsLock + BEGIN IMMEDIATE on it,
-// then runs migration DDL on a separate connection. On Azure Files SMB
-// (Linux + SMB file-lock semantics), the secondary connection collides
-// with the primary in the SAME process: Connection A holds EXCLUSIVE on
-// the SMB file descriptor, Connection B blocks for the full busy_timeout
-// window (30000ms via Round-ACA-1.8's PRAGMA interceptor), then SQLite
-// throws Error 5 (rc=5). The 30s wait was masking an instant crash,
-// making the diagnosis much harder. Iterating pending migrations one-by-
-// one via IMigrator.GenerateScript keeps everything on ONE SqliteConnection,
-// sidestepping the lock orchestrator. GenerateScript returns one SQL chunk
-// per (from,to) transition that already includes the __EFMigrationsHistory
-// row inserts, so the history table stays in sync after every iteration.
+// Round-ACA-1.15 (this): revert to the canonical `MigrateAsync()`. Round-ACA-1.14's
+// manual per-migration loop via `IMigrator.GenerateScript` looked clean locally
+// but failed activation on Azure (`ActivationFailed`, no logs available from
+// the deleted replica). EF Core 9's `IMigrator.GenerateScript(fromMigration,
+// toMigration)` emits only the schema DDL; the `__EFMigrationsHistory` row
+// inserts are emitted separately by `Migrator.MigrateAsync` via parameterized
+// `InsertDataOperation`. Bypassing `MigrateAsync` therefore left the history
+// table empty, the second boot re-applied every migration, and `CREATE TABLE
+// IF NOT EXISTS` patterns on subsequent runs were not all idempotent on
+// SQLite -- `ALTER TABLE` ADD COLUMN-without-IF-NOT-NULL etc. then crashed.
+// Round-ACA-1.8's `busy_timeout=30000` PRAGMA + Round-ACA-1.9's stale-journal
+// pre-cleanup + `maxReplicas: 1` are kept as defense-in-depth for the SMB
+// file-lock contention that *did* exist earlier in this round sequence.
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-    var pending = await db.Database.GetPendingMigrationsAsync();
-    if (pending.Any())
-    {
-        var migrator = db.GetService<IMigrator>();
-        var applied = await db.Database.GetAppliedMigrationsAsync();
-        var lastApplied = applied.LastOrDefault();
-        foreach (var migration in pending)
-        {
-            Console.WriteLine($"[Round-ACA-1.14] Applying migration: {migration}");
-            var sqlScript = migrator.GenerateScript(lastApplied, migration);
-            await db.Database.ExecuteSqlRawAsync(sqlScript);
-            lastApplied = migration;
-        }
-    }
+    await db.Database.MigrateAsync();
     var seeder = scope.ServiceProvider.GetRequiredService<DatabaseSeeder>();
     await seeder.SeedAsync();
 }

@@ -32,8 +32,6 @@
 
 properties:
   configuration:
-    # Round-ACA-1.13: drain old pod before new boots -- default Multiple rolling keeps the old pod's pool+SMB handles alive through the new pod's MigrateAsync (SQLITE_BUSY for the full 30s busy_timeout)
-    activeRevisionsMode: Single
     # Ingress: external (public FQDN) + listens on 8080 (the ServantSync
     # image's hardcoded ASPNETCORE_URLS=http://+:8080; nginx:alpine
     # placeholder that ran before this YAML existed listened on 80,
