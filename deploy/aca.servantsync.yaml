@@ -80,7 +80,7 @@ properties:
 
           # --- SQLite database (lives on the /data Azure Files share) ---
           - name: ConnectionStrings__DefaultConnection
-            value: "Data Source=/data/servantsync.db"
+            value: "Data Source=/data/servantsync.db;Pooling=False"   # Round-ACA-1.12: release SMB file handle between connections (avoids a dying pod's pool blocking the next revision's MigrateAsync)
 
           # --- Periodic VACUUM INTO backup (SqliteBackupService) ---
           - name: Backup__Enabled
