@@ -139,8 +139,19 @@ jobs:
 
       - name: Smoke-check (optional)
         # If the deploy sponsor supplies a smoke URL, GET it; otherwise skip.
-        if: ${{ secrets.SMOKE_CHECK_URL != '' }}
+        # NOTE: `${{ secrets.X }}` is rejected inside an `if:` conditional by
+        # GitHub Actions' expression parser (error: "Unrecognized named-value:
+        # 'secrets'"), and the validation failure aborts the whole job before
+        # any step is dispatched. The canonical workaround is to expose the
+        # secret as an `env:` variable and branch on its emptiness inside the
+        # `run:` script -- semantically equivalent, valid YAML.
+        env:
+          SMOKE_CHECK_URL: ${{ secrets.SMOKE_CHECK_URL }}
         run: |
-          curl --fail --silent --show-error --max-time 30 \
-            "${{ secrets.SMOKE_CHECK_URL }}" > /dev/null
-          echo "Smoke check OK"
+          if [ -n "$SMOKE_CHECK_URL" ]; then
+            curl --fail --silent --show-error --max-time 30 \
+              "$SMOKE_CHECK_URL" > /dev/null
+            echo "Smoke check OK"
+          else
+            echo "SMOKE_CHECK_URL not set; skipping smoke check."
+          fi
