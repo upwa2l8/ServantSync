@@ -105,6 +105,25 @@ public class SqliteBackupService : BackgroundService
         // then loop on the periodic timer. PeriodicTimer.WaitForNextTickAsync
         // is sequential — same-task-only — so a slow cycle can't spawn a
         // parallel one.
+        //
+        // Round-ACA-1.7: 60s pre-cycle delay absorbs cold-start Azure Files
+        // SMB lock contention that the deploy/aca.servantsync.yaml
+        // busy_timeout=30000 PRAGMA only partially covers — that PRAGMA gives
+        // SQLite 30s to wait on its own locks; this guarantees our VACUUM
+        // INTO never runs in the first 60s when the dotnet app's first
+        // DbContext open (typically Kestrel's first request) is most likely
+        // to hit a transient SMB oplock edge. Cancellation exits cleanly
+        // without writing a backup cycle (graceful shutdown).
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(60), stoppingToken);
+        }
+        catch (OperationCanceledException)
+        {
+            _log.LogInformation("SqliteBackupService: cancelled during startup delay; exiting cleanly without running a cycle.");
+            return;
+        }
+
         await RunCycleSafelyAsync(dir, opts, stoppingToken);
 
         using var timer = new PeriodicTimer(TimeSpan.FromHours(opts.IntervalHours));

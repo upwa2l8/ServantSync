@@ -19,8 +19,22 @@ var connectionString = builder.Configuration.GetConnectionString("DefaultConnect
 // factory's ones. The factory ends up asking the root provider for
 // IEnumerable<IDbContextOptionsConfiguration<T>> and trips over the scoped one,
 // throwing "Cannot resolve scoped service from root provider" at startup.
-builder.Services.AddDbContextFactory<ApplicationDbContext>(opts =>
-    opts.UseSqlite(connectionString));
+//
+// Round-ACA-1.8 (this): Microsoft.Data.Sqlite does NOT accept "busy_timeout"
+// as a connection-string keyword (its SqliteConnectionStringBuilder throws
+// ArgumentException on unrecognised keywords -- observed at startup on
+// revision servantsync--0000006 with "Connection string keyword 'busy_timeout'
+// is not supported"). Register SqliteBusyTimeoutInterceptor as a singleton
+// and attach it to the factory via AddInterceptors so every opened
+// connection runs "PRAGMA busy_timeout=30000" right after the parser. The
+// interceptor (not the connection string) is the canonical EF Core way to
+// apply PRAGMAs that aren't recognised keywords on SqliteConnectionStringBuilder.
+builder.Services.AddSingleton<SqliteBusyTimeoutInterceptor>();
+builder.Services.AddDbContextFactory<ApplicationDbContext>((sp, opts) =>
+{
+    opts.UseSqlite(connectionString);
+    opts.AddInterceptors(sp.GetRequiredService<SqliteBusyTimeoutInterceptor>());
+});
 // Identity's stores (and any other consumer) still need a scoped
 // ApplicationDbContext. Resolve it from the factory so the configuration is
 // shared — the factory owns the options, the DI scope owns the context lifetime.
