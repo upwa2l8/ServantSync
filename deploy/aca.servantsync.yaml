@@ -32,6 +32,8 @@
 
 properties:
   configuration:
+    # Round-ACA-1.16: restore activeRevisionsMode=Single (default Multiple kept the OLD pod alive through the new pod's boot, and the OLD pod's SMB file-handles race the new pod's MigrateAsync for the full 30s busy_timeout window -- empirically reproduced with c08f966 logs showing the 30s BUSY at __EFMigrationsLock).
+    activeRevisionsMode: Single
     # Ingress: external (public FQDN) + listens on 8080 (the ServantSync
     # image's hardcoded ASPNETCORE_URLS=http://+:8080; nginx:alpine
     # placeholder that ran before this YAML existed listened on 80,
