@@ -408,16 +408,30 @@ public class DatabaseSeeder
         // wwwroot/uploads/slots/{sound.Id}/ and seeds matching SlotDocument
         // rows so the new "Shared documents" section has something to show
         // out of the box. Coordinators can upload their own over the top.
-        SeedSampleSlotDocument(sound.Id, "welcome.txt",
-            "Welcome to Sound Tech!\n\nThanks for serving on the sound team. " +
-            "This is a sample document seeded for the demo — delete it and upload your own. " +
-            "You'll find real-world notes, mixing-board photos, and the run-of-show in the other categories.\n",
-            "Welcome", "Get-started packet for new volunteers on the sound team.",
-            adminUser.Id, "text/plain", db);
-        SeedSampleSlotDocument(sound.Id, "checklist.txt",
-            "Pre-service checklist (sample):\n  - Power on the mixing board\n  - Patch in the worship team mics\n  - Check the house speakers\n  - Pull up last week's multitrack for reference\n",
-            "Setup", "Pre-service checklist for sound tech volunteers.",
-            coordinatorUser.Id, "text/plain", db);
+        //
+        // The container filesystem may be read-only for the non-root app
+        // user (e.g. ACA with USER $APP_UID). If the directory can't be
+        // created, skip the demo documents — they're nice-to-have, not
+        // critical. Coordinators can still upload docs through the app
+        // when the volume mount is configured.
+        try
+        {
+            SeedSampleSlotDocument(sound.Id, "welcome.txt",
+                "Welcome to Sound Tech!\n\nThanks for serving on the sound team. " +
+                "This is a sample document seeded for the demo — delete it and upload your own. " +
+                "You'll find real-world notes, mixing-board photos, and the run-of-show in the other categories.\n",
+                "Welcome", "Get-started packet for new volunteers on the sound team.",
+                adminUser.Id, "text/plain", db);
+            SeedSampleSlotDocument(sound.Id, "checklist.txt",
+                "Pre-service checklist (sample):\n  - Power on the mixing board\n  - Patch in the worship team mics\n  - Check the house speakers\n  - Pull up last week's multitrack for reference\n",
+                "Setup", "Pre-service checklist for sound tech volunteers.",
+                coordinatorUser.Id, "text/plain", db);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            _log.LogWarning(ex,
+                "DatabaseSeeder: cannot write slot documents to wwwroot/uploads/slots — the container filesystem is read-only for the app user. Skipping demo documents (coordinators can still upload through the app when a writable volume is mounted).");
+        }
 
             await db.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);
