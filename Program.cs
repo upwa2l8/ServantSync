@@ -503,6 +503,44 @@ app.MapGet("/slots/{slotId:int}/documents/{docId:int}/download", async (
         fileDownloadName: doc.OriginalFileName);
 }).RequireAuthorization();
 
+// Round-ACA-1.9 (this): pre-EF Core cleanup of stale SQLite transaction
+// files. Azure Files SMB preserves .db-journal / .db-wal / .db-shm from a
+// previous container killed mid-write. SMB oplocks on those files persist
+// and block the next migration's BEGIN IMMEDIATE (EF Core's
+// AcquireDatabaseLockAsync via SqliteHistoryRepository -- observed as
+// "SQLite Error 5: 'database is locked'" after a 30s busy_timeout window,
+// confirmed empirically on revision servantsync--0000004 with full stack
+// trace). Delete any stale files at startup to atomically remove the SMB
+// oplock holder. Idempotent: if the files don't exist (warm-reuse case)
+// it's a no-op, falling through to migration as normal. Best-effort: if a
+// file is held by a still-active connection we can't delete it; the
+// migration will fail with the same BUSY signal downstream, surfacing a
+// still-deeper issue rather than masquerading a fix.
+// `??` only catches null, not empty. If the env var is `Data Source=`
+// (empty value after the equals), Substring returns `""`, not null, so
+// fall through to the documented Azure Files path explicitly.
+var candidate = connectionString
+    .Split(';')
+    .FirstOrDefault(p => p.StartsWith("Data Source=", StringComparison.OrdinalIgnoreCase))
+    ?.Substring("Data Source=".Length);
+var dbPath = string.IsNullOrEmpty(candidate) ? "/data/servantsync.db" : candidate;
+foreach (var suffix in new[] { "-journal", "-wal", "-shm" })
+{
+    var stalePath = dbPath + suffix;
+    try
+    {
+        if (File.Exists(stalePath))
+        {
+            File.Delete(stalePath);
+        }
+    }
+    catch (Exception ex)
+    {
+        // Diagnostic -- surfaces in container log adjacent to the migration's BUSY signal.
+        Console.Error.WriteLine($"[Round-ACA-1.9] SQLite pre-cleanup failed to delete {stalePath}: {ex.Message}");
+    }
+}
+
 // Apply pending migrations, then seed sample data if the database is empty.
 using (var scope = app.Services.CreateScope())
 {
