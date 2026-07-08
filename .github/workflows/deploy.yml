@@ -19,6 +19,10 @@ on:
       - 'Program.cs'
       - 'Dockerfile'
       - '.dockerignore'
+      # Round-ACA-1.11: deploy/** is the ACA template; without it infra changes
+      # (maxReplicas, env-var list, volume mounts, secrets/registries blocks)
+      # never produced a build, so a YAML-only round landed no new revision.
+      - 'deploy/**'
       - '*.csproj'
       - '*.sln'
       - 'appsettings.json'
