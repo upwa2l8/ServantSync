@@ -1739,4 +1739,166 @@ public class TrainingSessionServiceTests : SqliteTestBase
         // "at fromUtc is included" assertion alone.
         Assert.DoesNotContain(result, s => s.Title == "At toUtc (exclusive)");
     }
+
+    // ─── Discoverability feed: ListAvailableForUserAsync ──────────────
+    // New method that powers MySchedule.razor's "Available training
+    // sessions" section. Volunteer discoverability was missing — the
+    // only way a volunteer could find an in-person session was the
+    // per-org Sessions/Index page, gated behind coord/admin navigation.
+    // This method is the discoverability surface for volunteers.
+
+    [Fact]
+    public async Task ListAvailableForUserAsync_FiltersToUserOrgs_NotYetAttended_Scheduled_InWindow()
+    {
+        // The center case: volunteer sees only sessions across THEIR
+        // orgs (cross-org isolation), in the window, Scheduled, NOT
+        // already on their attendee roster. Excluded: foreign-org
+        // sessions, past sessions, cancelled/completed, beyond-window,
+        // already-signed-up. Companion pieces pin each filter separately;
+        // this one pins the AND of all filters.
+        var orgA = TestData.Org(Factory, "Org A");
+        var orgB = TestData.Org(Factory, "Org B");
+        var volunteer = TestData.Person(Factory, "Vicky", "Volunteer");
+        TestData.Membership(Factory, volunteer.UserId, orgA.Id, OrganizationRole.Volunteer);
+        // Intentionally NOT a member of orgB.
+        var inWindowMine = TestData.TrainingSession(Factory, orgA.Id, "A in-window",
+            startUtc: DateTime.UtcNow.AddDays(7), endUtc: DateTime.UtcNow.AddDays(7).AddHours(1));
+        var foreignOrgSession = TestData.TrainingSession(Factory, orgB.Id, "Foreign org");
+        var pastSession = TestData.TrainingSession(Factory, orgA.Id, "Past",
+            startUtc: DateTime.UtcNow.AddDays(-7), endUtc: DateTime.UtcNow.AddDays(-7).AddHours(1));
+        var beyondWindow = TestData.TrainingSession(Factory, orgA.Id, "Beyond window",
+            startUtc: DateTime.UtcNow.AddDays(120), endUtc: DateTime.UtcNow.AddDays(120).AddHours(1));
+        var cancelled = TestData.TrainingSession(Factory, orgA.Id, "Cancelled",
+            startUtc: DateTime.UtcNow.AddDays(7), endUtc: DateTime.UtcNow.AddDays(7).AddHours(1),
+            status: TrainingSessionStatus.Cancelled);
+        var completed = TestData.TrainingSession(Factory, orgA.Id, "Completed",
+            startUtc: DateTime.UtcNow.AddDays(7), endUtc: DateTime.UtcNow.AddDays(7).AddHours(1),
+            status: TrainingSessionStatus.Completed);
+        var alreadySignedUp = TestData.TrainingSession(Factory, orgA.Id, "Already mine");
+        TestData.TrainingSessionAttendee(Factory, alreadySignedUp.Id, volunteer.UserId);
+
+        var fromUtc = DateTime.UtcNow;
+        var toUtc = DateTime.UtcNow.AddDays(60);
+        var result = await NewService().ListAvailableForUserAsync(volunteer.UserId, fromUtc, toUtc);
+
+        var session = Assert.Single(result);
+        Assert.Equal("A in-window", session.Title);
+        Assert.Equal(orgA.Id, session.OrganizationId);
+        Assert.Equal("Org A", session.OrganizationName);
+    }
+
+    [Fact]
+    public async Task ListAvailableForUserAsync_OrdersByStartUtc_Ascending()
+    {
+        // Insert in non-chronological order so the assertion isn't
+        // accidentally passing on insertion order. Future refactors that
+        // change the sort need to update this test.
+        var org = TestData.Org(Factory, "Org A");
+        var volunteer = TestData.Person(Factory, "Vicky", "Volunteer");
+        TestData.Membership(Factory, volunteer.UserId, org.Id, OrganizationRole.Volunteer);
+        var third = TestData.TrainingSession(Factory, org.Id, "Third",
+            startUtc: DateTime.UtcNow.AddDays(20), endUtc: DateTime.UtcNow.AddDays(20).AddHours(1));
+        var first = TestData.TrainingSession(Factory, org.Id, "First",
+            startUtc: DateTime.UtcNow.AddDays(5), endUtc: DateTime.UtcNow.AddDays(5).AddHours(1));
+        var second = TestData.TrainingSession(Factory, org.Id, "Second",
+            startUtc: DateTime.UtcNow.AddDays(10), endUtc: DateTime.UtcNow.AddDays(10).AddHours(1));
+
+        var fromUtc = DateTime.UtcNow;
+        var toUtc = DateTime.UtcNow.AddDays(60);
+        var result = await NewService().ListAvailableForUserAsync(volunteer.UserId, fromUtc, toUtc);
+
+        Assert.Equal(3, result.Count);
+        Assert.Equal("First", result[0].Title);
+        Assert.Equal("Second", result[1].Title);
+        Assert.Equal("Third", result[2].Title);
+    }
+
+    [Fact]
+    public async Task ListAvailableForUserAsync_EmptyPersonUserId_ReturnsEmpty()
+    {
+        // Empty userId short-circuits — same pattern as
+        // ListMyScheduledSessionsAsync. A page that forgot to pass
+        // a userId must not silently leak every session in the DB.
+        var org = TestData.Org(Factory, "Org A");
+        TestData.TrainingSession(Factory, org.Id);
+
+        var result = await NewService().ListAvailableForUserAsync(
+            "", DateTime.UtcNow, DateTime.UtcNow.AddDays(60));
+
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public async Task ListAvailableForUserAsync_PersonWithNoOrgMemberships_ReturnsEmpty()
+    {
+        // Cross-org isolation: a volunteer with zero OrgMembership
+        // rows must not see any sessions (foreign-org leakage). The
+        // service-side pre-check is the single source of truth —
+        // MySchedule.razor's similar pre-check is a UX optimization
+        // not the security gate.
+        var org = TestData.Org(Factory, "Org A");
+        TestData.TrainingSession(Factory, org.Id);
+        var bystander = TestData.Person(Factory, "Bystander", "McNobody");
+        // Intentionally NO membership rows.
+
+        var result = await NewService().ListAvailableForUserAsync(
+            bystander.UserId, DateTime.UtcNow, DateTime.UtcNow.AddDays(60));
+
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public async Task ListAvailableForUserAsync_IncludesSessionsFromMultipleUserOrgs()
+    {
+        // A volunteer who's Admin/Coordinator of TWO orgs should see
+        // sessions from BOTH on the discoverability list. The
+        // OrganizationName projection lets the page render the owning
+        // org inline so the volunteer knows which is which.
+        var orgA = TestData.Org(Factory, "Org A");
+        var orgB = TestData.Org(Factory, "Org B");
+        var volunteer = TestData.Person(Factory, "Vicky", "Vol-Coord");
+        TestData.Membership(Factory, volunteer.UserId, orgA.Id, OrganizationRole.Volunteer);
+        TestData.Membership(Factory, volunteer.UserId, orgB.Id, OrganizationRole.Volunteer);
+        var inA = TestData.TrainingSession(Factory, orgA.Id, "A session",
+            startUtc: DateTime.UtcNow.AddDays(5), endUtc: DateTime.UtcNow.AddDays(5).AddHours(1));
+        var inB = TestData.TrainingSession(Factory, orgB.Id, "B session",
+            startUtc: DateTime.UtcNow.AddDays(6), endUtc: DateTime.UtcNow.AddDays(6).AddHours(1));
+
+        var result = await NewService().ListAvailableForUserAsync(
+            volunteer.UserId, DateTime.UtcNow, DateTime.UtcNow.AddDays(60));
+
+        Assert.Equal(2, result.Count);
+        Assert.Contains(result, v => v.Title == "A session" && v.OrganizationName == "Org A");
+        Assert.Contains(result, v => v.Title == "B session" && v.OrganizationName == "Org B");
+    }
+
+    [Fact]
+    public async Task ListAvailableForUserAsync_IsFullTrueWhenAtCapacity_UnlimitedWhenNullMax()
+    {
+        // Capacity rule: IsFull = MaxAttendees.HasValue && SignedUpCount >= MaxAttendees.
+        // Pins both branches of the rule (null-max → never full; at-cap → full).
+        // The page disables the Sign up button when IsFull; future
+        // refactors that change the rule must update both halves.
+        var org = TestData.Org(Factory, "Org A");
+        var volunteer = TestData.Person(Factory, "Vicky", "Volunteer");
+        TestData.Membership(Factory, volunteer.UserId, org.Id, OrganizationRole.Volunteer);
+        var v1 = TestData.Person(Factory, "Vicky1", "V");
+        TestData.Membership(Factory, v1.UserId, org.Id, OrganizationRole.Volunteer);
+        var capped = TestData.TrainingSession(Factory, org.Id, "Capped", maxAttendees: 1);
+        TestData.TrainingSessionAttendee(Factory, capped.Id, v1.UserId);
+        var unlimited = TestData.TrainingSession(Factory, org.Id, "Unlimited", maxAttendees: null);
+
+        var result = await NewService().ListAvailableForUserAsync(
+            volunteer.UserId, DateTime.UtcNow, DateTime.UtcNow.AddDays(60));
+
+        var cappedView = result.Single(v => v.Title == "Capped");
+        Assert.True(cappedView.IsFull);
+        Assert.Equal(1, cappedView.SignedUpCount);
+        Assert.Equal(1, cappedView.MaxAttendees);
+
+        var unlimitedView = result.Single(v => v.Title == "Unlimited");
+        Assert.False(unlimitedView.IsFull);
+        Assert.Equal(0, unlimitedView.SignedUpCount);
+        Assert.Null(unlimitedView.MaxAttendees);
+    }
 }

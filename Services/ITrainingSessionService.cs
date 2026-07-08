@@ -90,6 +90,37 @@ public sealed class AttendeeMark
 }
 
 /// <summary>
+/// View shape the volunteer-facing "Available training sessions"
+/// surface needs. Returned by
+/// <c>ITrainingSessionService.ListAvailableForUserAsync</c>. Keeps the
+/// bulk TrainingSession + Attendees nav off MySchedule.razor so the
+/// page renders per-session cards with one query, not N+1.
+/// </summary>
+public sealed class AvailableTrainingSessionView
+{
+    public int SessionId { get; set; }
+    public int OrganizationId { get; set; }
+    public string OrganizationName { get; set; } = "";
+    public string Title { get; set; } = "";
+    public string? Description { get; set; }
+    public string Location { get; set; } = "";
+    public DateTime StartUtc { get; set; }
+    public DateTime EndUtc { get; set; }
+    public int? MaxAttendees { get; set; }
+    /// <summary>Number of attendees currently on the roster.</summary>
+    public int SignedUpCount { get; set; }
+    /// <summary>True when the session has linked training content (Capacity badge distinction).</summary>
+    public bool HasLinkedTraining { get; set; }
+    /// <summary>
+    /// Capacity enforcement shortcut for the page: derived from
+    /// <c>MaxAttendees &amp;&amp; SignedUpCount &gt;= MaxAttendees</c>.
+    /// Surfaced as a separate property so the page renders a "Full"
+    /// badge without re-deriving the rule.
+    /// </summary>
+    public bool IsFull { get; set; }
+}
+
+/// <summary>
 /// Round-FR-2: in-person scheduled training sessions with manual-completion
 /// audit (see <c>PLAN.md</c> Round-FR-2). The service is the security
 /// boundary for every write — pages and Razor handlers stay thin and the
@@ -297,5 +328,39 @@ public interface ITrainingSessionService
         string personUserId,
         bool attended,
         string? notes,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Volunteer discoverability feed: returns the Scheduled sessions
+    /// across ALL of <paramref name="personUserId"/>'s organizations in
+    /// the half-open window <c>[fromUtc, toUtc)</c> where the volunteer
+    /// is NOT already on the attendee list. Powers the
+    /// "Available in-person training sessions" section on the volunteer
+    /// MySchedule page (volunteers have no other surface to find in-person
+    /// sessions they can sign up for — the only other entry point is
+    /// per-org, gated behind coord/admin discovery).
+    ///
+    /// <para>
+    /// Filters:
+    /// (a) <c>Status == Scheduled</c> (no Completed/Cancelled);
+    /// (b) <c>[fromUtc, toUtc)</c> window — caller-supplied;
+    /// (c) volunteer is in the session's org (<c>OrganizationMembership</c>
+    ///     join); cross-org isolation is a hard requirement;
+    /// (d) volunteer is NOT already on the attendee roster (the
+    ///     "Upcoming training" section on MySchedule already shows the
+    ///     user's signed-up sessions, so excluding avoids duplication).
+    /// </para>
+    ///
+    /// <para>
+    /// Eager-loads TrainingContent (for HasLinkedTraining projection) +
+    /// Attendees (for SignedUpCount). Sorts ascending by StartUtc. Returns
+    /// empty list when the volunteer has no org memberships OR no
+    /// matching sessions — never throws on a valid empty input.
+    /// </para>
+    /// </summary>
+    Task<List<AvailableTrainingSessionView>> ListAvailableForUserAsync(
+        string personUserId,
+        DateTime fromUtc,
+        DateTime toUtc,
         CancellationToken ct = default);
 }

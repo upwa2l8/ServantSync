@@ -4,6 +4,24 @@
 
 <PageTitle>Edit training session</PageTitle>
 
+@* Bootstrap breadcrumb (matches the Sessions/Detail pattern with
+   an extra "Edit" tier because Edit is a meaningful step beyond
+   Detail). Renders unconditionally on the page so a user on the
+   permission-denied or terminal-state branch can still navigate
+   back via the breadcrumb rather than browser-back. _orgName
+   is fetched at the top of OnInitializedAsync so it's populated
+   even when _session is null (the eventual deletion race). *@
+<nav aria-label="breadcrumb" class="mb-2">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="">Home</a></li>
+        <li class="breadcrumb-item"><a href="Organizations">Organizations</a></li>
+        <li class="breadcrumb-item"><a href="@($"Organizations/{OrgId}")">@_orgName</a></li>
+        <li class="breadcrumb-item"><a href="@($"Organizations/{OrgId}/Training/Sessions")">In-person training sessions</a></li>
+        <li class="breadcrumb-item"><a href="@($"Organizations/{OrgId}/Training/Sessions/{Id}")">@(_session?.Title ?? $"Session #{Id}")</a></li>
+        <li class="breadcrumb-item active" aria-current="page">Edit</li>
+    </ol>
+</nav>
+
 <h1>Edit training session</h1>
 <StatusMessage Message="@_message" IsError="@_isError" />
 
@@ -102,6 +120,11 @@
     [Parameter] public int OrgId { get; set; }
     [Parameter] public int Id { get; set; }
     [SupplyParameterFromForm] private SessionModel _model { get; set; } = new();
+    // Org-name cache for the breadcrumb. Fetched at the top of
+    // OnInitializedAsync so the breadcrumb renders for the
+    // permission-denied / terminal-state branches even when
+    // _session is null.
+    private string _orgName = "";
     private string? _message;
     private bool _isError;
     private bool _canSubmit;
@@ -117,6 +140,17 @@
     {
         var state = await Auth.GetAuthenticationStateAsync();
         _userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
+        // Fetch the org name FIRST so the breadcrumb shows a real
+        // label even on the auth/permission-denied/terminal-state
+        // branches below. Same fallback ("Org #{OrgId}") as the
+        // Sessions/Detail + Sessions/New breadcrumbs.
+        await using (var db = await DbFactory.CreateDbContextAsync())
+        {
+            _orgName = await db.Organizations
+                .Where(o => o.Id == OrgId)
+                .Select(o => o.Name)
+                .FirstOrDefaultAsync() ?? $"Org #{OrgId}";
+        }
         if (string.IsNullOrEmpty(_userId))
         {
             _isError = true;

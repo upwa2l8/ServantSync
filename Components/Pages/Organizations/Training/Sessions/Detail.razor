@@ -8,6 +8,31 @@
 {
     <p><em>Loading…</em></p>
 }
+else
+{
+    @* Bootstrap breadcrumb. 5-tier scope drill-in: Home >
+       Organizations > (this org) > In-person training sessions >
+       (this session title). The active item carries the session
+       title as its label so a coord deep-linking from a CSV or
+       Slack message lands on a page whose breadcrumb shows them
+       exactly where they are in the org tree. The breadcrumb
+       uses the page-state _orgName rather than _session's
+       Organization nav so it renders even when _session is null
+       (the Not Found path). *@
+    <nav aria-label="breadcrumb" class="mb-2">
+        <ol class="breadcrumb mb-0">
+            <li class="breadcrumb-item"><a href="">Home</a></li>
+            <li class="breadcrumb-item"><a href="Organizations">Organizations</a></li>
+            <li class="breadcrumb-item"><a href="@($"Organizations/{OrgId}")">@_orgName</a></li>
+            <li class="breadcrumb-item"><a href="@($"Organizations/{OrgId}/Training/Sessions")">In-person training sessions</a></li>
+            <li class="breadcrumb-item active" aria-current="page">@(_session?.Title ?? $"Session #{Id}")</li>
+        </ol>
+    </nav>
+}
+@if (_loading)
+{
+    <p><em>Loading…</em></p>
+}
 else if (_session is null)
 {
     <div class="alert alert-warning mt-3">
@@ -314,6 +339,13 @@ else
     [Parameter] public int OrgId { get; set; }
     [Parameter] public int Id { get; set; }
     private TrainingSession? _session;
+    // Org-name cache for the breadcrumb. The breadcrumb renders
+    // before _session is loaded (the loading + NotFound branches
+    // both need it), so we fetch it first in OnInitializedAsync
+    // independent of the session fetch. Fallback to "Org #{OrgId}"
+    // when the org is missing so the breadcrumb still renders an
+    // informative label rather than going blank.
+    private string _orgName = "";
     private bool _loading = true;
     private bool _canManage;
     private bool _isSignedUp;
@@ -372,6 +404,17 @@ else
     {
         var state = await Auth.GetAuthenticationStateAsync();
         _userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
+        // Fetch the org name FIRST so the breadcrumb always has a
+        // sensible label regardless of auth outcome. Independent of
+        // _canManage and _session — the loading + permission-denied
+        // + not-found branches all need the org-name for navigation.
+        await using (var db = await DbFactory.CreateDbContextAsync())
+        {
+            _orgName = await db.Organizations
+                .Where(o => o.Id == OrgId)
+                .Select(o => o.Name)
+                .FirstOrDefaultAsync() ?? $"Org #{OrgId}";
+        }
         if (string.IsNullOrEmpty(_userId))
         {
             _loading = false;

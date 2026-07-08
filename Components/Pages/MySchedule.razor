@@ -164,6 +164,91 @@ else
         }
     }
 
+    @* Round-discoverability: "Available in-person training sessions".
+       Volunteer self-service discoverability for upcoming sessions
+       they can sign up for, scoped to their orgs. Built on top of
+       ITrainingSessionService.ListAvailableForUserAsync which
+       pre-filters Scheduled/in-window/cross-org-isolated/not-already-
+       signed-up. Sign-up routes through the existing SignUpAsync
+       service (the same path /Sessions/{Id} uses); success reloads
+       the section via Reload(). The "Full" badge mirrors Sessions/Index.
+       Sits outside the list-vs-calendar @if/else so a volunteer can
+       find sign-up opportunities regardless of their current view
+       ("I'm skimming the calendar and want to sign up for something"
+       + "I'm reading the list and want to sign up for something" both
+       work). Positioned between "Upcoming training" (commitments)
+       and "Outstanding training" (online requirements) on the list
+       side; on the calendar view it appears below the calendar
+       widget as the "discoverability follow-up" surface. *@
+    <h4 class="mt-4">Available in-person training sessions</h4>
+    @if (!_availableSessions.Any())
+    {
+        <p class="text-muted small mb-0">
+            Nothing scheduled across your organizations right now. A coordinator might add one to <a href="Organizations">the Organizations page</a> in their <em>Org training</em> tab.
+        </p>
+    }
+    else
+    {
+        <div class="row g-3">
+            @foreach (var s in _availableSessions)
+            {
+                <div class="col-md-6">
+                    <div class="card h-100">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-start mb-1">
+                                <h5 class="card-title mb-0">@s.Title</h5>
+                                @if (s.IsFull)
+                                {
+                                    <span class="badge bg-warning text-dark">Full</span>
+                                }
+                                else if (s.HasLinkedTraining)
+                                {
+                                    <span class="badge bg-info text-dark">Counts toward training</span>
+                                }
+                            </div>
+                            <div class="text-muted small mb-2">
+                                <a href="Organizations/@s.OrganizationId">@s.OrganizationName</a>
+                                @if (!string.IsNullOrEmpty(s.Location))
+                                {
+                                    <span> &middot; @s.Location</span>
+                                }
+                            </div>
+                            <p class="mb-2">
+                                <strong><LocalTime Utc="@s.StartUtc" Format="@("ddd, MMM d \u2022 h:mm tt")" /></strong>
+                                &ndash; <LocalTime Utc="@s.EndUtc" Format="h:mm tt" />
+                            </p>
+                            @if (s.MaxAttendees.HasValue)
+                            {
+                                <div class="mb-2">
+                                    <span class="badge bg-secondary">@s.SignedUpCount / @s.MaxAttendees signed up</span>
+                                </div>
+                            }
+                            @if (!string.IsNullOrEmpty(s.Description))
+                            {
+                                <p class="text-muted small mb-2">@s.Description</p>
+                            }
+                        </div>
+                        <div class="card-footer bg-transparent border-0 pt-0">
+                            <button class="btn btn-primary w-100"
+                                    disabled="@(_busySignUpSessionId == s.SessionId || s.IsFull)"
+                                    @onclick="() => SignUpAvailable(s)">
+                                @(_busySignUpSessionId == s.SessionId
+                                    ? "Signing up…"
+                                    : (s.IsFull ? "Full" : "Sign up"))
+                            </button>
+                            @if (_availableMessage is not null && _availableMessage.SessionId == s.SessionId)
+                            {
+                                <div class="alert @(_availableMessage.Succeeded ? "alert-success" : "alert-danger") py-2 small mt-2 mb-0">
+                                    @_availableMessage.Message
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+
     <h4 class="mt-4">Outstanding training</h4>
     @if (!_outstanding.Any())
     {
@@ -212,6 +297,21 @@ else
     // surfaced alongside (not merged with) regular assignments so
     // the table layouts can stay typed to their respective DTOs.
     private List<TrainingSession> _myTrainingSessions = new();
+    // Round-discoverability: TrainingSessions the volunteer can sign
+    // up for across all of their orgs in the window. Populated by
+    // ITrainingSessionService.ListAvailableForUserAsync. Surfaces a
+    // new card section between "Upcoming training" (their signups)
+    // and "Outstanding training" (online requirements).
+    private List<AvailableTrainingSessionView> _availableSessions = new();
+    // Sign-up button busy-state. Tracks the in-progress session id
+    // so the right card shows "Signing up…" while the others stay
+    // interactive (parallel sign-up attempts across cards).
+    private int _busySignUpSessionId;
+    // Per-signup inline alert. Cleared at the start of each SignUp;
+    // displayed only on the card whose SessionId matches. Pages
+    // Pre-empt server-side errors (NotFound, AlreadySignedUp race,
+    // SessionFull race) without a try/catch on the markup side.
+    private SignupFeedback? _availableMessage;
     private List<OutstandingRow> _outstanding = new();
 
     private string SubscribeUrl
@@ -317,10 +417,17 @@ else
             {
                 _myTrainingSessions = await TrainingSessionService.ListMyScheduledSessionsAsync(
                     _userId!, _fromUtc, _toUtc);
+                // Round-discoverability: same window, same org scope,
+                // but the INVERSE attendee rule — sessions where the
+                // user is NOT yet on the roster. The service does the
+                // join + filter; the page just renders the cards.
+                _availableSessions = await TrainingSessionService.ListAvailableForUserAsync(
+                    _userId!, _fromUtc, _toUtc);
             }
             else
             {
                 _myTrainingSessions = new();
+                _availableSessions = new();
             }
 
             // Build the calendar view by unioning assignment events
@@ -392,5 +499,58 @@ else
         public int TrainingContentId { get; set; }
         public string Title { get; set; } = "";
         public string Scope { get; set; } = "";
+    }
+
+    // Per-card inline feedback for the "Available" sign-up flow.
+    // Distinct from Open.razor's SignupResult record so the two
+    // sign-up surfaces can diverge a little without cross-coupling.
+    // SessionId matches the card so multiple parallel sign-up
+    // attempts only show the message on the right one.
+    private record SignupFeedback(int SessionId, bool Succeeded, string Message);
+
+    // Volunteer sign-up handler for an "Available" card. Routes
+    // through the same ITrainingSessionService.SignUpAsync path that
+    // the /Sessions/{Id} page uses, plus a brief inline feedback
+    // message keyed by SessionId. Race-safe against rapid clicks:
+    // the button is disabled once a sign-up is in flight.
+    private async Task SignUpAvailable(AvailableTrainingSessionView s)
+    {
+        if (string.IsNullOrEmpty(_userId)) return;
+        _busySignUpSessionId = s.SessionId;
+        _availableMessage = null;
+        try
+        {
+            var result = await TrainingSessionService.SignUpAsync(
+                s.SessionId, _userId!, _userId!);
+            switch (result)
+            {
+                case TrainingSessionSignupResult.SignedUp:
+                    _availableMessage = new SignupFeedback(s.SessionId, true,
+                        $"You're signed up for {s.Title}.");
+                    await Reload();
+                    break;
+                case TrainingSessionSignupResult.AlreadySignedUp:
+                    _availableMessage = new SignupFeedback(s.SessionId, false,
+                        "You're already signed up for this session.");
+                    await Reload();
+                    break;
+                case TrainingSessionSignupResult.SessionFull:
+                    _availableMessage = new SignupFeedback(s.SessionId, false,
+                        "This session just filled up.");
+                    break;
+                case TrainingSessionSignupResult.SessionCancelled:
+                    _availableMessage = new SignupFeedback(s.SessionId, false,
+                        "This session was just cancelled.");
+                    break;
+                case TrainingSessionSignupResult.NotFound:
+                    _availableMessage = new SignupFeedback(s.SessionId, false,
+                        "Sign-ups aren't open to your account for this session.");
+                    break;
+            }
+        }
+        finally
+        {
+            _busySignUpSessionId = 0;
+        }
     }
 }

@@ -13,20 +13,55 @@
             only ever see
             <em>their</em> outstanding requirements + history on the
             <a href="Training">/Training</a> page; this is the org-admin edit surface.
-        </div>
-        @if (_managedOrgNames.Count > 0)
+        </div>@if (_managedOrgNames.Count > 0)
+{
+    <div class="text-muted small mt-1">
+        <strong>Admin of:</strong>
+        @foreach (var name in _managedOrgNames)
         {
-            <div class="text-muted small mt-1">
-                <strong>Admin of:</strong>
-                @foreach (var name in _managedOrgNames)
-                {
-                    <span class="badge bg-secondary me-1">@name</span>
-                }
-            </div>
+            <span class="badge bg-secondary me-1">@name</span>
         }
     </div>
+}
+</div>
     <a class="btn btn-primary" href="Training/New">+ New training</a>
 </div>
+
+@* Round-FR-2 navbar surfacing addition: the in-person training
+   sessions surface exists at /Organizations/{OrgId}/Training/Sessions,
+   hidden one level deep inside each Organization's "Org training"
+   tab. Round-FR-2 ships the 4 sessions pages but they had no
+   discoverable entry from /Training/Manage. This card gives the
+   coordinator a one-click drill-in to the per-org sessions list
+   for every org they manage. Per-org links (not a single
+   umbrella list) because each session belongs to exactly one org
+   and the cross-org aggregate view has no meaningful lifecycle. *@
+@if (_managedOrgsFull.Count > 0 && _denyReason is null && _contents is not null)
+{
+    <div class="card mb-4 shadow-sm">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="mb-0"><span class="bi bi-calendar2-event me-1" aria-hidden="true"></span>In-person training sessions</h5>
+            <span class="badge text-bg-light">@_managedOrgsFull.Count org@(_managedOrgsFull.Count == 1 ? "" : "s")</span>
+        </div>
+        <div class="card-body">
+            <p class="text-muted small mb-3">
+                Schedule in-person training events for each organization you administer. Volunteers can sign up via the per-org sessions page or from their My Schedule page (after Frank-FR-2 came online earlier this was the only path that worked for managers, but it still lives here for full CRUD over each session).
+            </p>
+            <div class="row g-2">
+                @foreach (var orgRow in _managedOrgsFull)
+                {
+                    <div class="col-md-4">
+                        <a class="btn btn-outline-primary w-100"
+                           href="@($"Organizations/{orgRow.Id}/Training/Sessions")"
+                           title="Browse the upcoming + past in-person training sessions for @orgRow.Name.">
+                            @orgRow.Name &mdash; sessions &rarr;
+                        </a>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+}
 
 @if (_denyReason is not null)
 {
@@ -106,6 +141,13 @@ else
     // markup is cheap; mirrors exactly the union-of-managed-orgs the
     // catalog itself is sourced from.
     private List<string> _managedOrgNames = new();
+    // Round-FR-2 discoverability: per-org (id + name) tuples to feed the
+    // "In-person training sessions" card's per-org links. Distinct from
+    // _managedOrgNames above — that one is a string list for the header
+    // badges (no link target needed) while this one is a full shape for
+    // the per-org link generation. Both share the same source list
+    // (TrainingService.ListManageableTrainingAsync's Organization nav).
+    private List<ManagedOrg> _managedOrgsFull = new();
     private bool _authorized;
     private string? _denyReason;
 
@@ -142,6 +184,17 @@ else
             .Select(c => c.Organization?.Name ?? "(unknown)")
             .Distinct()
             .OrderBy(n => n)
+            .ToList();
+        // Distinct (Id, Name) tuples so the per-org sessions card drives
+        // its buttons off the same source list. The .Distinct() comes
+        // first because ListManageableTrainingAsync returns one row per
+        // catalog and an admin managing 3 TrainingContents in the same
+        // org would otherwise triple-count.
+        _managedOrgsFull = raw
+            .Where(c => c.Organization is not null)
+            .GroupBy(c => c.OrganizationId)
+            .Select(g => new ManagedOrg { Id = g.Key, Name = g.First().Organization!.Name })
+            .OrderBy(o => o.Name)
             .ToList();
 
         // Fold the per-row requirements join into a thin shape to keep
@@ -199,5 +252,11 @@ else
         public string OrganizationName { get; set; } = "";
         public int? ServiceSlotId { get; set; }
         public string SlotPath { get; set; } = "";
+    }
+
+    private class ManagedOrg
+    {
+        public int Id { get; set; }
+        public string Name { get; set; } = "";
     }
 }

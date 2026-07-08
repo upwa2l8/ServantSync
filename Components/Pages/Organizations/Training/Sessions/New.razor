@@ -4,6 +4,22 @@
 
 <PageTitle>New training session</PageTitle>
 
+@* Bootstrap breadcrumb (matches the Sessions/Index + Sessions/Detail
+   pattern but adds a "New session" tier for the create affordance.
+   Renders unconditionally on the page so a user who failed the
+   permission gate can still navigate back via the breadcrumb rather
+   than browser-back. _orgName is fetched at the top of
+   OnInitializedAsync so it's populated even on early returns. *@
+<nav aria-label="breadcrumb" class="mb-2">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="">Home</a></li>
+        <li class="breadcrumb-item"><a href="Organizations">Organizations</a></li>
+        <li class="breadcrumb-item"><a href="@($"Organizations/{OrgId}")">@_orgName</a></li>
+        <li class="breadcrumb-item"><a href="@($"Organizations/{OrgId}/Training/Sessions")">In-person training sessions</a></li>
+        <li class="breadcrumb-item active" aria-current="page">New session</li>
+    </ol>
+</nav>
+
 <h1>New training session</h1>
 <StatusMessage Message="@_message" IsError="@_isError" />
 
@@ -93,6 +109,11 @@
 @code {
     [Parameter] public int OrgId { get; set; }
     [SupplyParameterFromForm] private SessionModel _model { get; set; } = new();
+    // Org-name cache for the breadcrumb. Fetched at the top of
+    // OnInitializedAsync independent of auth outcome so the breadcrumb
+    // renders a real label even when the user is redirected or denied.
+    // The same fallback as Sessions/Detail.razor (Org #{OrgId}).
+    private string _orgName = "";
     private string? _message;
     private bool _isError;
     private bool _canSubmit;
@@ -104,6 +125,18 @@
     {
         var state = await Auth.GetAuthenticationStateAsync();
         _userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
+        // Fetch the org name FIRST so the breadcrumb shows a real
+        // label even for the auth-denied branches below. The fetch
+        // is one indexed lookup on Organizations.Id so it's cheap
+        // and runs before the auth/permission gates. Same fallback
+        // ("Org #{OrgId}") as Sessions/Detail.razor's breadcrumb.
+        await using (var db = await DbFactory.CreateDbContextAsync())
+        {
+            _orgName = await db.Organizations
+                .Where(o => o.Id == OrgId)
+                .Select(o => o.Name)
+                .FirstOrDefaultAsync() ?? $"Org #{OrgId}";
+        }
         if (string.IsNullOrEmpty(_userId))
         {
             _isError = true;

@@ -225,6 +225,82 @@ public class TrainingSessionService : ITrainingSessionService
             .ToListAsync(ct);
     }
 
+    public async Task<List<AvailableTrainingSessionView>> ListAvailableForUserAsync(
+        string personUserId,
+        DateTime fromUtc,
+        DateTime toUtc,
+        CancellationToken ct = default)
+    {
+        // Round discoverability fix: volunteers had no surface to find
+        // in-person training sessions other than whatever the coord
+        // linked from a per-org page. This method powers the
+        // MySchedule.razor "Available training sessions" section so a
+        // volunteer can browse upcoming sessions across EVERY org they
+        // belong to and sign up in one click. Empty userId short-circuits
+        // (defense in depth — matches ListMyScheduledSessionsAsync).
+        if (string.IsNullOrEmpty(personUserId)) return new List<AvailableTrainingSessionView>();
+
+        await using var db = await _factory.CreateDbContextAsync(ct);
+
+        // Org-scope pre-fetch: a volunteer only sees sessions from
+        // orgs they have an OrganizationMembership in. This is the
+        // cross-org isolation guard — a session belongs to exactly one
+        // org, and a non-member cannot see it on this discoverability
+        // list (the per-org detail page IsSignedUp check on
+        // SignUpAsync re-validates membership server-side too).
+        var orgIds = await db.OrganizationMemberships
+            .Where(m => m.PersonUserId == personUserId)
+            .Select(m => m.OrganizationId)
+            .ToListAsync(ct);
+        if (orgIds.Count == 0) return new List<AvailableTrainingSessionView>();
+
+        // Sub-query: the user's existing attendee row ids. Sessions
+        // the user is already on fall out of the search via the
+        // !Contains join; the per-session "Upcoming training" section
+        // on MySchedule already shows those.
+        var myAttendeeSessionIds = await db.TrainingSessionAttendees
+            .Where(a => a.PersonUserId == personUserId)
+            .Select(a => a.TrainingSessionId)
+            .ToListAsync(ct);
+
+        // Eager-load TrainingContent (HasLinkedTraining projection) +
+        // Attendees (SignedUpCount + IsFull derivation). The Organization
+        // nav is loaded so the page can render the owning org name
+        // inline without a per-row round-trip.
+        var sessions = await db.TrainingSessions
+            .Include(s => s.TrainingContent)
+            .Include(s => s.Attendees)
+            .Include(s => s.Organization)
+            .AsNoTracking()
+            .Where(s => orgIds.Contains(s.OrganizationId)
+                && s.Status == TrainingSessionStatus.Scheduled
+                && s.StartUtc >= fromUtc
+                && s.StartUtc < toUtc
+                && !myAttendeeSessionIds.Contains(s.Id))
+            .OrderBy(s => s.StartUtc)
+            .ToListAsync(ct);
+
+        return sessions.Select(s => new AvailableTrainingSessionView
+        {
+            SessionId = s.Id,
+            OrganizationId = s.OrganizationId,
+            OrganizationName = s.Organization?.Name ?? "",
+            Title = s.Title,
+            Description = s.Description,
+            Location = s.Location,
+            StartUtc = s.StartUtc,
+            EndUtc = s.EndUtc,
+            MaxAttendees = s.MaxAttendees,
+            SignedUpCount = s.Attendees.Count,
+            HasLinkedTraining = s.TrainingContentId.HasValue,
+            // Capacity enforcement (decision Q1) carried over from
+            // SignUpAsync: refuse new sign-ups when SignedUpCount >=
+            // MaxAttendees. Derived here as a bool so the page can
+            // disable the Sign up button without re-running the math.
+            IsFull = s.MaxAttendees.HasValue && s.Attendees.Count >= s.MaxAttendees.Value,
+        }).ToList();
+    }
+
     public async Task<TrainingSession?> GetAsync(
         int sessionId,
         CancellationToken ct = default)

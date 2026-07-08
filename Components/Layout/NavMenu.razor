@@ -62,6 +62,20 @@
                             <span class="bi bi-speedometer2-nav-menu" aria-hidden="true"></span> Dashboard
                         </NavLink>
                     </div>
+                    @* In-person training (manager discoverability). Links to
+                       /Training/Manage where the per-org sessions list lives;
+                       non-managers keep the existing volunteer-facing
+                       "Training" link below for /Training (their own
+                       My Training page). The two-tier "Training / In-person
+                       training" pattern matches how "Organizations" sits
+                       next to "Dashboard" + "Vol" already — both manager
+                       and volunteer surfaces reachable from one nav, the
+                       managed one gated by _isManager. *@
+                    <div class="nav-item px-3">
+                        <NavLink class="nav-link" href="Training/Manage">
+                            <span class="bi bi-mortarboard-nav-menu" aria-hidden="true"></span> In-person training
+                        </NavLink>
+                    </div>
                 }
                 @* Always-visible links for any signed-in user, regardless of
                    org role. Training / My schedule / Browse open slots are
