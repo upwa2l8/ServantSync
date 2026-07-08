@@ -83,7 +83,13 @@ public class DatabaseSeeder
 
         _log.LogInformation("DatabaseSeeder: empty database detected, seeding sample data.");
 
-        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        // SqlServerRetryingExecutionStrategy does not support user-initiated
+        // transactions. Wrap the entire seed in the execution strategy so
+        // retries can replay the transaction block atomically.
+        var strategy = db.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
+        {
+            await using var tx = await db.Database.BeginTransactionAsync(ct);
 
         // ---- Persons (one row per IdentityUser, PK = UserId) ----
         var persons = new[]
@@ -413,8 +419,9 @@ public class DatabaseSeeder
             "Setup", "Pre-service checklist for sound tech volunteers.",
             coordinatorUser.Id, "text/plain", db);
 
-        await db.SaveChangesAsync(ct);
-        await tx.CommitAsync(ct);
+            await db.SaveChangesAsync(ct);
+            await tx.CommitAsync(ct);
+        });
 
         _log.LogInformation(
             "DatabaseSeeder: complete. 13 users seeded (all Passw0rd!), 1 org, 5 ministries (3 sub-ministries of the soccer league), 3 service slots (church) + 7 service slots (soccer), 1 training content (Safe Spaces) + 1 training content (Concussion) + 3 requirements, 4 training completions, 6 church assignments (1 intentional overlap), 3 arenas, 4 teams, 16 players, 6 games (1 played, 1 intentional arena double-book on next Saturday at Field 1), 2 sample shared documents on the Sound Tech slot.");
