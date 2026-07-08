@@ -101,7 +101,7 @@ else
                 }
                 else
                 {
-                    <video class="w-100" controls preload="metadata" src="@_content.FilePathOrUrl" @ref="_videoEl"></video>
+                    <video class="w-100" controls preload="metadata" src="@_content.FilePathOrUrl" @ref="_videoEl" id="native-video"></video>
                 }
                 break;
 
@@ -298,8 +298,15 @@ else
                 && !_content.FilePathOrUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase))
             {
                 // Local PDF — render with PDF.js.
+                // Round-AU: pass element id as string, not ElementReference.
+                // On ACA/.NET 9 InteractiveServer, ElementReference arrives as a
+                // plain serialized object — not a real DOM node — so the JS
+                // mountPdf receives a non-DOM target and canvasRoot.appendChild
+                // throws "is not a function". Passing the id string lets the JS
+                // side resolve via document.getElementById, which works reliably
+                // across all hosting models. See STATUS.md round-AU.
                 await module.InvokeVoidAsync("ServantSyncTraining.mountPdf",
-                    _pdfHostEl, _content.FilePathOrUrl, _dotNetRef, Id);
+                    "pdf-canvas-host", _content.FilePathOrUrl, _dotNetRef, Id);
             }
             else if (_content.Format == TrainingFormat.Video)
             {
@@ -310,7 +317,7 @@ else
                     // iframe ref. Without the @ref on the iframe element
                     // this silently no-ops; that's the round-M bug.
                     await module.InvokeVoidAsync("ServantSyncTraining.mountYouTube",
-                        _iframeEl, _dotNetRef, Id);
+                        "video-iframe", _dotNetRef, Id);
                 }
                 else
                 {
@@ -320,7 +327,7 @@ else
                     // the element ref; null here short-circuits all
                     // engagement tracking.
                     await module.InvokeVoidAsync("ServantSyncTraining.mountVideo",
-                        _videoEl, _dotNetRef, Id);
+                        "native-video", _dotNetRef, Id);
                 }
             }
             else

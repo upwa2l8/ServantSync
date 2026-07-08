@@ -110,7 +110,13 @@ class EngagementSink {
 // PDF.js render loop. Renders one page at a time to a target div;
 // fires onPageViewed(p) after the canvas paint completes.
 async function mountPdf(target, url, dotnetRef, contentId) {
-    const canvasRoot = target;     // <div id="pdf-canvas-host">
+    // Round-AU: Accept either a DOM element (legacy Blazor ElementReference)
+    // or a string element id (current, reliable across all hosting models).
+    // On ACA/.NET 9 InteractiveServer, ElementReferences arrive as plain
+    // serialized objects — not real DOM nodes — so canvasRoot.appendChild
+    // throws "is not a function". Passing the id as a string and resolving
+    // via document.getElementById is the portable fix. See STATUS.md round-AU.
+    const canvasRoot = typeof target === 'string' ? document.getElementById(target) : target;
 
     // Shared error-paint helper, used by BOTH the outer catch
     // (initial mount failures) AND the click-handler catch
@@ -188,7 +194,7 @@ async function mountPdf(target, url, dotnetRef, contentId) {
         // so a page-2+ failure (corrupt page, memory pressure)
         // paints the inline error instead of unhandled-rejecting
         // silently.
-        const navRoot = target.parentElement ?? target;
+        const navRoot = canvasRoot.parentElement ?? canvasRoot;
         navRoot.addEventListener('click', async (ev) => {
             const t = ev.target.closest('button[data-pdf-action]');
             if (!t) return;
@@ -239,29 +245,31 @@ async function mountPdf(target, url, dotnetRef, contentId) {
 }
 
 function mountVideo(videoEl, dotnetRef, contentId) {
+    // Round-AU: accept string id or DOM element (see mountPdf for rationale).
+    const el = typeof videoEl === 'string' ? document.getElementById(videoEl) : videoEl;
     const sink = new EngagementSink(dotnetRef, contentId);
     function onLoaded() {
-        if (!isNaN(videoEl.duration) && isFinite(videoEl.duration)) {
-            sink.setDuration(videoEl.duration);
+        if (!isNaN(el.duration) && isFinite(el.duration)) {
+            sink.setDuration(el.duration);
         }
     }
     function onTimeUpdate() {
         if (document.hidden) return;
-        sink.setHighest(videoEl.currentTime);
+        sink.setHighest(el.currentTime);
     }
     function onPause() { sink.sendNow(); }
     function onEnded() {
-        sink.setHighest(videoEl.duration);
+        sink.setHighest(el.duration);
         sink.sendNow();
     }
-    videoEl.addEventListener('loadedmetadata', onLoaded);
-    videoEl.addEventListener('durationchange', onLoaded);
-    videoEl.addEventListener('timeupdate', onTimeUpdate);
-    videoEl.addEventListener('pause', onPause);
-    videoEl.addEventListener('ended', onEnded);
+    el.addEventListener('loadedmetadata', onLoaded);
+    el.addEventListener('durationchange', onLoaded);
+    el.addEventListener('timeupdate', onTimeUpdate);
+    el.addEventListener('pause', onPause);
+    el.addEventListener('ended', onEnded);
     // Final flush on page unload via beforeunload (best-effort).
     window.addEventListener('beforeunload', () => sink.sendNow());
-    videoEl.addEventListener('seeking', () => sink.sendNow());
+    el.addEventListener('seeking', () => sink.sendNow());
 }
 
 // YouTube IFrame Player API: load on demand and poll getCurrentTime
@@ -283,9 +291,11 @@ function ensureYouTube() {
 }
 
 async function mountYouTube(iframeEl, dotnetRef, contentId) {
+    // Round-AU: accept string id or DOM element (see mountPdf for rationale).
+    const el = typeof iframeEl === 'string' ? document.getElementById(iframeEl) : iframeEl;
     const sink = new EngagementSink(dotnetRef, contentId);
     await ensureYouTube();
-    const player = new window.YT.Player(iframeEl, {
+    const player = new window.YT.Player(el, {
         events: {
             'onReady': (ev) => {
                 sink.setDuration(ev.target.getDuration());
