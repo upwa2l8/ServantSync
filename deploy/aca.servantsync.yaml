@@ -55,9 +55,6 @@ properties:
       - name: smtp-password
         # empty value: tells deploy action's PUT to preserve the live smtp-password
         value: ""
-      - name: sql-connection-string
-        # empty value: tells deploy action's PUT to preserve the live secret
-        value: ""
     # Registries: must declare explicitly so the deploy action's
     # full PUT-yaml semantics don't blank the managed-identity config
     # we set up in Round-ACA-1. With this block present, ACA pulls
