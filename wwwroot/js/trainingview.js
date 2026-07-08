@@ -118,6 +118,13 @@ async function mountPdf(target, url, dotnetRef, contentId) {
     // via document.getElementById is the portable fix. See STATUS.md round-AU.
     const canvasRoot = typeof target === 'string' ? document.getElementById(target) : target;
 
+    // Round-AV: if the DOM element doesn't exist yet (ACA container
+    // render timing), bail early with a clear error so the C# catch
+    // block can surface the structural fallback panel + iframe.
+    if (!canvasRoot) {
+        throw new Error(`PDF viewer host element not found in the DOM: ${typeof target === 'string' ? `#${target}` : 'unknown'}. The page may still be rendering.`);
+    }
+
     // Shared error-paint helper, used by BOTH the outer catch
     // (initial mount failures) AND the click-handler catch
     // (page-2+ failures). Declared inside mountPdf so both catches
@@ -134,6 +141,7 @@ async function mountPdf(target, url, dotnetRef, contentId) {
     // against the codebase's alphabetical-letter scheme (AO/AP/AQ/
     // AR/AS/AT).
     function paintErr(err) {
+        if (!canvasRoot) return; // Round-AV: guard against null — element may not be in the DOM yet on ACA/containers.
         const msg = (err && (err.message || (err.reason && err.reason.message)))
             || String(err);
         canvasRoot.innerHTML =
