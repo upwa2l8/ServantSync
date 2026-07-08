@@ -68,11 +68,18 @@
         <div class="row g-2 mb-3">
             <div class="col-md-4">
                 <label class="form-label">Start (your local time)</label>
-                <input type="datetime-local" class="form-control" @bind="_model.StartLocal" @bind:format="yyyy-MM-ddTHH:mm" />
+                @* Manual value + onchange avoids Blazor's @bind DateTime conversion
+                   on datetime-local inputs (fails silently in InteractiveServer).
+                   Same string-based pattern as Games/Edit.razor time inputs. *@
+                <input type="datetime-local" class="form-control"
+                       value="@_model.StartLocal"
+                       @onchange="OnStartChanged" />
             </div>
             <div class="col-md-4">
                 <label class="form-label">End (your local time)</label>
-                <input type="datetime-local" class="form-control" @bind="_model.EndLocal" @bind:format="yyyy-MM-ddTHH:mm" />
+                <input type="datetime-local" class="form-control"
+                       value="@_model.EndLocal"
+                       @onchange="OnEndChanged" />
             </div>
             <div class="col-md-4">
                 <label class="form-label">Max attendees (optional)</label>
@@ -164,6 +171,11 @@
         _authChecked = true;
     }
 
+    private void OnStartChanged(ChangeEventArgs e) =>
+        _model.StartLocal = e.Value?.ToString() ?? "";
+    private void OnEndChanged(ChangeEventArgs e) =>
+        _model.EndLocal = e.Value?.ToString() ?? "";
+
     private async Task Save()
     {
         if (!_canSubmit)
@@ -172,13 +184,24 @@
             _message = "You don't have permission to do that.";
             return;
         }
-        // Convert the local datetime inputs to UTC. The browser-timezone
-        // is best-effort (the input doesn't carry a TZ); the server's
-        // DateTime.ToUniversalTime() assumes the LOCAL frame the user
-        // typed in matches the user's actual frame, which is the
-        // same heuristic every other Create form on this app uses.
-        var startUtc = _model.StartLocal.ToUniversalTime();
-        var endUtc = _model.EndLocal.ToUniversalTime();
+        // Parse the datetime-local strings (yyyy-MM-ddTHH:mm) to DateTime
+        // with Kind=Local, then convert to UTC. Same heuristic every other
+        // create form on this app uses: the user typed wall-clock time that
+        // matches the server's local timezone.
+        if (!DateTime.TryParse(_model.StartLocal, out var startLocal))
+        {
+            _isError = true;
+            _message = "Start date/time is invalid.";
+            return;
+        }
+        if (!DateTime.TryParse(_model.EndLocal, out var endLocal))
+        {
+            _isError = true;
+            _message = "End date/time is invalid.";
+            return;
+        }
+        var startUtc = startLocal.ToUniversalTime();
+        var endUtc = endLocal.ToUniversalTime();
         int? contentId = string.IsNullOrEmpty(_model.TrainingContentId) ? null : int.Parse(_model.TrainingContentId);
 
         var result = await SessionService.CreateAsync(
@@ -243,8 +266,12 @@
         [Required, StringLength(200)] public string Title { get; set; } = "";
         [StringLength(2000)] public string? Description { get; set; }
         [Required, StringLength(200)] public string Location { get; set; } = "";
-        public DateTime StartLocal { get; set; } = DateTime.Now.AddDays(7);
-        public DateTime EndLocal { get; set; } = DateTime.Now.AddDays(7).AddHours(1);
+        // String properties for datetime-local inputs — avoids Blazor
+        // InteractiveServer binding issues with DateTime + @bind:format
+        // (the format string only affects display, not parsing; browser
+        // values fail BindConverter.TryConvertTo<DateTime> silently).
+        public string StartLocal { get; set; } = DateTime.Now.AddDays(7).ToString("yyyy-MM-ddTHH:mm");
+        public string EndLocal { get; set; } = DateTime.Now.AddDays(7).AddHours(1).ToString("yyyy-MM-ddTHH:mm");
         public int? MaxAttendees { get; set; }
         public string? TrainingContentId { get; set; }
     }
