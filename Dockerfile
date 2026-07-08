@@ -82,7 +82,8 @@ COPY --from=build /app/publish .
 # `Path.Combine(WebRootPath, "uploads", "training")` path unchanged.
 RUN mkdir -p /app/wwwroot/uploads \
     && rm -rf /app/wwwroot/uploads/training \
-    && ln -s /data/uploads /app/wwwroot/uploads/training
+    && ln -s /data/uploads /app/wwwroot/uploads/training \
+    && chown -R $APP_UID:$APP_UID /app/wwwroot/uploads
 
 # The .NET 9 base image's default USER is $APP_UID = 1654 (non-root
 # `app` user), which the ACA runtime expects for non-root Linux
