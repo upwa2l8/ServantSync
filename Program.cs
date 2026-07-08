@@ -148,6 +148,15 @@ builder.Services.AddScoped<IPdfPageCountHealer, PdfPageCountHealer>();
 builder.Services.AddScoped<UserTimeZoneProvider>();
 builder.Services.AddScoped<DatabaseSeeder>();
 
+// ---- Background / hosted services ----
+// SqliteBackupService: periodic VACUUM INTO snapshot, gated on
+// Backup__Enabled=true. Production enables via appsettings.Production.json
+// or env var (DEV defaults to disabled). Defaults land under
+// <contentRoot>/backups so the working dir is NEVER exposed as a public
+// static-file path. Service-level WHY-comment in Services/SqliteBackupService.cs.
+builder.Services.Configure<BackupOptions>(builder.Configuration.GetSection("Backup"));
+builder.Services.AddHostedService<SqliteBackupService>();
+
 var app = builder.Build();
 
 if (!app.Environment.IsDevelopment())
@@ -159,7 +168,30 @@ if (!app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 
 // Serve uploaded training files from wwwroot/uploads/training.
+// Round-ACA-1.4 symptom fix: the Dockerfile bakes a symlink
+//   /app/wwwroot/uploads/training -> /data/uploads
+// into the image at build time so the existing hardcoded
+//   Path.Combine(WebRootPath, "uploads", "training")
+// path in Program.cs stays unchanged when we mount a persistent Azure
+// Files share at /data. The collision: at container boot the /data
+// volume is mounted fresh and may not yet contain /data/uploads
+// (first deploy / wiped share). The symlink then resolves to nothing
+// and .NET's Directory.CreateDirectory throws
+//   "The file '/app/wwwroot/uploads/training' already exists."
+// (Linux: lstat on a dangling symlink returns a regular-file-like
+// node, so mkdir(EEXIST) fires pre-target-check). The fix is to
+// read DirectoryInfo.LinkTarget first; if uploadsRoot is a symlink,
+// materialize the target directory before the original
+// CreateDirectory call. Once /data/uploads exists on the volume,
+// the symlink resolves and the second CreateDirectory is a no-op.
+// Idempotent on the next start (target already exists -> DirectoryInfo
+// resolves the link fine, LinkTarget still reports the target, and
+// CreateDirectory(target) is idempotent too).
 var uploadsRoot = Path.Combine(app.Environment.WebRootPath, "uploads", "training");
+if (new DirectoryInfo(uploadsRoot).LinkTarget is string uploadsSymlinkTarget)
+{
+    Directory.CreateDirectory(uploadsSymlinkTarget);
+}
 Directory.CreateDirectory(uploadsRoot);
 app.UseStaticFiles(new StaticFileOptions
 {
