@@ -116,7 +116,13 @@ public class OrganizationService : IOrganizationService
         // Organization doesn't get committed in an orphan state with no
         // Admin. EF wraps each individual SaveChanges in its own implicit
         // transaction by default; we need an explicit one to bind them.
-        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        // SqlServerRetryingExecutionStrategy requires wrapping the
+        // transaction in the execution strategy.
+        var strategy = db.Database.CreateExecutionStrategy();
+        int orgId = 0;
+        await strategy.ExecuteAsync(async () =>
+        {
+            await using var tx = await db.Database.BeginTransactionAsync(ct);
 
         // Round-AV: coerce empty/whitespace to NULL on the new row so the
         // user-intent ("no override, use browser default") survives the
@@ -157,7 +163,9 @@ public class OrganizationService : IOrganizationService
         await db.SaveChangesAsync(ct);
 
         await tx.CommitAsync(ct);
-        return org.Id;
+            orgId = org.Id;
+        });
+        return orgId;
     }
 
     public async Task<string?> GenerateRegistrationTokenAsync(

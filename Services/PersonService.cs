@@ -476,7 +476,12 @@ public class PersonService : IPersonService
         // sub-statement. FormattableString interpolation also
         // parameterizes every user input so the SQL isn't injection-
         // vulnerable.
-        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        // SqlServerRetryingExecutionStrategy does not support user-initiated
+        // transactions. Wrap the re-parent batch in the execution strategy.
+        var strategy = db.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
+        {
+            await using var tx = await db.Database.BeginTransactionAsync(ct);
         var reparentedAt = DateTime.UtcNow;
         var notesValue   = $"Claimed by {newIdentityUserId} on {reparentedAt.ToString("o")}";
         // Round-FR-3.2 fix (replaces the futile PRAGMA=OFF/ON bracketing
@@ -584,6 +589,7 @@ ALTER TABLE PersonClaimTokens WITH CHECK CHECK CONSTRAINT ALL;", ct);
                 }
             }
         }
+        });
 
         _log.LogInformation(
             "Stub {OldStubUserId} claimed by new IdentityUser {NewIdentityUserId} (email {Email}).",
