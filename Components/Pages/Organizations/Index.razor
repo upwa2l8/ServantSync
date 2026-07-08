@@ -88,6 +88,7 @@ else
 @inject IDbContextFactory<ApplicationDbContext> DbFactory
 @inject AuthenticationStateProvider Auth
 @inject IOrgAuthService OrgAuth
+@inject NavigationManager Nav
 @code {
     private List<OrgRow>? _orgs;
     // The signed-in user's id. Empty string (never null) for safe null-checks.
@@ -144,6 +145,16 @@ else
             .Select(m => m.OrganizationId)
             .ToListAsync())
             .ToHashSet();
+
+        // Single-org non-admin volunteer: skip the org listing and go
+        // straight to the org detail page (Ministries tab). The listing
+        // page is only useful for SystemAdmins, multi-org members, or
+        // org admins who may need the Edit button.
+        if (!_isSystemAdmin && myOrgIds.Count == 1 && !adminOrgIds.Contains(myOrgIds[0]))
+        {
+            Nav.NavigateTo($"Organizations/{myOrgIds[0]}");
+            return;
+        }
 
         // Query branches: SystemAdmin skips the myOrgIds constraint
         // entirely and pulls every Organization in the DB. The

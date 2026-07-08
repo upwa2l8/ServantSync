@@ -98,7 +98,7 @@ else
                See WordmarkSplash. *@
             <WordmarkSplash Width="120" Loading="lazy" />
             <div class="alert alert-info">
-                Nothing on the schedule. Find a <a href="Organizations">ministry</a> to volunteer with.
+                Nothing on the schedule. Find a <a href="@OrgLink">ministry</a> to volunteer with.
             </div>
         }
         else
@@ -184,7 +184,7 @@ else
     @if (!_availableSessions.Any())
     {
         <p class="text-muted small mb-0">
-            Nothing scheduled across your organizations right now. A coordinator might add one to <a href="Organizations">the Organizations page</a> in their <em>Org training</em> tab.
+            Nothing scheduled across your organizations right now. A coordinator might add one to <a href="@OrgLink">the Organizations page</a> in their <em>Org training</em> tab.
         </p>
     }
     else
@@ -345,6 +345,12 @@ else
             return "Subscribe in Google / Apple / Outlook to see this schedule in your personal calendar.";
         }
     }
+
+    // Single-org user → link directly to their org's ministry page.
+    // Multi-org / zero-org user → link to the org picker.
+    private string OrgLink => _myOrgIds.Count == 1
+        ? $"Organizations/{_myOrgIds[0]}"
+        : "Organizations";
 
     protected override async Task OnParametersSetAsync() => await Reload();
 
