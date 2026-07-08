@@ -111,31 +111,30 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Deploy to Azure Container Apps
-        # azure/container-apps-deploy-action@v2 is the canonical action
-        # for ACA deploys. Two inputs are doing the work here:
-        #   - `imageToDeploy` overrides the placeholder `image:` in the
-        #     YAML so we never pin an old tag.
-        #   - `yamlConfigPath` points to deploy/aca.servantsync.yaml,
-        #     the single source of truth for ingress, env vars, the
-        #     /data volume mount, and scale. The action PATCHes the
-        #     live Container App from this file, preserving the
-        #     smtp-password entry already in the secret store (the
-        #     YAML references it via `secretRef`, never carrying the
-        #     value itself). See the YAML header for the schema
-        #     contract (storageName, secretRef, scale, etc.).
-        # Replaces an earlier separate `azure/cli@v2` "Attach /data
-        # volume" step, which had to pin a specific az CLI version
-        # because the local user's az didn't accept the modern volume
-        # syntax. The action's bundled az is always compatible, and a
-        # PATCH is idempotent (no spurious new revisions on re-runs).
-        uses: azure/container-apps-deploy-action@v2
+        # Round-ACA-1 fix: the high-level `azure/container-apps-deploy-action@v2`
+        # was silently dropping the `imageToDeploy` input on this repo's
+        # config, leaving the YAML's literal
+        # `PLACEHOLDER-OVERRIDDEN-BY-IMAGE-TO-DEPLOY-DO-NOT-RUN` string in
+        # place and az CLI refusing it with
+        # "could not parse reference: PLACEHOLDER-OVERRIDDEN-...".
+        # Switched to `azure/cli@v2` which calls
+        # `az containerapp update --yaml --image $IMAGE` explicitly -- the
+        # documented az override pattern. The bundled az is current (no
+        # version pin needed for our YAML syntax). The step still works
+        # through the OIDC federated login (az login --identity picks up
+        # the token that azure/login@v2 issued upstream), so no other
+        # workflow changes are required. This step has no `if:` so the
+        # Round-ACA-1 parse-error on the original step is irrelevant.
+        uses: azure/cli@v2
         with:
-          appSourcePath: ${{ github.workspace }}
-          acrName: ${{ secrets.ACR_NAME }}
-          containerAppName: ${{ secrets.ACA_NAME }}
-          resourceGroup: ${{ secrets.AZURE_RG }}
-          imageToDeploy: ${{ secrets.ACR_NAME }}.azurecr.io/servantsync:${{ github.sha }}
-          yamlConfigPath: deploy/aca.servantsync.yaml
+          azcliversion: latest
+          inlineScript: |
+            az containerapp update \
+              --name "${{ secrets.ACA_NAME }}" \
+              --resource-group "${{ secrets.AZURE_RG }}" \
+              --yaml deploy/aca.servantsync.yaml \
+              --image "${{ secrets.ACR_NAME }}.azurecr.io/servantsync:${{ github.sha }}" \
+              --output none
 
       - name: Smoke-check (optional)
         # If the deploy sponsor supplies a smoke URL, GET it; otherwise skip.
