@@ -30,11 +30,20 @@ WORKDIR /src
 # separate layer. Re-runs of the build skip the restore step when the
 # csproj hasn't changed.
 COPY ["ServantSync.csproj", "./"]
-RUN dotnet restore
+# Target the csproj explicitly so MSBuild doesn't auto-load
+# ServantSync.sln (which references tests/, a directory excluded by
+# .dockerignore -- MSBuild would then fail MSB3202 trying to load the
+# missing test project). CI uses implicit project discovery in the main
+# .csproj and never walks the sln's full project graph, so this only
+# surfaces in cold Docker builds.
+RUN dotnet restore ./ServantSync.csproj
 
 # Now copy the rest of the source and publish.
 COPY . .
-RUN dotnet publish -c Release -o /app/publish \
+# Same csproj-explicit target as restore above -- prevents MSBuild from
+# loading ServantSync.sln and trying to load the tests/ project that
+# the .dockerignore strips out of the build context.
+RUN dotnet publish ./ServantSync.csproj -c Release -o /app/publish \
     # Trim Development env override from the image. Production env
     # values come from the Container App's env-var wiring (see
     # SETUP.md), not from appsettings.Development.json.
