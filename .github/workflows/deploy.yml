@@ -108,11 +108,11 @@ jobs:
           # internal app, and they add ~30s to the push.
           provenance: false
           sbom: false
-          # Useful cache from the previous successful build (GitHub's
-          # built-in cache backend). First build is cold; subsequent
-          # builds re-use restored layers.
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # Disable layer caching to ensure the Dockerfile's apt-get
+          # install steps always execute. Without this, GitHub's cache
+          # backend returns a full hit for unchanged base images,
+          # skipping newly added RUN instructions.
+          no-cache: true
 
       - name: Deploy to Azure Container Apps
         # Round-ACA-1 fix #2: `az containerapp update --yaml $YAML
