@@ -142,16 +142,26 @@ $existingFed = az ad app federated-credential list --id $APP_ID --query "[?name=
 if ($existingFed) {
     Write-Host "  Federated credential '$FED_NAME' already exists; skipping create."
 } else {
-    $SUBJECT = "repo:$GITHUB_OWNER/$GITHUB_REPO:ref:refs/heads/main"
+    $SUBJECT = "repo:$GITHUB_OWNER/${GITHUB_REPO}:ref:refs/heads/main"
     $PARAMS_JSON = @{
         name      = $FED_NAME
         issuer    = 'https://token.actions.githubusercontent.com'
         subject   = $SUBJECT
         audiences = @('api://AzureADTokenExchange')
     } | ConvertTo-Json -Compress
-    Write-Host "  Creating federated credential with subject: $SUBJECT"
-    az ad app federated-credential create --id $APP_ID --parameters $PARAMS_JSON --output table
+    # PowerShell's `&` + cmd.exe re-parsing mangles the internal `"`
+    # characters when JSON is passed inline (az returns "Failed to
+    # parse string as JSON"). Write to a temp file + use the @file
+    # syntax so az reads the file as the parameter value. The
+    # `UTF8Encoding($false)` constructor writes WITHOUT a BOM
+    # (default `Set-Content -Encoding utf8` adds one, which can
+    # confuse some JSON parsers).
+    $paramsFile = Join-Path $env:TEMP ("fedcred-params-" + $FED_NAME + ".json")
+    [System.IO.File]::WriteAllText($paramsFile, $PARAMS_JSON, [System.Text.UTF8Encoding]::new($false))
+    Write-Host ("  Creating federated credential with subject: " + $SUBJECT)
+    az ad app federated-credential create --id $APP_ID --parameters ("@" + $paramsFile) --output table
     Write-Host ("  exit code: " + $LASTEXITCODE)
+    Remove-Item $paramsFile -Force -ErrorAction SilentlyContinue
 }
 
 # Optional: Production-environment-gated credential for workflow_dispatch.
@@ -164,7 +174,7 @@ if ($existingFed) {
 # if ($existingFedProd) {
 #     Write-Host "  Federated credential '$FED_PROD' already exists; skipping create."
 # } else {
-#     $SUBJECT_PROD = "repo:$GITHUB_OWNER/$GITHUB_REPO:environment:Production"
+#     $SUBJECT_PROD = "repo:$GITHUB_OWNER/${GITHUB_REPO}:environment:Production"
 #     $PARAMS_PROD = @{
 #         name      = $FED_PROD
 #         issuer    = 'https://token.actions.githubusercontent.com'
@@ -307,9 +317,9 @@ Write-Host ""
 Write-Host "============================================="
 Write-Host " Summary"
 Write-Host "============================================="
-Write-Host "  SMTP secret 'smtp-password' on $ACA_APP: created"
+Write-Host "  SMTP secret 'smtp-password' on ${ACA_APP}: created"
 Write-Host "  App Registration '$APP_NAME': $APP_ID"
-Write-Host "  OIDC federated credential subject: repo:$GITHUB_OWNER/$GITHUB_REPO:ref:refs/heads/main"
+Write-Host "  OIDC federated credential subject: repo:$GITHUB_OWNER/${GITHUB_REPO}:ref:refs/heads/main"
 Write-Host "  RBAC: AcrPush on $ACR_NAME, Container Apps Contributor on $RG"
 Write-Host "  GitHub secrets: see above (gh or manual)"
 Write-Host ""
