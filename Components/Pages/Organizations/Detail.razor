@@ -39,12 +39,18 @@ else
             <h1 class="mb-0">@_org.Name</h1>
             <div class="text-muted">@_org.Description</div>
         </div>
-        <div>
-            <a class="btn btn-outline-secondary" href="@($"Organizations/{Id}/Edit")">Edit</a>
-            <a class="btn btn-outline-secondary ms-2" href="@($"Organizations/{Id}/Coordinators")"
-               title="Manage slot coordinators: see which volunteer opportunities have a coordinator assigned and which need one.">
-                Manage coordinators
-            </a>
+        <div class="d-flex gap-2">
+            @if (_canAddMember)
+            {
+                <a class="btn btn-outline-secondary" href="@($"Organizations/{Id}/Edit")">Edit</a>
+            }
+            @if (_isOrgManager)
+            {
+                <a class="btn btn-outline-secondary" href="@($"Organizations/{Id}/Coordinators")"
+                   title="Manage slot coordinators: see which volunteer opportunities have a coordinator assigned and which need one.">
+                    Manage coordinators
+                </a>
+            }
         </div>
     </div>
 

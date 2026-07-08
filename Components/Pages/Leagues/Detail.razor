@@ -24,7 +24,10 @@ else
             <div class="text-muted">@_ministry.Organization.Name · @_ministry.Description</div>
         </div>
         <div class="d-flex gap-2 flex-wrap">
-            <a class="btn btn-outline-secondary" href="@($"Organizations/{_ministry.OrganizationId}/Ministries/{MinistryId}/Edit")">Edit ministry</a>
+            @if (_isOrgAdmin)
+            {
+                <a class="btn btn-outline-secondary" href="@($"Organizations/{_ministry.OrganizationId}/Ministries/{MinistryId}/Edit")">Edit ministry</a>
+            }
             <a class="btn btn-outline-primary" href="@($"Leagues/{MinistryId}/Standings")">Full standings</a>
             <a class="btn btn-primary" href="@($"Leagues/{MinistryId}/Schedule")">Schedule</a>
         </div>
@@ -155,6 +158,10 @@ else
     private List<Game> _upcomingGames = new();
     private List<TeamStanding> _topStandings = new();
     private bool _canManage;
+    // Narrower admin-only gate for Edit ministry (target page requires
+    // IsOrgAdminAsync). Distinct from _canManage (CanManageMinistryAsync)
+    // which is the right gate for Add team / Schedule game.
+    private bool _isOrgAdmin;
 
     protected override async Task OnInitializedAsync()
     {
@@ -190,6 +197,7 @@ else
         if (!string.IsNullOrEmpty(userId))
         {
             _canManage = await OrgAuth.CanManageMinistryAsync(userId, MinistryId);
+            _isOrgAdmin = await OrgAuth.IsOrgAdminAsync(userId, _ministry.OrganizationId);
         }
     }
 }
