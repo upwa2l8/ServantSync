@@ -61,3 +61,8 @@ scripts/inspect-subscription.ps1
 scripts/submit-quota-request.ps1
 scripts/try-regions.ps1
 scripts/create-servantsync-plan.ps1
+
+# Round-ACA-1 deploy trigger (no-op, documents RBAC grants in place):
+# the Container App now has a system-assigned managed identity and an
+# AcrPull role assignment on servantsyncacr, allowing it to pull the
+# built image without anonymous-pull failures.
