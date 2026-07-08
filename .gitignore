@@ -486,6 +486,15 @@ servantsync.db
 servantsync.db-shm
 servantsync.db-wal
 
+# SqliteBackupService backup directory. Lands under <contentRoot>/backups
+# by default (NOT under wwwroot — see Services/SqliteBackupService.cs);
+# on `dotnet run` from repo root that's typically <repo>/backups/ which
+# would otherwise creep in via `git add -A` if a dev sets Backup.Enabled=true
+# in appsettings.Development.json. Production uses /home/site/backups on
+# Azure App Service Linux, which is outside the repo and not affected by
+# this rule.
+backups/
+
 # Windows reserved device name accidentally left over from prior diagnostics
 nul
 
