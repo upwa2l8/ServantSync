@@ -92,8 +92,6 @@ ENV ASPNETCORE_ENVIRONMENT=Production \
     # ForwardedHeaders middleware is auto-added when this is set.
     # Required so app.UseHttpsRedirection() (and SignalR's wss://
     # upgrade URL) work correctly behind ACA's TLS-terminating ingress.
-    ASPNETCORE_FORWARDEDHEADERS_ENABLED=true \
-    # Persistent DB on the Azure Files share mounted at /data.
-    ConnectionStrings__DefaultConnection="Data Source=/data/servantsync.db"
+    ASPNETCORE_FORWARDEDHEADERS_ENABLED=true
 
 ENTRYPOINT ["dotnet", "ServantSync.dll"]

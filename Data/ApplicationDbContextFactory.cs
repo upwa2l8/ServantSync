@@ -19,7 +19,7 @@ public class ApplicationDbContextFactory : IDesignTimeDbContextFactory<Applicati
             ?? "Data Source=servantsync.db";
 
         var options = new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseSqlite(connectionString)
+            .UseSqlServer(connectionString)
             .Options;
 
         return new ApplicationDbContext(options);

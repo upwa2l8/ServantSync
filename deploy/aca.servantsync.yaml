@@ -32,7 +32,10 @@
 
 properties:
   configuration:
-    # Round-ACA-1.16: restore activeRevisionsMode=Single (default Multiple kept the OLD pod alive through the new pod's boot, and the OLD pod's SMB file-handles race the new pod's MigrateAsync for the full 30s busy_timeout window -- empirically reproduced with c08f966 logs showing the 30s BUSY at __EFMigrationsLock).
+    # Round-ACA-1.16: activeRevisionsMode=Single. With Azure SQL
+    # Database (no SMB-lease issues), could relax to Multiple for
+    # zero-downtime deploys. Keeping Single for now as a conservative
+    # default.
     activeRevisionsMode: Single
     # Ingress: external (public FQDN) + listens on 8080 (the ServantSync
     # image's hardcoded ASPNETCORE_URLS=http://+:8080; nginx:alpine
@@ -51,6 +54,9 @@ properties:
     secrets:
       - name: smtp-password
         # empty value: tells deploy action's PUT to preserve the live smtp-password
+        value: ""
+      - name: sql-connection-string
+        # empty value: tells deploy action's PUT to preserve the live secret
         value: ""
     # Registries: must declare explicitly so the deploy action's
     # full PUT-yaml semantics don't blank the managed-identity config
@@ -80,23 +86,13 @@ properties:
           - name: ASPNETCORE_FORWARDEDHEADERS_ENABLED
             value: "true"                  # ACA ingress terminates TLS, so the app must trust X-Forwarded-Proto
 
-          # --- SQLite database (lives on the /data Azure Files share) ---
+          # --- Azure SQL Database (see HANDOFF.md for migration context) ---
+          # Connection string stored as an ACA secret (sql-connection-string)
+          # to keep the password out of git. Set via:
+          #   az containerapp secret set --name servantsync --resource-group ServantSync \
+          #     --secrets sql-connection-string="Server=tcp:<server>.database.windows.net,1433;..."
           - name: ConnectionStrings__DefaultConnection
-            value: "Data Source=/data/servantsync.db"   # Round-ACA-1.14: revert ;Pooling=False from Round-ACA-1.12 -- forcing fresh handles per call worsened the EF Core 9 __EFMigrationsLock cross-connection deadlock; default Pooling=True keeps a single SqliteConnection reused across migration steps.
-
-          # --- Periodic VACUUM INTO backup (SqliteBackupService) ---
-          - name: Backup__Enabled
-            value: "true"
-          - name: Backup__IntervalHours
-            value: "24"
-          - name: Backup__RetentionDays
-            value: "30"
-          - name: Backup__Directory
-            value: "/data/backups"         # MUST live on the persistent share, never wwwroot
-          - name: Backup__FilePrefix
-            value: "backup"
-          - name: Backup__MaxBackups
-            value: "100"
+            secretRef: sql-connection-string
 
           # --- SMTP (MailKitEmailSender) ---
           # Non-secret bits are inline; the password is a secretRef so
@@ -121,7 +117,7 @@ properties:
             mountPath: /data               # matches SqliteBackupService's Backup__Directory
     scale:
       minReplicas: 0                      # required to keep idle cost at $0
-      maxReplicas: 1                      # Round-ACA-1.10: SQLite on /data can't survive >1 concurrent cold-start (Azure Files SMB cross-pod lock races for __EFMigrationsLock -- see STATUS.md for full timeline)
+      maxReplicas: 1                      # Single replica is fine for Azure SQL (no SMB-lease issues)
     volumes:
       - name: servantsync-data
         storageName: servantsync-data     # MUST match the env-level storage registration

@@ -494,45 +494,46 @@ public class PersonService : IPersonService
         // PRAGMA is SQLite-specific; we gate on ProviderName so the call
         // degrades to a no-op on a non-SQLite provider if one is ever
         // added (Postgres would need a different FK-deferral strategy).
+        // Provider-specific FK handling for the re-parent batch.
+        // SQLite: defer_foreign_keys PRAGMA defers FK checks until commit.
+        // SQL Server: NOCHECK CONSTRAINT ALL temporarily disables FK
+        //   checks on the referencing tables so the multi-row UPDATE
+        //   batch can set PersonUserId to newIdentityUserId before
+        //   People.UserId is flipped (SQL Server checks FKs at the
+        //   statement level; without this, the first UPDATE on
+        //   OrganizationMemberships would trip a FK violation because
+        //   newIdentityUserId doesn't exist in People yet).
+        // Both are scoped to the current connection/session and reset
+        // on COMMIT or ROLLBACK (or explicit re-enable for SQL Server).
         try
         {
             if (db.Database.ProviderName == "Microsoft.EntityFrameworkCore.Sqlite")
             {
-                // SQLite-only. Per https://sqlite.org/pragma.html#pragma_defer_foreign_keys
+                // Per https://sqlite.org/pragma.html#pragma_defer_foreign_keys
                 // "The defer_foreign_keys pragma is automatically switched
-                // off at each COMMIT or ROLLBACK. Hence, the defer_foreign_
-                // keys pragma must be separately enabled for each transaction."
+                // off at each COMMIT or ROLLBACK."
                 await db.Database.ExecuteSqlRawAsync("PRAGMA defer_foreign_keys = 1;", ct);
             }
+            else if (db.Database.ProviderName == "Microsoft.EntityFrameworkCore.SqlServer")
+            {
+                // Disable FK + CHECK constraints on every table that
+                // references PersonUserId (the FK column being flipped).
+                // These are session-scoped — re-enabled in the finally
+                // block below regardless of commit/rollback outcome.
+                await db.Database.ExecuteSqlRawAsync(@"
+ALTER TABLE OrganizationMemberships NOCHECK CONSTRAINT ALL;
+ALTER TABLE Assignments NOCHECK CONSTRAINT ALL;
+ALTER TABLE TrainingCompletions NOCHECK CONSTRAINT ALL;
+ALTER TABLE TrainingActivities NOCHECK CONSTRAINT ALL;
+ALTER TABLE TrainingSessionAttendees NOCHECK CONSTRAINT ALL;
+ALTER TABLE PersonClaimTokens NOCHECK CONSTRAINT ALL;", ct);
+            }
 
-            // Single multi-statement SQL batch: the 5 dependent-table
-            // UPDATEs + the People PK flip + the audit Notes UPDATE
-            // + the token ClaimedUtc stamp + both PRAGMA toggles run
-            // as ONE CommandText on the SAME connection. sqlite3_exec
-            // dispatches every statement in the joined string on a
-            // single connection (Microsoft.Data.Sqlite does NOT split
-            // on `;` for non-query commands), so PRAGMA=OFF is in
-            // effect for every sub-statement without an EF sub-
-            // connection re-checkout resetting it. The People PK flip
-            // (6th UPDATE) succeeds because by the time it lands,
-            // OrganizationMembership/Assignment/etc. all already point
-            // at newIdentityUserId. The trailing PRAGMA=ON restores
-            // FK enforcement on the connection before tx commit.
-            //
-            // FormattableString interpolation parameterizes every
-            // user input (newIdentityUserId, oldStubId, newEmail,
-            // notesValue, reparentedAt, token.Id) so the SQL isn't
-            // injection-vulnerable.
-            // Single raw interpolated literal ($@"..."): preserved newlines act
-            // as statement separators; EF Core binds every {placeholder} as a
-            // named parameter (no string concatenation = no SQL-injection
-            // vector). sqlite3_exec dispatches the joined multi-statement
-            // CommandText on one connection, so PRAGMA=OFF is in effect for
-            // every sub-statement until PRAGMA=ON at the end.
-            // (Bracketing PRAGMA=OFF/ON removed -- defer_foreign_keys
-            // set above covers the re-parent window. Both statements
-            // would be no-ops inside an active transaction per SQLite
-            // docs anyway.)
+            // Single multi-statement SQL batch: update every FK
+            // reference from oldStubId → newIdentityUserId, flip
+            // People.UserId (PK), stamp the audit note, consume the
+            // token. FormattableString interpolation binds every
+            // {placeholder} as a named parameter — no SQL injection.
             await db.Database.ExecuteSqlInterpolatedAsync($@"
 UPDATE OrganizationMemberships SET PersonUserId = {newIdentityUserId} WHERE PersonUserId = {oldStubId};
 UPDATE Assignments            SET PersonUserId = {newIdentityUserId} WHERE PersonUserId = {oldStubId};
@@ -544,13 +545,44 @@ UPDATE OrganizationMemberships SET Notes = {notesValue} WHERE PersonUserId = {ne
 UPDATE PersonClaimTokens SET PersonUserId = {newIdentityUserId}, ClaimedUtc = {reparentedAt} WHERE Id = {token.Id};");
             await tx.CommitAsync(ct);
         }
-        // C# requires `try` to be followed by a `catch` or `finally`.
-        // defer_foreign_keys auto-resets on COMMIT or ROLLBACK per its
-        // SQLite pragma contract, so the catch is just an explicit
-        // rethrow -- nothing to clean up. (Round-FR-3.2 polish.)
         catch
         {
             throw;
+        }
+        finally
+        {
+            // Re-enable FK constraints on SQL Server. MUST run
+            // regardless of commit/rollback — the session-level
+            // NOCHECK persists until explicitly reversed. WITH CHECK
+            // validates all existing rows against the constraints
+            // and marks them as trusted for the query optimizer.
+            // DDL statements (ALTER TABLE) auto-commit in SQL Server,
+            // so they execute outside the transaction scope; the
+            // re-enable runs even if the transaction was rolled back.
+            if (db.Database.ProviderName == "Microsoft.EntityFrameworkCore.SqlServer")
+            {
+                try
+                {
+                    await db.Database.ExecuteSqlRawAsync(@"
+ALTER TABLE OrganizationMemberships WITH CHECK CHECK CONSTRAINT ALL;
+ALTER TABLE Assignments WITH CHECK CHECK CONSTRAINT ALL;
+ALTER TABLE TrainingCompletions WITH CHECK CHECK CONSTRAINT ALL;
+ALTER TABLE TrainingActivities WITH CHECK CHECK CONSTRAINT ALL;
+ALTER TABLE TrainingSessionAttendees WITH CHECK CHECK CONSTRAINT ALL;
+ALTER TABLE PersonClaimTokens WITH CHECK CHECK CONSTRAINT ALL;", ct);
+                }
+                catch (Exception reenableEx)
+                {
+                    // WITH CHECK validates existing data against the
+                    // constraints. If this fails, the re-parent left
+                    // the data in an inconsistent state — log and
+                    // re-throw so the caller gets the full picture.
+                    _log.LogError(reenableEx,
+                        "Failed to re-enable FK constraints after re-parent of stub {OldStubId} → {NewId}. Data may be in an inconsistent state.",
+                        oldStubId, newIdentityUserId);
+                    throw;
+                }
+            }
         }
 
         _log.LogInformation(

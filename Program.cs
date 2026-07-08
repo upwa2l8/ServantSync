@@ -20,20 +20,18 @@ var connectionString = builder.Configuration.GetConnectionString("DefaultConnect
 // IEnumerable<IDbContextOptionsConfiguration<T>> and trips over the scoped one,
 // throwing "Cannot resolve scoped service from root provider" at startup.
 //
-// Round-ACA-1.8 (this): Microsoft.Data.Sqlite does NOT accept "busy_timeout"
-// as a connection-string keyword (its SqliteConnectionStringBuilder throws
-// ArgumentException on unrecognised keywords -- observed at startup on
-// revision servantsync--0000006 with "Connection string keyword 'busy_timeout'
-// is not supported"). Register SqliteBusyTimeoutInterceptor as a singleton
-// and attach it to the factory via AddInterceptors so every opened
-// connection runs "PRAGMA busy_timeout=30000" right after the parser. The
-// interceptor (not the connection string) is the canonical EF Core way to
-// apply PRAGMAs that aren't recognised keywords on SqliteConnectionStringBuilder.
-builder.Services.AddSingleton<SqliteBusyTimeoutInterceptor>();
+// Azure SQL Database provider (replaces SQLite, which was incompatible with
+// Azure Files SMB on Container Apps -- see HANDOFF.md for the 17-round
+// timeline). UseSqlServer wires the Microsoft.Data.SqlClient provider which
+// handles connection pooling, retry-on-transient-fault, and Azure AD auth.
 builder.Services.AddDbContextFactory<ApplicationDbContext>((sp, opts) =>
 {
-    opts.UseSqlite(connectionString);
-    opts.AddInterceptors(sp.GetRequiredService<SqliteBusyTimeoutInterceptor>());
+    opts.UseSqlServer(connectionString, sqlOpts =>
+    {
+        // Enable retry-on-transient-fault for Azure SQL Database.
+        // Default retry strategy: 6 retries, exponential backoff 0-30s.
+        sqlOpts.EnableRetryOnFailure();
+    });
 });
 // Identity's stores (and any other consumer) still need a scoped
 // ApplicationDbContext. Resolve it from the factory so the configuration is
@@ -163,13 +161,9 @@ builder.Services.AddScoped<UserTimeZoneProvider>();
 builder.Services.AddScoped<DatabaseSeeder>();
 
 // ---- Background / hosted services ----
-// SqliteBackupService: periodic VACUUM INTO snapshot, gated on
-// Backup__Enabled=true. Production enables via appsettings.Production.json
-// or env var (DEV defaults to disabled). Defaults land under
-// <contentRoot>/backups so the working dir is NEVER exposed as a public
-// static-file path. Service-level WHY-comment in Services/SqliteBackupService.cs.
-builder.Services.Configure<BackupOptions>(builder.Configuration.GetSection("Backup"));
-builder.Services.AddHostedService<SqliteBackupService>();
+// Azure SQL Database has built-in automated backups (7-day retention on
+// Basic/Standard tiers, configurable up to 35 days). The old
+// SqliteBackupService (VACUUM INTO, file-copy snapshot) is not needed.
 
 var app = builder.Build();
 
@@ -503,114 +497,15 @@ app.MapGet("/slots/{slotId:int}/documents/{docId:int}/download", async (
         fileDownloadName: doc.OriginalFileName);
 }).RequireAuthorization();
 
-// Round-ACA-1.9 (this): pre-EF Core cleanup of stale SQLite transaction
-// files. Azure Files SMB preserves .db-journal / .db-wal / .db-shm from a
-// previous container killed mid-write. SMB oplocks on those files persist
-// and block the next migration's BEGIN IMMEDIATE (EF Core's
-// AcquireDatabaseLockAsync via SqliteHistoryRepository -- observed as
-// "SQLite Error 5: 'database is locked'" after a 30s busy_timeout window,
-// confirmed empirically on revision servantsync--0000004 with full stack
-// trace). Delete any stale files at startup to atomically remove the SMB
-// oplock holder. Idempotent: if the files don't exist (warm-reuse case)
-// it's a no-op, falling through to migration as normal. Best-effort: if a
-// file is held by a still-active connection we can't delete it; the
-// migration will fail with the same BUSY signal downstream, surfacing a
-// still-deeper issue rather than masquerading a fix.
-// `??` only catches null, not empty. If the env var is `Data Source=`
-// (empty value after the equals), Substring returns `""`, not null, so
-// fall through to the documented Azure Files path explicitly.
-var candidate = connectionString
-    .Split(';')
-    .FirstOrDefault(p => p.StartsWith("Data Source=", StringComparison.OrdinalIgnoreCase))
-    ?.Substring("Data Source=".Length);
-var dbPath = string.IsNullOrEmpty(candidate) ? "/data/servantsync.db" : candidate;
-foreach (var suffix in new[] { "-journal", "-wal", "-shm" })
-{
-    var stalePath = dbPath + suffix;
-    try
-    {
-        if (File.Exists(stalePath))
-        {
-            File.Delete(stalePath);
-        }
-    }
-    catch (Exception ex)
-    {
-        // Diagnostic -- surfaces in container log adjacent to the migration's BUSY signal.
-        Console.Error.WriteLine($"[Round-ACA-1.9] SQLite pre-cleanup failed to delete {stalePath}: {ex.Message}");
-    }
-}
-
 // Apply pending migrations, then seed sample data if the database is empty.
-// Round-ACA-1.17 (this): the c08f966 -> a2808f6 sequence (R1.15 revert +
-// R1.16 restore activeRevisionsMode=Single) still hits a 30s BUSY at
-// `__EFMigrationsLock CREATE TABLE IF NOT EXISTS` on FRESH-pod cold boot.
-// The c08f966 log's "30,039 ms elapsed" matches EF Core's default
-// CommandTimeout=30 EXACTLY, NOT SQLite's busy_timeout point. Root cause:
-// Azure Files SMB holds a file-handle LEASE on /data/servantsync.db 30-60s
-// AFTER pod death; the new pod's MigrateAsync open sits blocked at the
-// SMB layer (not at SQLite's SQLITE_BUSY layer, so busy_timeout is never
-// reached) for the full lease window, then EF Core's 30s timer kills the
-// call. `busy_timeout` is a SQLite-internal retry mechanism for SQLITE_BUSY
-// returns; it does NOT bind an SMB-layer fd wait. activeRevisionsMode=Single
-// + maxReplicas:1 stay in place -- with them there is no concurrent pod
-// holding the lock, only the prior pod's orphaned SMB lease winding down.
-//
-// Fix layers:
-//   1. db.Database.SetCommandTimeout(120) before each attempt -- 2-min
-//      per-command timer (4x the SMB default lease).
-//   2. SqliteBusyTimeoutInterceptor bumped 30_000 -> 60_000 (belt for any
-//      SQLite-layer BUSY that does surface; suspenders for the same cause).
-//   3. Outer retry-with-backoff wrap -- 3 attempts, 15s sleep, catches
-//      SqliteException rc=5 (BUSY). Worst-case cold-start ~3 min, paid
-//      only on a lease-recovery failure.
-//   4. Per-attempt breadcrumb to stderr so the next debug iteration has
-//      data even when the lease clears before exhaustion.
-// Round-ACA-1.14's manual IMigrator.GenerateScript detour is NOT revisited
-// -- it crashed for an unrelated reason (GenerateScript omits
-// __EFMigrationsHistory inserts); the lesson lives in STATUS.md.
-const int migrationMaxAttempts = 3;
-var migrationAttempt = 0;
-while (true)
+// Azure SQL Database is a managed service with its own locking and
+// connection management — no SMB-lease issues, no retry loops needed.
+using (var scope = app.Services.CreateScope())
 {
-    migrationAttempt++;
-    try
-    {
-        using (var scope = app.Services.CreateScope())
-        {
-            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-            // 2-min per-command timeout covers the Azure Files SMB-lease
-            // recovery window (default 30s, can be up to 60s on the
-            // server side) with headroom. EF Core 9's default 30s was
-            // the exact value observed in the c08f966 fail-log.
-            db.Database.SetCommandTimeout(120);
-            await db.Database.MigrateAsync();
-            var seeder = scope.ServiceProvider.GetRequiredService<DatabaseSeeder>();
-            await seeder.SeedAsync();
-        }
-        if (migrationAttempt > 1)
-        {
-            Console.WriteLine($"[Round-ACA-1.17] Migration succeeded after {migrationAttempt} attempt(s).");
-        }
-        break;
-    }
-    catch (Microsoft.Data.Sqlite.SqliteException ex)
-        when (ex.SqliteErrorCode == 5)
-    {
-        // rc=5 = SQLITE_BUSY -- Azure Files SMB-side fd-wait returns this
-        // when EF Core's CommandTimeout (now 120s) cancels the in-flight
-        // statement. SQLITE_LOCKED (rc=6) is INTENTIONALLY not caught --
-        // it indicates an intra-connection uncommitted-table-txn which
-        // would be a real caller bug, not a transient we want to silently
-        // retry past. Reference: https://sqlite.org/rescode.html
-        if (migrationAttempt >= migrationMaxAttempts)
-        {
-            Console.Error.WriteLine($"[Round-ACA-1.17] Migration failed after {migrationMaxAttempts} attempts (Sqlite rc={ex.SqliteErrorCode}: {ex.Message}). Re-throwing.");
-            throw;
-        }
-        Console.Error.WriteLine($"[Round-ACA-1.17] Migration attempt {migrationAttempt} hit Sqlite rc={ex.SqliteErrorCode} ({ex.Message}). Retrying in 15s (Azure Files SMB-lease recovery window).");
-        await Task.Delay(TimeSpan.FromSeconds(15));
-    }
+    var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+    await db.Database.MigrateAsync();
+    var seeder = scope.ServiceProvider.GetRequiredService<DatabaseSeeder>();
+    await seeder.SeedAsync();
 }
 
 app.Run();
