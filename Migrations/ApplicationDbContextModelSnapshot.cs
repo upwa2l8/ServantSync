@@ -1248,7 +1248,7 @@ namespace ServantSync.Migrations
                     b.HasOne("ServantSync.Models.ServiceSlot", "ServiceSlot")
                         .WithMany("Assignments")
                         .HasForeignKey("ServiceSlotId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.ClientCascade)
                         .IsRequired();
 
                     b.Navigation("Person");
@@ -1321,7 +1321,7 @@ namespace ServantSync.Migrations
                     b.HasOne("ServantSync.Models.Ministry", "Ministry")
                         .WithMany()
                         .HasForeignKey("MinistryId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.ClientCascade)
                         .IsRequired();
 
                     b.HasOne("ServantSync.Models.Person", "Person")
@@ -1380,8 +1380,7 @@ namespace ServantSync.Migrations
                 {
                     b.HasOne("ServantSync.Models.Person", "PrimaryContactPerson")
                         .WithMany()
-                        .HasForeignKey("PrimaryContactPersonUserId")
-                        .OnDelete(DeleteBehavior.SetNull);
+                        .HasForeignKey("PrimaryContactPersonUserId");
 
                     b.HasOne("ServantSync.Models.Team", "Team")
                         .WithMany("Players")
@@ -1398,8 +1397,7 @@ namespace ServantSync.Migrations
                 {
                     b.HasOne("ServantSync.Models.Person", "CoordinatorPerson")
                         .WithMany()
-                        .HasForeignKey("CoordinatorPersonUserId")
-                        .OnDelete(DeleteBehavior.SetNull);
+                        .HasForeignKey("CoordinatorPersonUserId");
 
                     b.HasOne("ServantSync.Models.Ministry", "Ministry")
                         .WithMany("ServiceSlots")
@@ -1446,8 +1444,7 @@ namespace ServantSync.Migrations
                 {
                     b.HasOne("ServantSync.Models.Person", "CoachPerson")
                         .WithMany()
-                        .HasForeignKey("CoachPersonUserId")
-                        .OnDelete(DeleteBehavior.SetNull);
+                        .HasForeignKey("CoachPersonUserId");
 
                     b.HasOne("ServantSync.Models.Ministry", "Ministry")
                         .WithMany("Teams")
@@ -1544,8 +1541,7 @@ namespace ServantSync.Migrations
 
                     b.HasOne("ServantSync.Models.TrainingContent", "TrainingContent")
                         .WithMany()
-                        .HasForeignKey("TrainingContentId")
-                        .OnDelete(DeleteBehavior.SetNull);
+                        .HasForeignKey("TrainingContentId");
 
                     b.Navigation("Organization");
 

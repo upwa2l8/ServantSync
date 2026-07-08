@@ -458,8 +458,7 @@ namespace ServantSync.Migrations
                         name: "FK_TrainingSessions_TrainingContents_TrainingContentId",
                         column: x => x.TrainingContentId,
                         principalTable: "TrainingContents",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.SetNull);
+                        principalColumn: "Id");
                 });
 
             migrationBuilder.CreateTable(
@@ -480,8 +479,7 @@ namespace ServantSync.Migrations
                         name: "FK_MinistryInterests_Ministries_MinistryId",
                         column: x => x.MinistryId,
                         principalTable: "Ministries",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
+                        principalColumn: "Id");
                     table.ForeignKey(
                         name: "FK_MinistryInterests_People_PersonUserId",
                         column: x => x.PersonUserId,
@@ -520,8 +518,7 @@ namespace ServantSync.Migrations
                         name: "FK_ServiceSlots_People_CoordinatorPersonUserId",
                         column: x => x.CoordinatorPersonUserId,
                         principalTable: "People",
-                        principalColumn: "UserId",
-                        onDelete: ReferentialAction.SetNull);
+                        principalColumn: "UserId");
                 });
 
             migrationBuilder.CreateTable(
@@ -551,8 +548,7 @@ namespace ServantSync.Migrations
                         name: "FK_Teams_People_CoachPersonUserId",
                         column: x => x.CoachPersonUserId,
                         principalTable: "People",
-                        principalColumn: "UserId",
-                        onDelete: ReferentialAction.SetNull);
+                        principalColumn: "UserId");
                 });
 
             migrationBuilder.CreateTable(
@@ -610,8 +606,7 @@ namespace ServantSync.Migrations
                         name: "FK_Assignments_ServiceSlots_ServiceSlotId",
                         column: x => x.ServiceSlotId,
                         principalTable: "ServiceSlots",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
+                        principalColumn: "Id");
                 });
 
             migrationBuilder.CreateTable(
@@ -780,8 +775,7 @@ namespace ServantSync.Migrations
                         name: "FK_Players_People_PrimaryContactPersonUserId",
                         column: x => x.PrimaryContactPersonUserId,
                         principalTable: "People",
-                        principalColumn: "UserId",
-                        onDelete: ReferentialAction.SetNull);
+                        principalColumn: "UserId");
                     table.ForeignKey(
                         name: "FK_Players_Teams_TeamId",
                         column: x => x.TeamId,

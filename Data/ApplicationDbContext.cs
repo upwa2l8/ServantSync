@@ -142,6 +142,10 @@ public class ApplicationDbContext : IdentityDbContext<IdentityUser>
         // org) sweeps stale interest rows; removing a person sweeps their
         // interest set. No soft-delete / tombstone: preference data has no
         // historical value worth preserving.
+        //
+        // ClientCascade on MinistryId: SQL Server error 1785 —
+        // Person → MinistryInterest (Cascade) conflicts with
+        // Person → Ministry (SetNull) → MinistryInterest (Cascade).
         modelBuilder.Entity<MinistryInterest>(b =>
         {
             b.HasIndex(i => new { i.PersonUserId, i.MinistryId }).IsUnique();
@@ -152,13 +156,17 @@ public class ApplicationDbContext : IdentityDbContext<IdentityUser>
             b.HasOne(i => i.Ministry)
                 .WithMany()
                 .HasForeignKey(i => i.MinistryId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.ClientCascade);
             // Indexed on PersonUserId alone so ListJoinedAsync (per-user
             // query) is a single index seek rather than a scan.
             b.HasIndex(i => i.PersonUserId);
         });
 
         // ---- ServiceSlot ----
+        //
+        // ClientSetNull on CoordinatorPersonUserId: SQL Server error 1785 —
+        // Person → ServiceSlot (SetNull) conflicts with
+        // Person → Ministry (SetNull) → ServiceSlot (Cascade).
         modelBuilder.Entity<ServiceSlot>(b =>
         {
             b.HasOne(s => s.Ministry)
@@ -173,7 +181,7 @@ public class ApplicationDbContext : IdentityDbContext<IdentityUser>
             b.HasOne(s => s.CoordinatorPerson)
                 .WithMany()
                 .HasForeignKey(s => s.CoordinatorPersonUserId)
-                .OnDelete(DeleteBehavior.SetNull);
+                .OnDelete(DeleteBehavior.ClientSetNull);
             b.HasIndex(s => new { s.MinistryId, s.Name }).IsUnique();
             // Capacity lives on ServiceSlot (default 1) so it survives decoupled
             // from any one SlotOccurrence; per-occurrence overrides live on
@@ -296,6 +304,10 @@ public class ApplicationDbContext : IdentityDbContext<IdentityUser>
         // no FK — mirrors SystemAdminGrantAudit's "audit trail outlives the
         // actor" pattern so deleting the coordinator who created a session
         // does NOT vaporize the session's history.
+        //
+        // ClientSetNull on TrainingContentId: SQL Server error 1785 —
+        // Organization → TrainingSession (Cascade) conflicts with
+        // Organization → TrainingContent (Cascade) → TrainingSession (SetNull).
         modelBuilder.Entity<TrainingSession>(b =>
         {
             b.HasOne(s => s.Organization)
@@ -305,7 +317,7 @@ public class ApplicationDbContext : IdentityDbContext<IdentityUser>
             b.HasOne(s => s.TrainingContent)
                 .WithMany()
                 .HasForeignKey(s => s.TrainingContentId)
-                .OnDelete(DeleteBehavior.SetNull);  // preserve session history if content is removed
+                .OnDelete(DeleteBehavior.ClientSetNull);  // preserve session history if content is removed
             b.Property(s => s.Title).HasMaxLength(200);
             b.Property(s => s.Location).HasMaxLength(200);
             // Index optimized for the "list upcoming for org" hot path
@@ -342,6 +354,10 @@ public class ApplicationDbContext : IdentityDbContext<IdentityUser>
         });
 
         // ---- Assignment (conflict-detection hot path) ----
+        //
+        // ClientCascade on ServiceSlotId: SQL Server error 1785 —
+        // Person → Assignment (Cascade) conflicts with
+        // Person → ServiceSlot (SetNull) → Assignment (Cascade).
         modelBuilder.Entity<Assignment>(b =>
         {
             b.HasIndex(a => new { a.PersonUserId, a.StartUtc });
@@ -353,7 +369,7 @@ public class ApplicationDbContext : IdentityDbContext<IdentityUser>
             b.HasOne(a => a.ServiceSlot)
                 .WithMany(s => s.Assignments)
                 .HasForeignKey(a => a.ServiceSlotId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.ClientCascade);
         });
 
         // ---- Arena (org-scoped, shared by all leagues in the org) ----
@@ -367,6 +383,10 @@ public class ApplicationDbContext : IdentityDbContext<IdentityUser>
         });
 
         // ---- Team (belongs to a league ministry) ----
+        //
+        // ClientSetNull on CoachPersonUserId: SQL Server error 1785 —
+        // Person → Team (SetNull) conflicts with
+        // Person → Ministry (SetNull) → Team (Cascade).
         modelBuilder.Entity<Team>(b =>
         {
             b.HasOne(t => t.Ministry)
@@ -376,11 +396,15 @@ public class ApplicationDbContext : IdentityDbContext<IdentityUser>
             b.HasOne(t => t.CoachPerson)
                 .WithMany()
                 .HasForeignKey(t => t.CoachPersonUserId)
-                .OnDelete(DeleteBehavior.SetNull);
+                .OnDelete(DeleteBehavior.ClientSetNull);
             b.HasIndex(t => new { t.MinistryId, t.Name }).IsUnique();
         });
 
         // ---- Player (roster row, may link to a parent Person) ----
+        //
+        // ClientSetNull on PrimaryContactPersonUserId: SQL Server error 1785 —
+        // Person → Player (SetNull) conflicts with
+        // Person → Ministry (SetNull) → Team (Cascade) → Player (Cascade).
         modelBuilder.Entity<Player>(b =>
         {
             b.HasOne(p => p.Team)
@@ -390,7 +414,7 @@ public class ApplicationDbContext : IdentityDbContext<IdentityUser>
             b.HasOne(p => p.PrimaryContactPerson)
                 .WithMany()
                 .HasForeignKey(p => p.PrimaryContactPersonUserId)
-                .OnDelete(DeleteBehavior.SetNull);
+                .OnDelete(DeleteBehavior.ClientSetNull);
             b.HasIndex(p => p.TeamId);
         });
 
