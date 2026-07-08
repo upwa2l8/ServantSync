@@ -119,7 +119,7 @@ properties:
             mountPath: /data               # matches SqliteBackupService's Backup__Directory
     scale:
       minReplicas: 0                      # required to keep idle cost at $0
-      maxReplicas: 3                      # cap on a low-traffic internal app
+      maxReplicas: 1                      # Round-ACA-1.10: SQLite on /data can't survive >1 concurrent cold-start (Azure Files SMB cross-pod lock races for __EFMigrationsLock -- see STATUS.md for full timeline)
     volumes:
       - name: servantsync-data
         storageName: servantsync-data     # MUST match the env-level storage registration
