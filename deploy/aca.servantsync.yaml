@@ -39,6 +39,25 @@ properties:
     ingress:
       external: true
       targetPort: 8080
+    # Secrets list: must declare explicitly so the deploy action's
+    # full PUT-yaml semantics don't wipe the smtp-password created in
+    # SETUP.md Step 5. The actual password value lives only in the
+    # Container App's secret store; this declaration just tells the
+    # ARM template "this secret exists". An empty `value:` is intent -- it
+    # maps the empty input to the existing live value, preserving
+    # roundtrip idempotency without ever carrying the password in git.
+    secrets:
+      - name: smtp-password
+        value: ""
+    # Registries: must declare explicitly so the deploy action's
+    # full PUT-yaml semantics don't blank the managed-identity config
+    # we set up in Round-ACA-1. With this block present, ACA pulls
+    # the new image using its system-assigned identity + AcrPull role
+    # rather than falling back to an empty `passwordSecretRef` (which
+    # is the symptom we measured before this fix).
+    registries:
+      - server: servantsyncacr.azurecr.io
+        identity: system
   template:
     containers:
       - name: servantsync                  # required; must match the existing container name
