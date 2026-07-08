@@ -111,30 +111,61 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Deploy to Azure Container Apps
-        # Round-ACA-1 fix: the high-level `azure/container-apps-deploy-action@v2`
-        # was silently dropping the `imageToDeploy` input on this repo's
-        # config, leaving the YAML's literal
-        # `PLACEHOLDER-OVERRIDDEN-BY-IMAGE-TO-DEPLOY-DO-NOT-RUN` string in
-        # place and az CLI refusing it with
-        # "could not parse reference: PLACEHOLDER-OVERRIDDEN-...".
-        # Switched to `azure/cli@v2` which calls
-        # `az containerapp update --yaml --image $IMAGE` explicitly -- the
-        # documented az override pattern. The bundled az is current (no
-        # version pin needed for our YAML syntax). The step still works
-        # through the OIDC federated login (az login --identity picks up
-        # the token that azure/login@v2 issued upstream), so no other
-        # workflow changes are required. This step has no `if:` so the
-        # Round-ACA-1 parse-error on the original step is irrelevant.
+        # Round-ACA-1 fix #2: `az containerapp update --yaml $YAML
+        # --image $IMAGE` does NOT actually override the YAML's image
+        # field on this version -- the YAML's literal `PLACEHOLDER-...`
+        # string is preserved verbatim and the API rejects it with
+        # "could not parse reference". The fix: render the YAML
+        # in-place via sed (substitute the placeholder with the runtime
+        # image tag), then `az containerapp update --yaml` on the
+        # rendered copy. The original azure/container-apps-deploy-action
+        # did this substitution internally; doing it ourselves here
+        # avoids the action's silent-drop bug while keeping deploy
+        # semantics clean. The YAML stays pristine in git; the rendered
+        # file lives only in /tmp for the duration of the step.
+        #
+        # Round-ACA-1 fix #3 (per prior reviewer): the step also waits
+        # for `provisioningState=Succeeded` (fail-fast on Failed) so the
+        # step's exit code reflects a fully-provisioned revision rather
+        # than an API-level PATCH success with provisioning still in
+        # flight. Up to ~5 min; the workflow concurrency lock cancels
+        # any pre-existing in-flight run before this one starts.
         uses: azure/cli@v2
+        env:
+          IMAGE_TAG: ${{ secrets.ACR_NAME }}.azurecr.io/servantsync:${{ github.sha }}
         with:
           azcliversion: latest
           inlineScript: |
+            # 1. Render the YAML: substitute the literal placeholder
+            #    with the runtime image tag.
+            sed 's|PLACEHOLDER-OVERRIDDEN-BY-IMAGE-TO-DEPLOY-DO-NOT-RUN|'"$IMAGE_TAG"'|g' \
+              deploy/aca.servantsync.yaml > /tmp/aca.rendered.yaml
+            # 2. Apply the rendered YAML. The image now lives inside the
+            #    YAML, so no --image flag is needed (and per fix #2,
+            #    passing both --yaml and --image was losing the override).
             az containerapp update \
               --name "${{ secrets.ACA_NAME }}" \
               --resource-group "${{ secrets.AZURE_RG }}" \
-              --yaml deploy/aca.servantsync.yaml \
-              --image "${{ secrets.ACR_NAME }}.azurecr.io/servantsync:${{ github.sha }}" \
+              --yaml /tmp/aca.rendered.yaml \
               --output none
+            # 3. Wait for provisioningState=Succeeded / fail-fast on Failed.
+            for i in $(seq 1 30); do
+              STATE=$(az containerapp show \
+                --name "${{ secrets.ACA_NAME }}" \
+                --resource-group "${{ secrets.AZURE_RG }}" \
+                --query properties.provisioningState -o tsv)
+              if [ "$STATE" = "Succeeded" ]; then
+                echo "provisioningState=Succeeded after $((i*10))s ok"
+                exit 0
+              fi
+              if [ "$STATE" = "Failed" ] || [ "$STATE" = "Error" ]; then
+                echo "provisioningState=$STATE after $((i*10))s -- aborting"
+                exit 1
+              fi
+              sleep 10
+            done
+            echo "TIMEOUT: provisioningState did not reach Succeeded in 5 min"
+            exit 1
 
       - name: Smoke-check (optional)
         # If the deploy sponsor supplies a smoke URL, GET it; otherwise skip.
