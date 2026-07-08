@@ -82,7 +82,7 @@ properties:
 
           # --- SQLite database (lives on the /data Azure Files share) ---
           - name: ConnectionStrings__DefaultConnection
-            value: "Data Source=/data/servantsync.db;Pooling=False"   # Round-ACA-1.12: release SMB file handle between connections (avoids a dying pod's pool blocking the next revision's MigrateAsync)
+            value: "Data Source=/data/servantsync.db"   # Round-ACA-1.14: revert ;Pooling=False from Round-ACA-1.12 -- forcing fresh handles per call worsened the EF Core 9 __EFMigrationsLock cross-connection deadlock; default Pooling=True keeps a single SqliteConnection reused across migration steps.
 
           # --- Periodic VACUUM INTO backup (SqliteBackupService) ---
           - name: Backup__Enabled
