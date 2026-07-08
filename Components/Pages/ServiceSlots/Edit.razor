@@ -5,6 +5,24 @@
 
 <PageTitle>@(_isNew ? "New service slot" : "Edit slot")</PageTitle>
 
+<nav aria-label="breadcrumb" class="mb-2">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="">Home</a></li>
+        <li class="breadcrumb-item"><a href="Organizations">Organizations</a></li>
+        <li class="breadcrumb-item"><a href="@($"Organizations/{OrgId}")">Org #{OrgId}</a></li>
+        <li class="breadcrumb-item"><a href="@($"Organizations/{OrgId}/Ministries/{MinId}")">Ministry #{MinId}</a></li>
+        @if (_isNew)
+        {
+            <li class="breadcrumb-item active" aria-current="page">New slot</li>
+        }
+        else
+        {
+            <li class="breadcrumb-item"><a href="@($"Organizations/{OrgId}/Ministries/{MinId}/Roles/{Id}")">Slot #{Id}</a></li>
+            <li class="breadcrumb-item active" aria-current="page">Edit</li>
+        }
+    </ol>
+</nav>
+
 <h1>@(_isNew ? "New service slot" : "Edit service slot")</h1>
 <StatusMessage Message="@_message" IsError="@_isError" />
 

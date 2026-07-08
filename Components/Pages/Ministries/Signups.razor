@@ -4,6 +4,16 @@
 
 <PageTitle>Signups · @(_ministry?.Name ?? "Ministry")</PageTitle>
 
+<nav aria-label="breadcrumb" class="mb-2">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="">Home</a></li>
+        <li class="breadcrumb-item"><a href="Organizations">Organizations</a></li>
+        <li class="breadcrumb-item"><a href="@($"Organizations/{OrgId}")">Org #{OrgId}</a></li>
+        <li class="breadcrumb-item"><a href="@($"Organizations/{OrgId}/Ministries/{Id}")">@(_ministry?.Name ?? $"Ministry #{Id}")</a></li>
+        <li class="breadcrumb-item active" aria-current="page">Signups</li>
+    </ol>
+</nav>
+
 @if (!_hasLoaded)
 {
     <p><em>Loading…</em></p>

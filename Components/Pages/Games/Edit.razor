@@ -5,6 +5,15 @@
 
 <PageTitle>@(_isNew ? "New game" : "Edit game")</PageTitle>
 
+<nav aria-label="breadcrumb" class="mb-2">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="">Home</a></li>
+        <li class="breadcrumb-item"><a href="Leagues">Leagues</a></li>
+        <li class="breadcrumb-item"><a href="@($"Leagues/{_resolvedMinistryId}")">@(_ministry?.Name ?? "League")</a></li>
+        <li class="breadcrumb-item active" aria-current="page">@(_isNew ? "New game" : "Edit game")</li>
+    </ol>
+</nav>
+
 <h1>@(_isNew ? "Schedule a new game" : "Edit game")</h1>
 <StatusMessage Message="@_message" IsError="@_isError" />
 

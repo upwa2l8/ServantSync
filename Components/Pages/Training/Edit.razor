@@ -5,6 +5,22 @@
 
 <PageTitle>@(_isNew ? "New training" : $"Edit · {_model.Title}")</PageTitle>
 
+<nav aria-label="breadcrumb" class="mb-2">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="">Home</a></li>
+        <li class="breadcrumb-item"><a href="Training/Manage">Training catalog</a></li>
+        @if (_isNew)
+        {
+            <li class="breadcrumb-item active" aria-current="page">New training</li>
+        }
+        else
+        {
+            <li class="breadcrumb-item"><a href="@($"Training/{Id}")">@_model.Title</a></li>
+            <li class="breadcrumb-item active" aria-current="page">Edit</li>
+        }
+    </ol>
+</nav>
+
 <h1>@(_isNew ? "New training content" : "Edit training content")</h1>
 <StatusMessage Message="@_message" IsError="@_isError" />
 

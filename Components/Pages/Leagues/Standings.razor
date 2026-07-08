@@ -4,6 +4,15 @@
 
 <PageTitle>Standings · @(_ministry?.Name ?? "League")</PageTitle>
 
+<nav aria-label="breadcrumb" class="mb-2">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="">Home</a></li>
+        <li class="breadcrumb-item"><a href="Leagues">Leagues</a></li>
+        <li class="breadcrumb-item"><a href="@($"Leagues/{MinistryId}")">@(_ministry?.Name ?? $"League #{MinistryId}")</a></li>
+        <li class="breadcrumb-item active" aria-current="page">Standings</li>
+    </ol>
+</nav>
+
 <div class="d-flex justify-content-between align-items-center mb-3">
     <div>
         <h1 class="mb-0">Standings</h1>

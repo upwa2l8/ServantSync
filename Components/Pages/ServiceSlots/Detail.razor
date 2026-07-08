@@ -4,6 +4,16 @@
 
 <PageTitle>@(_slot?.Name ?? "Service slot")</PageTitle>
 
+<nav aria-label="breadcrumb" class="mb-2">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="">Home</a></li>
+        <li class="breadcrumb-item"><a href="Organizations">Organizations</a></li>
+        <li class="breadcrumb-item"><a href="@($"Organizations/{OrgId}")">Org #{OrgId}</a></li>
+        <li class="breadcrumb-item"><a href="@($"Organizations/{OrgId}/Ministries/{MinId}")">Ministry #{MinId}</a></li>
+        <li class="breadcrumb-item active" aria-current="page">@(_slot?.Name ?? $"Slot #{Id}")</li>
+    </ol>
+</nav>
+
 @if (_slot is null)
 {
     <p><em>Loading…</em></p>

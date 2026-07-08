@@ -4,6 +4,15 @@
 
 <PageTitle>New team · @(_ministry?.Name ?? "League")</PageTitle>
 
+<nav aria-label="breadcrumb" class="mb-2">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="">Home</a></li>
+        <li class="breadcrumb-item"><a href="Leagues">Leagues</a></li>
+        <li class="breadcrumb-item"><a href="@($"/Leagues/{MinistryId}")">@(_ministry?.Name ?? $"League #{MinistryId}")</a></li>
+        <li class="breadcrumb-item active" aria-current="page">New team</li>
+    </ol>
+</nav>
+
 <h1>New team</h1>
 <p class="text-muted small">
     On <strong>@(_ministry?.Name ?? "league")</strong> ·

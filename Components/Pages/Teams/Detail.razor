@@ -4,6 +4,18 @@
 
 <PageTitle>@(_team?.Name ?? "Team")</PageTitle>
 
+<nav aria-label="breadcrumb" class="mb-2">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="">Home</a></li>
+        <li class="breadcrumb-item"><a href="Leagues">Leagues</a></li>
+        @if (_team is not null)
+        {
+            <li class="breadcrumb-item"><a href="@($"Leagues/{_team.MinistryId}")">@(_team.Ministry?.Name ?? "League")</a></li>
+        }
+        <li class="breadcrumb-item active" aria-current="page">@(_team?.Name ?? $"Team #{TeamId}")</li>
+    </ol>
+</nav>
+
 @if (_team is null)
 {
     <p><em>Loading…</em></p>

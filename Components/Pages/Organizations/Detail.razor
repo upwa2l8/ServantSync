@@ -12,6 +12,14 @@
 
 <PageTitle>@(_org?.Name ?? "Organization")</PageTitle>
 
+<nav aria-label="breadcrumb" class="mb-2">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="">Home</a></li>
+        <li class="breadcrumb-item"><a href="Organizations">Organizations</a></li>
+        <li class="breadcrumb-item active" aria-current="page">@(_org?.Name ?? $"Org #{Id}")</li>
+    </ol>
+</nav>
+
 @if (!_hasLoaded)
 {
     <p><em>Loading…</em></p>

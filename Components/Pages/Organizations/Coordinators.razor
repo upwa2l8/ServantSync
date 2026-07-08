@@ -4,6 +4,15 @@
 
 <PageTitle>Coordinators · @(_orgName ?? "Organization")</PageTitle>
 
+<nav aria-label="breadcrumb" class="mb-2">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="">Home</a></li>
+        <li class="breadcrumb-item"><a href="Organizations">Organizations</a></li>
+        <li class="breadcrumb-item"><a href="@($"Organizations/{Id}")">@(_orgName ?? $"Org #{Id}")</a></li>
+        <li class="breadcrumb-item active" aria-current="page">Manage coordinators</li>
+    </ol>
+</nav>
+
 <h1>Coordinator dashboard</h1>
 <p class="text-muted">
     Manage who coordinates every volunteer opportunity in

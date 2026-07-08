@@ -4,6 +4,15 @@
 
 <PageTitle>Parents &middot; @(_team?.Name ?? "Team")</PageTitle>
 
+<nav aria-label="breadcrumb" class="mb-2">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="">Home</a></li>
+        <li class="breadcrumb-item"><a href="Leagues">Leagues</a></li>
+        <li class="breadcrumb-item"><a href="@($"Teams/{TeamId}")">@(_team?.Name ?? $"Team #{TeamId}")</a></li>
+        <li class="breadcrumb-item active" aria-current="page">Parents</li>
+    </ol>
+</nav>
+
 @if (!_hasLoaded)
 {
     <p><em>Loading…</em></p>

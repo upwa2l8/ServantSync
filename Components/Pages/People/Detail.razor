@@ -4,6 +4,21 @@
 
 <PageTitle>@(_person?.DisplayName ?? "Volunteer")</PageTitle>
 
+<nav aria-label="breadcrumb" class="mb-2">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="">Home</a></li>
+        @if (_canView && _person is not null)
+        {
+            <li class="breadcrumb-item"><a href="People">Volunteers</a></li>
+            <li class="breadcrumb-item active" aria-current="page">@_person.DisplayName</li>
+        }
+        else
+        {
+            <li class="breadcrumb-item active" aria-current="page">Volunteer</li>
+        }
+    </ol>
+</nav>
+
 @if (!_hasLoaded)
 {
     <p><em>Loading…</em></p>

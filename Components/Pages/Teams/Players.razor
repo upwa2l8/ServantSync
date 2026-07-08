@@ -5,6 +5,15 @@
 
 <PageTitle>@(_isNew ? "New player" : "Edit player")</PageTitle>
 
+<nav aria-label="breadcrumb" class="mb-2">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="">Home</a></li>
+        <li class="breadcrumb-item"><a href="Leagues">Leagues</a></li>
+        <li class="breadcrumb-item"><a href="@($"Teams/{TeamId}")">@(_team?.Name ?? $"Team #{TeamId}")</a></li>
+        <li class="breadcrumb-item active" aria-current="page">@(_isNew ? "New player" : "Edit player")</li>
+    </ol>
+</nav>
+
 <h1>@(_isNew ? "New player" : "Edit player")</h1>
 <StatusMessage Message="@_message" IsError="@_isError" />
 

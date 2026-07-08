@@ -4,6 +4,18 @@
 
 <PageTitle>@(_game is null ? "Game" : $"{_game.HomeTeam.Name} vs {_game.AwayTeam.Name}")</PageTitle>
 
+<nav aria-label="breadcrumb" class="mb-2">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="">Home</a></li>
+        <li class="breadcrumb-item"><a href="Leagues">Leagues</a></li>
+        @if (_game is not null)
+        {
+            <li class="breadcrumb-item"><a href="@($"Leagues/{_game.MinistryId}")">@(_game.Ministry?.Name ?? "League")</a></li>
+        }
+        <li class="breadcrumb-item active" aria-current="page">@(_game is null ? $"Game #{GameId}" : $"{_game.HomeTeam.Name} vs {_game.AwayTeam.Name}")</li>
+    </ol>
+</nav>
+
 @if (_game is null)
 {
     <p><em>Loading…</em></p>

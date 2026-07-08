@@ -4,6 +4,14 @@
 
 <PageTitle>@(_content?.Title ?? "Training")</PageTitle>
 
+<nav aria-label="breadcrumb" class="mb-2">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="">Home</a></li>
+        <li class="breadcrumb-item"><a href="Training">My training</a></li>
+        <li class="breadcrumb-item active" aria-current="page">@(_content?.Title ?? $"Training #{Id}")</li>
+    </ol>
+</nav>
+
 @if (_content is null)
 {
     <p><em>Loading…</em></p>

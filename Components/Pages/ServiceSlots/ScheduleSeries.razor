@@ -4,6 +4,17 @@
 
 <PageTitle>Schedule series · @(_slot?.Name ?? "Slot")</PageTitle>
 
+<nav aria-label="breadcrumb" class="mb-2">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="">Home</a></li>
+        <li class="breadcrumb-item"><a href="Organizations">Organizations</a></li>
+        <li class="breadcrumb-item"><a href="@($"Organizations/{OrgId}")">Org #{OrgId}</a></li>
+        <li class="breadcrumb-item"><a href="@($"Organizations/{OrgId}/Ministries/{MinId}")">Ministry #{MinId}</a></li>
+        <li class="breadcrumb-item"><a href="@($"Organizations/{OrgId}/Ministries/{MinId}/Roles/{Id}")">@(_slot?.Name ?? $"Slot #{Id}")</a></li>
+        <li class="breadcrumb-item active" aria-current="page">Schedule series</li>
+    </ol>
+</nav>
+
 @if (_slot is null)
 {
     <p><em>Loading…</em></p>
