@@ -54,20 +54,23 @@ RUN dotnet publish ./ServantSync.csproj -c Release -o /app/publish \
     && find /app/publish -name "*.pdb" -type f -delete
 
 FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS runtime
-WORKDIR /app
-
-# Copy only the published output from the build stage. The runtime
-# base image already has the .NET 9 ASP.NET Core runtime installed.
-COPY --from=build /app/publish .
 
 # Microsoft.Data.SqlClient (EF Core SQL Server provider) needs
 # libgssapi-krb5-2 for GSSAPI/Kerberos initialization. The .NET 9
 # aspnet base image stripped this package to reduce image size;
 # SqlClient crashes with SIGSEGV (exit 139) instead of a graceful
-# exception when the library is missing.
+# exception when the library is missing. MUST be first RUN in the
+# runtime stage — placing it after COPY from the build stage allows
+# Docker layer caching to skip it.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends libgssapi-krb5-2 \
     && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy only the published output from the build stage. The runtime
+# base image already has the .NET 9 ASP.NET Core runtime installed.
+COPY --from=build /app/publish .
 
 # Set up the uploads symlink. The /data volume is mounted by Azure
 # Container Apps at runtime (see SETUP.md "Mount the Azure Files
