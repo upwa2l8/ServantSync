@@ -19,13 +19,10 @@
     the sign-up button so the coordinator can route you to the right content.
 </p>
 
-@* Filter pill: "My ministries" default-narrows to the user's
-   MinistryInterest rows; "All my orgs" widens the listing. The choice
-   re-runs the underlying ListOpenSlotOccurrencesAsync through Reload
-   (no full page reload — the signalR circuit stays live so the
-   pill-segment stays interactive). When the user has 0 joined
-   ministries, "My ministries" still renders but the empty-state CTA
-   shows up below. *@
+@* Filter pill: "My ministries" narrows to the user's MinistryInterest
+   rows; "All ministries" shows every open shift across all orgs the user
+   belongs to. For non-joined ministries, a "Join and sign up" button lets
+   the volunteer join the ministry and claim the shift in one action. *@
 @if (_userIdPresent && _hasMembership && !_loading)
 {
     <div class="d-flex justify-content-between align-items-center mb-3">
@@ -40,7 +37,7 @@
                     class="btn btn-sm @(_showOnlyJoined ? "btn-outline-primary" : "btn-primary")"
                     @onclick="() => SetShowOnlyJoined(false)"
                     title="Show every open shift across every ministry in your organizations">
-                All my orgs
+                All ministries
             </button>
         </div>
         @if (_joinedMinistryIds.Count > 0)
@@ -83,11 +80,11 @@ else if (_showOnlyJoined && _joinedMinistryIds.Count == 0)
     <div class="alert alert-info">
         <h6 class="alert-heading mb-2">You haven't joined any ministries yet</h6>
         <p class="mb-2">
-            You're filtering to your followed ministries, but you haven't followed any. Switch to <strong>All my orgs</strong> to see everything, or pick a few ministries from your organizations.
+            You're filtering to your followed ministries, but you haven't followed any. Switch to <strong>All ministries</strong> to see everything, or pick a few ministries from your organizations.
         </p>
         <a class="btn btn-primary btn-sm" href="/">Pick ministries to follow</a>
         <button class="btn btn-outline-secondary btn-sm ms-2" type="button" @onclick="() => SetShowOnlyJoined(false)">
-            Switch to All my orgs
+            Switch to All ministries
         </button>
     </div>
 }
@@ -154,13 +151,26 @@ else
                         }
                     </div>
                     <div class="card-footer bg-transparent border-0 pt-0">
-                        <button class="btn btn-primary w-100"
-                                disabled="@(!s.TrainingCompliant || _busyId == s.OccurrenceId)"
-                                @onclick="() => SignUp(s)">
-                            @(_busyId == s.OccurrenceId
-                                ? "Signing up\u2026"
-                                : (s.TrainingCompliant ? "Sign up" : "Update training to sign up"))
-                        </button>
+                        @if (!_joinedMinistryIds.Contains(s.MinistryId))
+                        {
+                            <button class="btn btn-outline-primary w-100"
+                                    disabled="@(!s.TrainingCompliant || _busyId == s.OccurrenceId)"
+                                    @onclick="() => JoinAndSignUp(s)">
+                                @(_busyId == s.OccurrenceId
+                                    ? "Joining\u2026"
+                                    : (s.TrainingCompliant ? "Join ministry and sign up" : "Update training to sign up"))
+                            </button>
+                        }
+                        else
+                        {
+                            <button class="btn btn-primary w-100"
+                                    disabled="@(!s.TrainingCompliant || _busyId == s.OccurrenceId)"
+                                    @onclick="() => SignUp(s)">
+                                @(_busyId == s.OccurrenceId
+                                    ? "Signing up\u2026"
+                                    : (s.TrainingCompliant ? "Sign up" : "Update training to sign up"))
+                            </button>
+                        }
                         @if (_lastResult is not null && _lastResult.Id == s.OccurrenceId)
                         {
                             <div class="alert @(_lastResult.Succeeded ? "alert-success" : "alert-danger") py-2 small mt-2 mb-0">
@@ -321,6 +331,41 @@ else
             {
                 _lastResult = new SignupResult(s.OccurrenceId, true,
                     $"You're signed up for {s.SlotName} on {s.StartUtc:ddd, MMM d h:mm tt}.");
+                await Reload();
+            }
+            else
+            {
+                var why = result.Conflicts.FirstOrDefault() ?? result.MissingTrainings.FirstOrDefault()
+                    ?? "Unable to sign up.";
+                _lastResult = new SignupResult(s.OccurrenceId, false, why);
+            }
+        }
+        finally
+        {
+            _busyId = 0;
+        }
+    }
+
+    private async Task JoinAndSignUp(OpenSlotOccurrenceView s)
+    {
+        if (string.IsNullOrEmpty(_userId)) return;
+        _busyId = s.OccurrenceId;
+        _lastResult = null;
+        try
+        {
+            var joinResult = await MinistryInterest.JoinAsync(_userId, _userId, s.MinistryId);
+            if (joinResult is MinistryInterestJoinResult.PermissionDenied or MinistryInterestJoinResult.MinistryNotFound)
+            {
+                _lastResult = new SignupResult(s.OccurrenceId, false,
+                    "Couldn't join this ministry. You may not be a member of its organization.");
+                return;
+            }
+            // Now sign up for the shift.
+            var result = await AssignmentService.AssignAsync(_userId, s.ServiceSlotId, s.StartUtc, s.EndUtc);
+            if (result.Succeeded)
+            {
+                _lastResult = new SignupResult(s.OccurrenceId, true,
+                    $"You joined {s.MinistryName} and signed up for {s.SlotName} on {s.StartUtc:ddd, MMM d h:mm tt}.");
                 await Reload();
             }
             else

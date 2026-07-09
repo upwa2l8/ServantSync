@@ -44,17 +44,11 @@ else
     <div class="row g-2 mb-3">
         <div class="col-md-4">
             <label class="form-label small text-muted">Scope</label>
-            <div class="btn-group btn-group-sm d-block" role="group" aria-label="Scope">
-                <button type="button" class="btn @(_scope == ScopeMode.Mine ? "btn-primary" : "btn-outline-primary")"
-                        @onclick="async () => { _scope = ScopeMode.Mine; await Reload(); }">
-                    My assignments
-                </button>
-                <button type="button" class="btn @(_scope == ScopeMode.Org ? "btn-primary" : "btn-outline-primary")"
-                        @onclick="async () => { _scope = ScopeMode.Org; await Reload(); }"
-                        disabled="@(_myOrgIds.Count == 0)"
-                        title="@(_myOrgIds.Count == 0 ? "You're not a member of any organization yet." : "Show every assignment in any of your organizations.")">
-                    All in my orgs (@_myOrgIds.Count)
-                </button>
+            <div class="d-flex gap-2">
+                <span class="badge bg-primary">My assignments</span>
+                <a class="btn btn-sm btn-outline-primary" href="Open">
+                    Browse open slots
+                </a>
             </div>
         </div>
         <div class="col-md-5">
@@ -72,14 +66,6 @@ else
             </div>
         </div>
     </div>
-
-    @if (_scope == ScopeMode.Org && _myOrgIds.Count > 0)
-    {
-        <div class="alert alert-info py-2 small">
-            Showing assignments for every member of @_myOrgIds.Count organization@(_myOrgIds.Count == 1 ? "" : "s")
-            you're part of. This helps you see what other volunteers are doing in case you need to swap.
-        </div>
-    }
 
     @if (_view == ViewMode.Calendar)
     {
@@ -284,11 +270,9 @@ else
 @inject AuthenticationStateProvider Auth
 @code {
     private enum ViewMode { List, Calendar }
-    private enum ScopeMode { Mine, Org }
 
     private bool _loading = true;
     private ViewMode _view = ViewMode.List;
-    private ScopeMode _scope = ScopeMode.Mine;
     private string? _userId;
     private List<int> _myOrgIds = new();
     private DateTime _fromUtc = DateTime.UtcNow;
@@ -325,7 +309,6 @@ else
     {
         get
         {
-            var scope = _scope == ScopeMode.Org ? "org" : "mine";
             var days = Math.Clamp((int)Math.Round((_toUtc - _fromUtc).TotalDays), 1, 365);
             // "All" range (365d, DateTime.MaxValue, or anything > 360d) is
             // collapsed to 90 days for the feed. The visible chip is
@@ -333,7 +316,7 @@ else
             // control. The substitution is announced to the user via the
             // "Feed: last 90 days" badge above and the SubscribeTooltip.
             if (days >= 360) days = 90;
-            return $"/MySchedule/ics?scope={scope}&days={days}";
+            return $"/MySchedule/ics?scope=mine&days={days}";
         }
     }
 
@@ -395,23 +378,13 @@ else
                 .Distinct()
                 .ToListAsync();
 
-            IQueryable<Assignment> query = db.Assignments
+            _assignments = await db.Assignments
                 .Include(a => a.Person)
                 .Include(a => a.ServiceSlot).ThenInclude(s => s.Ministry)
-                .Where(a => a.StartUtc >= _fromUtc
+                .Where(a => a.PersonUserId == _userId
+                    && a.StartUtc >= _fromUtc
                     && a.StartUtc < _toUtc
-                    && a.Status != AssignmentStatus.Cancelled);
-
-            query = _scope switch
-            {
-                ScopeMode.Mine => query.Where(a => a.PersonUserId == _userId),
-                ScopeMode.Org  => _myOrgIds.Count == 0
-                    ? query.Where(a => false)
-                    : query.Where(a => _myOrgIds.Contains(a.ServiceSlot.Ministry.OrganizationId)),
-                _              => query,
-            };
-
-            _assignments = await query
+                    && a.Status != AssignmentStatus.Cancelled)
                 .OrderBy(a => a.StartUtc)
                 .AsNoTracking()
                 .ToListAsync();
@@ -455,9 +428,7 @@ else
                 Id = a.Id,
                 StartUtc = a.StartUtc,
                 EndUtc = a.EndUtc,
-                Title = _scope == ScopeMode.Mine
-                    ? $"{a.ServiceSlot.Ministry.Name} · {a.ServiceSlot.Name}"
-                    : $"{a.Person.DisplayName} · {a.ServiceSlot.Name}",
+                Title = $"{a.ServiceSlot.Ministry.Name} · {a.ServiceSlot.Name}",
                 Subtitle = a.ServiceSlot.Ministry.Name,
                 Location = a.ServiceSlot.Location,
                 Status = a.Status.ToString(),
