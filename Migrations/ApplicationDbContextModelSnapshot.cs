@@ -781,6 +781,43 @@ namespace ServantSync.Migrations
                     b.ToTable("SlotDocuments");
                 });
 
+            modelBuilder.Entity("ServantSync.Models.SlotInterest", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("PersonUserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<int>("ServiceSlotId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Source")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("SubscribedUtc")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PersonUserId");
+
+                    b.HasIndex("ServiceSlotId");
+
+                    b.HasIndex("PersonUserId", "ServiceSlotId")
+                        .IsUnique();
+
+                    b.ToTable("SlotInterests");
+                });
+
             modelBuilder.Entity("ServantSync.Models.SlotOccurrence", b =>
                 {
                     b.Property<int>("Id")
@@ -1427,6 +1464,25 @@ namespace ServantSync.Migrations
                     b.Navigation("ServiceSlot");
 
                     b.Navigation("UploadedByPerson");
+                });
+
+            modelBuilder.Entity("ServantSync.Models.SlotInterest", b =>
+                {
+                    b.HasOne("ServantSync.Models.Person", "Person")
+                        .WithMany()
+                        .HasForeignKey("PersonUserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("ServantSync.Models.ServiceSlot", "ServiceSlot")
+                        .WithMany()
+                        .HasForeignKey("ServiceSlotId")
+                        .OnDelete(DeleteBehavior.ClientCascade)
+                        .IsRequired();
+
+                    b.Navigation("Person");
+
+                    b.Navigation("ServiceSlot");
                 });
 
             modelBuilder.Entity("ServantSync.Models.SlotOccurrence", b =>
