@@ -484,7 +484,21 @@ else
                asked for ("coordinator or administrator"). *@
             @if (_isOrgManager)
             {
-                <h6>Org-wide training required for every volunteer</h6>
+                @* FR-6 counts widget: mirrors the DueSoon page-header badge
+                   so "N at-risk" is visible on both surfaces. The widget is
+                   a clickable quick-link to the full grid (drills into
+                   per-person × per-requirement detail). Color bucket:
+                   red if any overdue, yellow if only due-in-30, green if
+                   zero. *@
+                <div class="d-flex justify-content-between align-items-end mb-2">
+                    <h6 class="mb-0">Org-wide training required for every volunteer</h6>
+                    @if (_duesoonCounts is not null)
+                    {
+                        <a class="badge @(DueSoonBadgeClass()) fs-6 text-decoration-none"
+                           href="@($"Organizations/{Id}/Training/DueSoon")"
+                           title="@DueSoonBadgeTooltip()">@DueSoonBadgeText()</a>
+                    }
+                </div>
                 <OrgTrainingEditor OrganizationId="Id" />
                 @* Round-FR-2.3 entry point: a sibling link to the
                    in-person scheduled sessions list for THIS org. The
@@ -519,6 +533,7 @@ else
    to the dedicated page; reload fires alongside the real-members
    Reload() in OnInitialized. *@
 @inject IPersonService People
+@inject ITrainingDueSoonService DueSoonSvc
 @code {
     [Parameter] public int Id { get; set; }
     private Organization? _org;
@@ -536,6 +551,11 @@ else
     // happens at render time (OrderBy(...).Take(5)) so the cache stays
     // a single POST-shape.
     private List<StubListItem>? _stubPreview;
+    // FR-6 counts widget cache: populated in Reload() when _isOrgManager
+    // is true (gate matches DueSoon page). Cached here so the same
+    // _duesoonCounts shape drives the page-header counts badge without
+    // a second round-trip. Null transiently while loading.
+    private TrainingDueSoonCounts? _duesoonCounts;
     // Admin-only. ALL membership writes (add/promote/demote/remove) and
     // administrative actions (add arena, add ministry) are gated on this.
     // MemberManagementService / ArenaService / OrganizationMinistryService
@@ -699,6 +719,26 @@ else
         {
             _stubPreview = null;
         }
+        // FR-6 counts widget: same gate as the badge above. Service re-checks
+        // RBAC server-side; the local gate avoids a wasted round-trip for
+        // non-managers and keeps the cache populated for managers.
+        if (_isOrgManager && !string.IsNullOrEmpty(_userId))
+        {
+            try
+            {
+                _duesoonCounts = await DueSoonSvc.ListAtRiskCountsAsync(Id, _userId);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // Role was revoked mid-session — keep the tab usable; the
+                // DueSoon counts widget just hides itself.
+                _duesoonCounts = null;
+            }
+        }
+        else
+        {
+            _duesoonCounts = null;
+        }
     }
 
     private async Task AddArena()
@@ -856,5 +896,28 @@ else
         [StringLength(40)] public string? SurfaceType { get; set; }
         public int? Capacity { get; set; }
         public bool IsActive { get; set; } = true;
+    }
+
+    // --- FR-6 DueSoon badge helpers (parallel shape to DueSoon.razor) ---
+    private string DueSoonBadgeClass()
+    {
+        if (_duesoonCounts is null) return "bg-secondary";
+        if (_duesoonCounts.OverdueCount > 0) return "bg-danger";
+        if (_duesoonCounts.TotalAtRiskCount > 0) return "bg-warning text-dark";
+        return "bg-success";
+    }
+
+    private string DueSoonBadgeText()
+    {
+        if (_duesoonCounts is null) return string.Empty;
+        if (_duesoonCounts.OverdueCount > 0) return $"{_duesoonCounts.OverdueCount} overdue";
+        if (_duesoonCounts.TotalAtRiskCount > 0) return $"{_duesoonCounts.DueSoonCount} due soon";
+        return "No training due";
+    }
+
+    private string DueSoonBadgeTooltip()
+    {
+        if (_duesoonCounts is null) return string.Empty;
+        return $"Overdue: {_duesoonCounts.OverdueCount} · Due soon: {_duesoonCounts.DueSoonCount}";
     }
 }

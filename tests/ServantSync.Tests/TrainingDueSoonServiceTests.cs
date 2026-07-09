@@ -462,10 +462,14 @@ public class TrainingDueSoonServiceTests : SqliteTestBase
 
         var service = NewService();
         var rows = await service.ListAtRiskAsync(org.Id, TrainingDueSoonFilter.AllAtRisk, TrainingDueSoonSort.ByUrgency, admin.UserId);
-        Assert.Single(rows);
-        Assert.Equal(slot.Id, rows[0].SlotId);
-        Assert.Equal("Sunday Welcome Desk", rows[0].SlotName);
-        Assert.Equal("Slot · Sunday Welcome Desk", rows[0].RequirementScope);
+        Assert.Single(rows);            Assert.Equal(slot.Id, rows[0].SlotId);
+            Assert.Equal("Sunday Welcome Desk", rows[0].SlotName);
+            Assert.Equal("Slot · Sunday Welcome Desk", rows[0].RequirementScope);
+            // Round-FR-6 Razor layer: Razor needs MinistryId to build the
+            // /Organizations/{OrgId}/Ministries/{MinistryId}/Roles/{SlotId}
+            // deep-link. This pin catches a future regression that drops
+            // the capture from the service impl.
+            Assert.Equal(ministry.Id, rows[0].MinistryId);
     }
 
     // ──────────────────────────── Edge / empty ────────────────────────────

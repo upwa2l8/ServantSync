@@ -1,0 +1,523 @@
+@page "/Organizations/{OrgId:int}/Training/DueSoon"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@using System.Security.Claims
+@using Microsoft.EntityFrameworkCore
+@using ServantSync.Data
+
+<PageTitle>Training due soon · @(_org?.Name ?? "Organization")</PageTitle>
+
+<nav aria-label="breadcrumb" class="mb-2">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="">Home</a></li>
+        <li class="breadcrumb-item"><a href="Organizations">Organizations</a></li>
+        <li class="breadcrumb-item"><a href="@UrlOrg()">@(_org?.Name ?? $"Org #{OrgId}")</a></li>
+        <li class="breadcrumb-item active" aria-current="page">Training due soon</li>
+    </ol>
+</nav>
+
+@if (!_hasLoaded)
+{
+    @* SkeletonLoader's Size defaults to SkeletonSize.Medium — omit the
+       Size attribute (its enum binding rejects plain "md"). *@
+    <SkeletonLoader Columns="4" />
+}
+@* Check-order matters: test `_canView` BEFORE `_org is null`. An unauthorized
+   caller early-returns from OnInitializedAsync before `_org` is loaded,
+   so `_org` is null for both "not authorized" AND "no such org". Distinguish
+   the cases by checking RBAC first — an unauthorized user gets the more
+   helpful "Not authorized" panel, not the misleading "Organization not found". *@
+else if (!_canView)
+{
+    <div class="alert alert-warning mt-3">
+        <h4>Not authorized</h4>
+        <p>You don't have permission to view training statuses for this organization.</p>
+        <p class="mb-0 small">
+            Only organization <strong>Admins</strong> and <strong>Ministry Directors</strong>
+            of this org can see the due-soon grid. Your own training status is on
+            <a href="MySchedule">My schedule</a>.
+        </p>
+    </div>
+}
+else if (_org is null)
+{
+    <div class="alert alert-warning mt-3">
+        <h4>Organization not found</h4>
+        <p>No organization matches id <code>@OrgId</code>. Try the <a href="Organizations">organization list</a>.</p>
+    </div>
+}
+else
+{
+    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+        <div>
+            <h1 class="mb-0">Training due soon</h1>
+            <div class="text-muted">
+                @_org.Name · overdue + upcoming-within-30-days across every member × requirement.
+            </div>
+        </div>
+        <div class="d-flex gap-2 align-items-center">
+            @if (_counts is not null)
+            {
+                <span class="badge @BadgeClass() fs-6" title="@BadgeTooltip()">@BadgeText()</span>
+            }
+            <a class="btn btn-sm btn-outline-secondary" href="@UrlOrg()">Back to @_org.Name</a>
+        </div>
+    </div>
+
+    <div class="d-flex gap-2 align-items-center flex-wrap mb-3">
+        <div class="btn-group btn-group-sm" role="group" aria-label="Filter">
+            <button type="button"
+                    class="btn btn-outline-secondary @(_filter == TrainingDueSoonFilter.OverdueOnly ? "active" : "")"
+                    @onclick="() => SetFilter(TrainingDueSoonFilter.OverdueOnly)">
+                Overdue @FilterCount(_counts?.OverdueCount ?? 0)
+            </button>
+            <button type="button"
+                    class="btn btn-outline-secondary @(_filter == TrainingDueSoonFilter.DueIn30Days ? "active" : "")"
+                    @onclick="() => SetFilter(TrainingDueSoonFilter.DueIn30Days)">
+                Due in 30 days @FilterCount(_counts?.DueSoonCount ?? 0)
+            </button>
+            <button type="button"
+                    class="btn btn-outline-secondary @(_filter == TrainingDueSoonFilter.AllAtRisk ? "active" : "")"
+                    @onclick="() => SetFilter(TrainingDueSoonFilter.AllAtRisk)">
+                All at-risk @FilterCount(_counts?.TotalAtRiskCount ?? 0)
+            </button>
+            <button type="button"
+                    class="btn btn-outline-secondary @(_filter == TrainingDueSoonFilter.CompletedRecently ? "active" : "")"
+                    @onclick="() => SetFilter(TrainingDueSoonFilter.CompletedRecently)">
+                Completed recently
+            </button>
+        </div>
+        <div class="vr"></div>
+        <div class="btn-group btn-group-sm" role="group" aria-label="Sort">
+            <button type="button"
+                    class="btn btn-outline-secondary @(_sort == TrainingDueSoonSort.ByUrgency ? "active" : "")"
+                    @onclick="() => SetSort(TrainingDueSoonSort.ByUrgency)">
+                Most urgent first
+            </button>
+            <button type="button"
+                    class="btn btn-outline-secondary @(_sort == TrainingDueSoonSort.ByPersonName ? "active" : "")"
+                    @onclick="() => SetSort(TrainingDueSoonSort.ByPersonName)">
+                By person
+            </button>
+            <button type="button"
+                    class="btn btn-outline-secondary @(_sort == TrainingDueSoonSort.ByContentTitle ? "active" : "")"
+                    @onclick="() => SetSort(TrainingDueSoonSort.ByContentTitle)">
+                By training
+            </button>
+        </div>
+    </div>
+
+    @if (_rows.Count == 0)
+    {
+        <div class="alert alert-success">
+            <h4 class="alert-heading">No training due</h4>
+            <p class="mb-0">No members currently need training attention based on the selected filter.</p>
+        </div>
+    }
+    else
+    {
+        <div class="table-responsive">
+            <table class="table table-sm table-hover align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th>Person</th>
+                        <th>Requirement</th>
+                        <th>Scope</th>
+                        <th>Status</th>
+                        <th>Days</th>
+                        <th>Last completion</th>
+                        <th>Source</th>
+                        <th class="text-end">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var r in _rows)
+                    {
+                        <tr>
+                            <td>
+                                <a href="People/@r.PersonUserId">@r.PersonDisplayName</a>
+                                @if (r.IsStub)
+                                {
+                                    <span class="badge bg-secondary ms-1" title="Stub person — no login">stub</span>
+                                }
+                            </td>
+                            <td>
+                                <a href="Training/@r.TrainingContentId">@r.RequirementTitle</a>
+                                @if (!r.SlotId.HasValue)
+                                {
+                                    <span class="badge bg-light text-dark ms-1">org</span>
+                                }
+                            </td>
+                            <td>
+                                @if (r.SlotId.HasValue && r.MinistryId.HasValue && !string.IsNullOrEmpty(r.SlotName))
+                                {
+                                    <a href="@UrlSlot(r.MinistryId.Value, r.SlotId.Value)">Slot · @r.SlotName</a>
+                                }
+                                else
+                                {
+                                    <span class="text-muted small">Org-wide</span>
+                                }
+                            </td>
+                            <td>
+                                <span class="badge @StatusBadgeClass(r.Status)">@StatusLabel(r.Status)</span>
+                            </td>
+                            <td>
+                                @DaysLabel(r)
+                            </td>
+                            <td>
+                                @if (r.LastCompletionUtc is not null)
+                                {
+                                    <LocalTime Utc="r.LastCompletionUtc.Value" />
+                                }
+                                else
+                                {
+                                    <span class="text-muted small">—</span>
+                                }
+                            </td>
+                            <td>
+                                @if (r.CompletionSource.HasValue)
+                                {
+                                    <span class="badge bg-light text-dark" title="@CompletionSourceTip(r.CompletionSource.Value)">@CompletionSourceLabel(r.CompletionSource.Value)</span>
+                                }
+                                else
+                                {
+                                    <span class="text-muted small">—</span>
+                                }
+                            </td>
+                            <td class="text-end">
+                                <button type="button" class="btn btn-sm btn-outline-success"
+                                        @onclick="() => OpenMark(r)"
+                                        title="Mark this requirement complete">
+                                    Mark complete
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+
+    @* Mark-complete modal — REQUIRED notes per FR-2 Q5 audit-trail decision.
+       Deliberately no auto-close on success: the confirmation card carries
+       the completion source + marker + note so coordinators can verify
+       before dismissing — useful for manual coordinator marks (the only
+       scenario this grid exposes to coordinators). *@
+    @if (_markRow is not null)
+    {
+        <div class="modal show d-block" tabindex="-1" role="dialog" style="background: rgba(0,0,0,0.5);">
+            <div class="modal-dialog" role="document">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Mark training complete</h5>
+                        <button type="button" class="btn-close" aria-label="Close" @onclick="CloseMark" disabled="@_markSubmitting"></button>
+                    </div>
+                    <div class="modal-body">
+                        <dl class="row mb-3">
+                            <dt class="col-sm-4">Person</dt>
+                            <dd class="col-sm-8">@_markRow.PersonDisplayName</dd>
+                            <dt class="col-sm-4">Requirement</dt>
+                            <dd class="col-sm-8">@_markRow.RequirementTitle</dd>
+                            <dt class="col-sm-4">Status</dt>
+                            <dd class="col-sm-8">
+                                <span class="badge @StatusBadgeClass(_markRow.Status)">@StatusLabel(_markRow.Status)</span>
+                            </dd>
+                        </dl>
+                        <div class="mb-3">
+                            <label class="form-label" for="duesoon-mark-note">Notes (required for audit trail)</label>
+                            <textarea id="duesoon-mark-note" class="form-control" rows="3"
+                                      @bind="_markNote"
+                                      placeholder="What did the volunteer complete?"></textarea>
+                        </div>
+                        @if (!string.IsNullOrWhiteSpace(_markError))
+                        {
+                            <div class="alert alert-danger mb-0" role="alert">@_markError</div>
+                        }
+                        @if (_markResult is not null)
+                        {
+                            <div class="alert @MarkResultClass(_markResult.Value) mb-0" role="alert">
+                                <strong>@MarkResultHeading(_markResult.Value)</strong>
+                                @if (!string.IsNullOrEmpty(MarkResultDetail(_markResult.Value)))
+                                {
+                                    <div class="mt-2">@MarkResultDetail(_markResult.Value)</div>
+                                }
+                                @* Echo the note the coordinator just typed on
+                                   success — that's what landed in the audit
+                                   trail (the server stores `markerNotes` on
+                                   the TrainingCompletion row). *@
+                                @if (IsMarkSuccess(_markResult.Value))
+                                {
+                                    <div class="mt-2 pt-2 border-top"><strong>Audit note:</strong> @_markNote</div>
+                                }
+                            </div>
+                        }
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-outline-secondary" @onclick="CloseMark" disabled="@_markSubmitting">Close</button>
+                        <button type="button" class="btn btn-success" @onclick="SubmitMark" disabled="@(!CanSubmitMark)">
+                            @(_markSubmitting ? "Saving..." : "Mark complete")
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public int OrgId { get; set; }
+
+    // Field is `DueSoonSvc` — DO NOT rename to `DueSoon`!
+    // Razor derives the page class name from the file path
+    // (`Pages.Organizations.Training.DueSoon`); a `@inject` field
+    // sharing that name causes CS0542 "member names cannot be the
+    // same as their enclosing type".
+    [Inject] protected ITrainingDueSoonService DueSoonSvc { get; set; } = default!;
+    [Inject] protected ITrainingService TrainingSvc { get; set; } = default!;
+    [Inject] protected IOrgAuthService OrgAuth { get; set; } = default!;
+    // OrganizationService doesn't expose a single-row GetAsync(int);
+    // mirror Detail.razor's DbFactory pattern so this page just looks
+    // up `_org.Name` for the breadcrumb / page header.
+    [Inject] protected IDbContextFactory<ApplicationDbContext> DbFactory { get; set; } = default!;
+    [Inject] protected AuthenticationStateProvider AuthState { get; set; } = default!;
+
+    private bool _hasLoaded;
+    private bool _canView;
+    private Organization? _org;
+    private List<TrainingDueSoonRow> _rows = new();
+    private TrainingDueSoonCounts? _counts;
+    private TrainingDueSoonFilter _filter = TrainingDueSoonFilter.AllAtRisk;
+    private TrainingDueSoonSort _sort = TrainingDueSoonSort.ByUrgency;
+
+    private TrainingDueSoonRow? _markRow;
+    private string _markNote = string.Empty;
+    private string? _markError;
+    private bool _markSubmitting;
+    private TrainingCompletionResult? _markResult;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        // RBAC matrix (PLAN.md → Round-FR-6 Q1): Admin OR MinistryDirector
+        // in this org. SlotCoordinator is intentionally denied (slot scope
+        // is too narrow for a "what's due across my slots" aggregation).
+        // Volunteer sees their own status on /MySchedule. SystemAdmin not
+        // widened this round per spec Q8. The service layer is the trust
+        // boundary — it throws UnauthorizedAccessException on violations;
+        // this gate is the UX gate so we don't ship a flashing alert.
+        _canView = await IsAdminOrDirector();
+        if (!_canView)
+        {
+            _hasLoaded = true;
+            return;
+        }
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _org = await db.Organizations.FirstOrDefaultAsync(o => o.Id == OrgId);
+        if (_org is null)
+        {
+            _hasLoaded = true;
+            return;
+        }
+        await Reload();
+        _hasLoaded = true;
+    }
+
+    private async Task<bool> IsAdminOrDirector()
+    {
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        var userId = auth.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty;
+        // OrgAuth takes (string userId, int organizationId). The orgId
+        // is on this page as the route-bound [Parameter] OrgId.
+        return await OrgAuth.IsOrgAdminAsync(userId, OrgId)
+            || await OrgAuth.IsMinistryDirectorAsync(userId, OrgId);
+    }
+
+    private async Task Reload()
+    {
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        var callerId = auth.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty;
+        _rows = await DueSoonSvc.ListAtRiskAsync(OrgId, _filter, _sort, callerId);
+        _counts = await DueSoonSvc.ListAtRiskCountsAsync(OrgId, callerId);
+    }
+
+    private async Task SetFilter(TrainingDueSoonFilter filter)
+    {
+        if (_filter == filter) return;
+        _filter = filter;
+        await Reload();
+    }
+
+    private async Task SetSort(TrainingDueSoonSort sort)
+    {
+        if (_sort == sort) return;
+        _sort = sort;
+        await Reload();
+    }
+
+    private void OpenMark(TrainingDueSoonRow row)
+    {
+        _markRow = row;
+        _markNote = string.Empty;
+        _markError = null;
+        _markResult = null;
+    }
+
+    private async Task CloseMark()
+    {
+        if (_markSubmitting) return;
+        _markRow = null;
+        _markNote = string.Empty;
+        _markError = null;
+        _markResult = null;
+        await Reload();
+    }
+
+    private bool CanSubmitMark => !_markSubmitting
+        && !string.IsNullOrWhiteSpace(_markNote)
+        && _markRow is not null;
+
+    private async Task SubmitMark()
+    {
+        if (!CanSubmitMark || _markRow is null) return;
+        _markSubmitting = true;
+        _markError = null;
+        try
+        {
+            var auth = await AuthState.GetAuthenticationStateAsync();
+            var callerId = auth.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty;
+            _markResult = await TrainingSvc.MarkSingleCompleteAsync(
+                _markRow.TrainingContentId,
+                _markRow.PersonUserId,
+                callerId,
+                _markNote);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            _markError = "You don't have permission to mark this training complete.";
+        }
+        catch (Exception ex)
+        {
+            _markError = $"Couldn't mark complete: {ex.Message}";
+        }
+        finally
+        {
+            _markSubmitting = false;
+        }
+    }
+
+    // --- URL helpers (single-return helpers so Razor's attribute parser
+    // doesn't trip on complex inline `$"..."` interpolations) ---
+
+    private string UrlOrg() => $"Organizations/{OrgId}";
+
+    private string UrlSlot(int ministryId, int slotId) =>
+        $"Organizations/{OrgId}/Ministries/{ministryId}/Roles/{slotId}";
+
+    // --- Badge + label helpers (kept static where possible so they
+    // parallel the AssignmentStatusUi pattern) ---
+
+    private string BadgeClass()
+    {
+        if (_counts is null) return "bg-secondary";
+        if (_counts.OverdueCount > 0) return "bg-danger";
+        if (_counts.TotalAtRiskCount > 0) return "bg-warning text-dark";
+        return "bg-success";
+    }
+
+    private string BadgeText()
+    {
+        if (_counts is null) return string.Empty;
+        if (_counts.OverdueCount > 0) return $"{_counts.OverdueCount} overdue";
+        if (_counts.TotalAtRiskCount > 0) return $"{_counts.DueSoonCount} due soon";
+        return "No training due";
+    }
+
+    private string BadgeTooltip()
+    {
+        if (_counts is null) return string.Empty;
+        return $"Overdue: {_counts.OverdueCount} · Due soon: {_counts.DueSoonCount}";
+    }
+
+    private static string FilterCount(int n) => n > 0 ? $"({n})" : string.Empty;
+
+    private static string StatusBadgeClass(TrainingDueSoonStatus status) => status switch
+    {
+        TrainingDueSoonStatus.Overdue => "bg-danger",
+        TrainingDueSoonStatus.DueSoon => "bg-warning text-dark",
+        TrainingDueSoonStatus.Compliant => "bg-success",
+        TrainingDueSoonStatus.NotRequired => "bg-light text-dark",
+        _ => "bg-secondary"
+    };
+
+    private static string StatusLabel(TrainingDueSoonStatus status) => status switch
+    {
+        TrainingDueSoonStatus.Overdue => "Overdue",
+        TrainingDueSoonStatus.DueSoon => "Due soon",
+        TrainingDueSoonStatus.Compliant => "Compliant",
+        TrainingDueSoonStatus.NotRequired => "Not required",
+        _ => status.ToString()
+    };
+
+    private string DaysLabel(TrainingDueSoonRow r)
+    {
+        var d = r.DaysDelta ?? 0;
+        return d switch
+        {
+            < 0 => $"{Math.Abs(d)}d overdue",
+            0 => "due today",
+            var v => $"{v}d left"
+        };
+    }
+
+    private static string CompletionSourceLabel(TrainingCompletionSource src) => src switch
+    {
+        TrainingCompletionSource.UserOnline => "Volunteer online",
+        TrainingCompletionSource.CoordinatorManual => "Coordinator (batch)",
+        TrainingCompletionSource.CoordinatorManualSingle => "Coordinator (one-off)",
+        _ => src.ToString()
+    };
+
+    private static string CompletionSourceTip(TrainingCompletionSource src) => src switch
+    {
+        TrainingCompletionSource.UserOnline => "Marked by the volunteer via the training UI.",
+        TrainingCompletionSource.CoordinatorManual => "Marked by a coordinator via the bulk Mark-complete flow.",
+        TrainingCompletionSource.CoordinatorManualSingle => "Marked by a coordinator via the single-row mark-complete flow.",
+        _ => ""
+    };
+
+    // --- TrainingCompletionResult enum → (heading/class/detail) labels ---
+    // The service layer returns this enum (not a record) so the modal surfaces
+    // a specific failure reason rather than a global "couldn't mark complete".
+
+    private static bool IsMarkSuccess(TrainingCompletionResult r) =>
+        r is TrainingCompletionResult.Recorded or TrainingCompletionResult.ManualMarkRecorded;
+
+    private static string MarkResultClass(TrainingCompletionResult r) =>
+        IsMarkSuccess(r) ? "alert-success" : "alert-warning";
+
+    private static string MarkResultHeading(TrainingCompletionResult r) => r switch
+    {
+        TrainingCompletionResult.Recorded => "Marked complete.",
+        TrainingCompletionResult.ManualMarkRecorded => "Marked complete (manual coordinator mark).",
+        TrainingCompletionResult.NotInOrg => "Couldn't mark — person isn't a member of this organization.",
+        TrainingCompletionResult.ContentNotFound => "Couldn't mark — training content not found.",
+        TrainingCompletionResult.InsufficientEngagement => "Couldn't mark — additional engagement required first.",
+        TrainingCompletionResult.ManualMarkNotesRequired => "Couldn't mark — notes are required for manual marks.",
+        TrainingCompletionResult.ManualMarkPermissionDenied => "Couldn't mark — your role doesn't allow manual marks.",
+        _ => MarkResultFallback(r)
+    };
+
+    private static string MarkResultDetail(TrainingCompletionResult r) => r switch
+    {
+        TrainingCompletionResult.Recorded => "The completion was recorded against the volunteer's training record. The row will refresh on the next grid reload.",
+        TrainingCompletionResult.ManualMarkRecorded => "The completion was recorded as a manual coordinator mark (TrainingCompletionSource.CoordinatorManualSingle). The audit trail carries the note you typed.",
+        TrainingCompletionResult.NotInOrg => "Refresh the page and verify the volunteer still belongs to this org.",
+        TrainingCompletionResult.ContentNotFound => "The training content may have been removed since the page loaded.",
+        TrainingCompletionResult.InsufficientEngagement => "The volunteer needs to complete the underlying training content before this mark can be recorded.",
+        TrainingCompletionResult.ManualMarkNotesRequired => "Notes are mandatory for manual coordinator marks — re-open and add notes before resubmitting.",
+        TrainingCompletionResult.ManualMarkPermissionDenied => "Your role doesn't allow manual training completion marks. Ask an Admin to record it.",
+        _ => ""
+    };
+
+    private static string MarkResultFallback(TrainingCompletionResult r) => $"Couldn't mark — unexpected outcome: {r}.";
+}

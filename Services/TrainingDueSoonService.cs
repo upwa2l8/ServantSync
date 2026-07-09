@@ -248,10 +248,16 @@ public class TrainingDueSoonService : ITrainingDueSoonService
                 var daysDelta = ComputeDaysDelta(status, completion?.ExpiresUtc, now);
 
                 int? slotIdForReq = req.ServiceSlotId;
-                string? slotName = slotIdForReq.HasValue
-                    && slotInfo.TryGetValue(slotIdForReq.Value, out var s)
-                        ? s.Name
+                // Collapse to a single TryGetValue so MinistryId can be read
+                // off the same record the SlotName came from (saves one
+                // hash lookup per requirement, and keeps Name + MinistryId
+                // perfectly consistent — both come from the same row).
+                ServiceSlot? slotForReq = slotIdForReq.HasValue
+                    && slotInfo.TryGetValue(slotIdForReq.Value, out var srec)
+                        ? srec
                         : null;
+                string? slotName = slotForReq?.Name;
+                int? ministryIdForReq = slotForReq?.MinistryId;
                 var scope = req.OrganizationId.HasValue
                     ? "Org"
                     : slotName is not null
@@ -270,6 +276,7 @@ public class TrainingDueSoonService : ITrainingDueSoonService
                     RequirementScope = scope,
                     SlotId = slotIdForReq,
                     SlotName = slotName,
+                    MinistryId = ministryIdForReq,
                     LastCompletionUtc = completion?.CompletionUtc,
                     ExpiresUtc = completion?.ExpiresUtc,
                     CompletionSource = completion?.CompletionSource,

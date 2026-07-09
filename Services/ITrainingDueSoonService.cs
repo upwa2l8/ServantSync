@@ -36,9 +36,12 @@ public sealed class TrainingDueSoonRow
     public int TrainingContentId { get; set; }
     public string RequirementTitle { get; set; } = "";
     /// <summary>"Org" or "Slot · {SlotName}". Drives the muted small-text label in the grid table.</summary>
-    public string RequirementScope { get; set; } = "";
-    public int? SlotId { get; set; }
-    public string? SlotName { get; set; }
+    public string RequirementScope { get; set; } = "";        public int? SlotId { get; set; }
+        public string? SlotName { get; set; }
+        // Round-FR-6 Razor layer needs MinistryId so deep-links can hit
+        // /Organizations/{OrgId:int}/Ministries/{MinId:int}/Roles/{Id:int}.
+        // Without this the page would 404 on every slot-scoped row.
+        public int? MinistryId { get; set; }
     public DateTime? LastCompletionUtc { get; set; }
     public DateTime? ExpiresUtc { get; set; }
     public TrainingCompletionSource? CompletionSource { get; set; }
