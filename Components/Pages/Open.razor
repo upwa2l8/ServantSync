@@ -221,7 +221,8 @@ else
     private HashSet<int> _joinedMinistryIds = new();
     // Org picker: user's organization memberships (id + name) and the
     // currently selected org. 0 = "All organizations" (no org filter).
-    private record OrgItem(int Id, string Name);
+    // Public so EF Core can access the constructor during query projection.
+    public record OrgItem(int Id, string Name);
     private List<OrgItem> _orgs = new();
     private int _selectedOrgId;
     // Cached active ministry IDs for the currently selected org.
