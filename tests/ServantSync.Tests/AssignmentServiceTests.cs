@@ -14,7 +14,28 @@ namespace ServantSync.Tests;
 /// </summary>
 public class AssignmentServiceTests : SqliteTestBase
 {
-    private static readonly DateTime Now = new(2026, 7, 9, 14, 0, 0, DateTimeKind.Utc);
+    // Round-FR-8 fix: was previously `static readonly DateTime Now = new(2026, 7, 9, 14, 0, 0, UTC)`,
+    // which pinned test fixtures to a date that has since drifted into the past. The 8
+    // ListOpenSlotOccurrences_* tests seed SlotOccurrence rows at `Now.AddHours(1..5)`;
+    // AssignmentService.ListOpenSlotOccurrencesAsync filters past occurrences with
+    // `if (r.EndUtc <= nowUtc) continue;`, so once wall-clock UTC moved past the pinned
+    // `Now + N hours` window, those seeded occurrences were silently dropped and the
+    // tests returned 0 rows.
+    //
+    // Why a `static readonly` cached at class-load and not a property: SQL equality
+    // checks (e.g. `db.Assignments.Where(... && a.StartUtc == startUtc ...)` in
+    // `AssignmentService.ValidateAsync`) compare fixture timestamps to caller-supplied
+    // timestamps. With a property returning `DateTime.UtcNow` on each access, the two
+    // `Now` reads inside one test (e.g. seeding the Assignment then calling
+    // `ValidateAsync(... startUtc: Now ...)`) can differ by a few microseconds, fail
+    // SQL equality, and silently break capacity/conflict tests.
+    //
+    // Using `DateTime.UtcNow` here (instead of a hard-coded literal) ensures the
+    // `_nowPinned` anchor is "right when the test process started", so every future
+    // `Now.AddHours(1..5)` fixture read remains in the future relative to wall-clock
+    // — no drift even years from now.
+    private static readonly DateTime _nowPinned = DateTime.UtcNow;
+    private static DateTime Now => _nowPinned;
 
     private AssignmentService NewService() => new(Factory, new TrainingService(Factory));
 
