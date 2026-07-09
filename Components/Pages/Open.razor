@@ -54,7 +54,7 @@
         </div>
         @if (_joinedMinistryIds.Count > 0)
         {
-            <a class="btn btn-sm btn-outline-secondary" href="/">Manage my ministries</a>
+            <a class="btn btn-sm btn-outline-secondary" href="@OrgLink">Manage my ministries</a>
         }
     </div>
 }
@@ -238,6 +238,13 @@ else
         _showOnlyJoined = value;
         await Reload();
     }
+
+    // Link target for "Manage my ministries" button. When a specific
+    // org is selected, goes directly to that org's detail page
+    // (Ministries tab). Otherwise links to the org listing.
+    private string OrgLink => _selectedOrgId > 0
+        ? $"Organizations/{_selectedOrgId}"
+        : "Organizations";
 
     private async Task OnOrgChanged()
     {
