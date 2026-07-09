@@ -1204,7 +1204,7 @@ in (New, UnderReview, Planned)"* and bulk-transition them to
   silent-reject). Extend `tests/ServantSync.Tests/PageAccessTests.cs`
   for the new SystemAdmin-gated routes.
 
-### Round-FR-5: role reorganization — Ministry Director + Slot Coordinator + role-based dashboards
+### Round-FR-5: role reorganization — Ministry Director + Slot Coordinator + role-based dashboards ✅ SHIPPED → a1bee3e (2026-07-08)
 
 **User ask (verbatim intent).** Reorganize the role hierarchy so the
 separation of concerns is more distinct:

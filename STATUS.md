@@ -74,7 +74,7 @@ design.
   in Round-FR-2"* (the `LinkedSpecAnchor` column) so submitters see
   their idea has been heard even before any code ships.
 - **Round-FR-5: role reorganization — Ministry Director + Slot Coordinator
-  + role-based dashboards** — see
+  + role-based dashboards ✅ SHIPPED → a1bee3e (2026-07-08)** — see
   [`PLAN.md` → Feature requests → Round-FR-5](PLAN.md#round-fr-5-role-reorganization--ministry-director--slot-coordinator--role-based-dashboards).
   Splits the current Coordinator role into two distinct tiers: Ministry
   Director (assigned to specific ministries via `CoordinatorPersonUserId`;
