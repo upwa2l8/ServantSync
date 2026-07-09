@@ -1430,4 +1430,142 @@ migration needed (the `Coordinator → MinistryDirector` rename keeps value 1).
 - `PLAN.md` core data model item #1: update role list.
 - `README.md`: update Coordinator references.
 
+### Round-FR-6: per-org "training due soon" grid — overdue + upcoming within 30 days
+
+**User ask (verbatim intent).** "Show by organization anyone who currently needs training or will need it within 30 days in a grid." Coordinators want a single org-scoped grid listing every volunteer in their organization who is **at risk on training** — either already overdue (their last `TrainingCompletion.ExpiresUtc` is in the past, or they have no completion record at all for a `TrainingRequirement` they should have) or upcoming within the next 30 days (their `ExpiresUtc` is `today ≤ ExpiresUtc ≤ today + 30 days`). Replaces the current "ask around + drill into each person" workflow with a glance-size table that prioritizes who's at risk this month, so the coordinator can schedule the next in-person session (Round-FR-2) or follow up with individual volunteers proactively.
+
+**Why now.** Training is yearly + every-N-months + one-time (`TrainingCadence` enum), and `TrainingCompletion.ExpiresUtc` is already precomputed at recording time per the existing schema — but neither `/Training/Take` nor `/Dashboard` surfaces an "at-risk" view. Coordinators have to walk the membership roster one person at a time to find lapsed volunteers. A dedicated "training due soon" view is the input to a meaningful Round-FR-2 session scheduling decision: "who needs what, by when?" becomes the agenda for the next training event. Tightly coupled to Round-FR-2 — the FR-2 marker form writes the completion that flips a row from Overdue → Compliant on this grid; conversely, this grid tells a coordinator WHICH volunteers should get manual marks if they attended out-of-band.
+
+**RBAC.** Mirrors Round-FR-5's restricted visibility rules:
+- **Organization Admin:** full visibility into every member's training status.
+- **Ministry Director:** visibility + actionable (link to `/Training/Take/{contentId}` or the org-modal "Mark complete") for their assigned ministries' members' training status.
+- **Slot Coordinator:** NO ACCESS this round — slot scope is too narrow to meaningfully surface "what's due across the slot's volunteers"; Admin + Ministry Director cover the meaningful triage use cases.
+- **Volunteer:** NO ACCESS — sees only their own status on `/MySchedule` (out of scope for this round to expand `/MySchedule`).
+- **SystemAdmin:** NO ACCESS this round — out of scope for round 1, deferred per decision Q8.
+
+**Model additions.**
+NONE. All required data already exists:
+- `TrainingRequirement` — per-org (`OrganizationId` set) OR per-slot (`ServiceSlotId` set); `Cadence` ∈ {`OneTime`, `Yearly`, `EveryMonths`} where `EveryMonths` carries `CadenceMonths` (default 12).
+- `TrainingCompletion` — `ExpiresUtc` is precomputed at recording time per the existing model doc-comment (`Computed at recording time based on the requirement's cadence`), so the "due-soon" calc is a simple read.
+- `TrainingCompletionSource` — already distinguishes `UserOnline` / `CoordinatorManual` / `CoordinatorManualSingle` (Round-FR-2). The grid shows this as a badge so a coordinator knows which completion path flipped a row Compliant.
+- `TrainingCompletion.IsValid(asOfUtc)` — already-provided helper (`return ExpiresUtc is null || ExpiresUtc > asOfUtc;`). Drives the Overdue vs Compliant math.
+- `Person.IsStub` (Round-FR-3) — grid includes stub People so a coordinator sees pre-account-link at-risk stubs alongside real volunteers.
+
+No migrations this round.
+
+**Library / service decisions.** Pure C# / EF + existing `Components/Shared/LocalTime.razor` (for the "Last completed on" stamp) + `DateRangeChips.razor`-style filter-chip pattern (reused for the grid's filter chips). The grid is the same Bootstrap responsive table shape (`table table-hover table-sm`) used by `/Organizations/{Id}/Coordinators` and `/Organizations/{Id}/Members/Stubs` — no new NuGet dep. The math lives in a new `Services/TrainingDueSoonService.cs` (matches the `ITrainingSessionService` / `ITrainingService` per-page-service pattern; keeps Razor markup thin and testable).
+
+**Route surface.**
+- NEW: `/Organizations/{OrgId:int}/Training/DueSoon` — single-org-scoped page. Route mirrors the existing `/Organizations/{OrgId:int}/Training/Sessions` shape so a coordinator navigating the Org-training tab lands naturally on both. Org is pre-bound by the URL segment (no global org picker on this page — coordinators use `/Organizations/{Id}` to switch orgs).
+- DEFERRED (decision Q8): `/SystemAdmin/TrainingDueSoon` global overview listing all orgs with their at-risk counts, same shape as the Round-FR-4 `SystemAdmin/Index` "Feature requests (N new)" link. Round 2.
+
+**Page contents — the grid.**
+A single Bootstrap responsive table sorted by default to "by urgency" (most-overdue first, then upcoming-soonest-first, then alphabetical fallback). Columns (left → right):
+
+| Column | Where it comes from | Renders as |
+|---|---|---|
+| Person | `Person.DisplayName` → `/People/{Id}` deep link | bold text link, stub Person shows `⚠ stub` badge suffix |
+| Email | `Person.Email ?? IdentityUser.Email` (Person preferred, see decision Q7) | muted small text link |
+| Ministry / Slot scope | `TrainingRequirement.Scope` ("Organization" or "ServiceSlot · {slot.Name}") | small text label + slot deep link when scoped |
+| Requirement (content) | `TrainingContent.Title` → `/Training/Take/{Id}` deep link | bold text link |
+| Status | computed (see math below) | Bootstrap badge: `Overdue` `bg-danger`, `Due in N days` `bg-warning text-dark`, `No record` `bg-secondary` |
+| Days | `Math.Abs((ExpiresUtc ?? baseline) - today).Days` (negative `–` prefix for overdue) | small text, monospace digit width |
+| Last completed | `CompletionUtc` (`LocalTime`-rendered) | LocalTime stamp `Format="MMM d, yyyy"` |
+| Mark source | `CompletionSource` | small badge `Online` / `CoordinatorManual` / `CoordinatorManualSingle` |
+| Actions (Admin / MinistryDirector only) | n/a | link "Mark complete" → calls `ITrainingService.MarkSingleCompleteAsync(contentId, personUserId, callerUserId, notes` with a Bootstrap modal for the REQUIRED notes (Round-FR-2 decision Q5 dissallowed empty marker notes) |
+
+**Filter chips (above the grid).**
+Reuses the project's `DateRangeChips.razor`-style shape (Bootstrap chip group + `aria-pressed` for screen-reader parity):
+
+| Chip | What it shows |
+|---|---|
+| **All at-risk** (default) | Overdue (any past-overdue days) + Due-in-30-days |
+| **Overdue only** | Just Overdue (past-`ExpiresUtc` or no completion) |
+| **Due in 30 days** | Just Due-in-30-days rows, no overdue |
+| **Completed in last 30 days** | Inverse validation — does recent completion traffic exist? (rows where the most recent completion was within the last 30 days; these are excluded from "at-risk" by default but exposed for an admin audit) |
+
+**Sort toggle (Bootstrap btn-group above the grid).** Three options: `By urgency` (default) | `Alphabetical by person` | `Alphabetical by content`.
+
+**Math (the heart of the feature).**
+Drives off the existing `ExpiresUtc` field, no new cadence extension needed:
+
+```
+due_row = requirements_in_org
+       | where person has OrganizationMembership in {OrgId} person's ministries
+       | left_join most_recent_completion_per_(person, content)
+       | project [
+           person,
+           requirement,
+           most_recent_completion,    // null if never completed
+           expires_utc = completion?.ExpiresUtc ?? compute_for_oneime(never_completed) ?? null,
+         ] into row
+status_for(row, now):
+  if row.most_recent_completion is null:
+    if row.requirement.Cadence == OneTime:
+      return NotRequired   // OneTime requirement, nobody has to take it (only tracked-on-completion)
+    return Overdue         // Yearly / EveryMonths-with-no-completion = "should have by now"
+  if row.expires_utc is null:
+    return CompliantSkip   // OneTime completed (forever valid)
+  if row.expires_utc < now:
+    return Overdue(days = (now - expires_utc).Days)
+  if row.expires_utc <= now + 30days:
+    return DueSoon(days = (expires_utc - now).Days)
+  else:
+    return Compliant   // grid filters this out by default
+filter_by_chip(status, chip) is straightforward.
+```
+
+Edge cases specifically tested in the service-layer tests:
+- Person has 3 different overdue requirements → 3 rows at the same person+content row index. Round 2 could collapse to per-person N-overdue + M-upcoming summary; out of scope.
+- Person has multiple completions for the SAME requirement (content-version bumps over time) → most-recent wins per `OrderByDescending(CompletionUtc).FirstOrDefault()`.
+- Person has NO completions for a OneTime requirement → "NotRequired" status (filtered out of "All at-risk" by default; surfaced under an "Untracked OneTimes" chip if added in round 2).
+- Person is a stub (`Person.IsStub == true`) → row IS included so a coordinator sees stubs alongside real volunteers (round-FR-3 stubs are linkable + assigned to ministries). Email column falls back to `IdentityUser.Email` (placeholders are lockout-future so this is empty; grid shows "—" gracefully).
+
+**Service additions: `ITrainingDueSoonService`.**
+- `ListAtRiskAsync(organizationId, filter, sort, callerUserId, nowUtc)` — returns paged (round 1: no paging, all results) `TrainingDueSoonRow` records. Eager-loads `Person` (with `.ThenInclude(p => p.User)` for the IdentityUser email lookup) + `TrainingContent` + `TrainingRequirement.ServiceSlot` (for the ministry/slot column). Caller gate: Admin OR MinistryDirector in the calling org (`OrgAuthService.IsOrgAdminAsync` + `IsMinistryDirectorAsync`); throws `PermissionDeniedResult` otherwise (defense-in-depth UI mirror of this gate is in the page itself).
+- `ListAtRiskCountsAsync(organizationId, callerUserId)` — single tuple `(OverdueCount, DueSoonCount, TotalAtRiskCount)` for the page header badge. Same gate.
+- `TrainingDueSoonRow` (record): `{ int PersonId; string PersonDisplayName; bool IsStub; string? EmailAtMoment; int RequirementId; string RequirementTitle; string RequirementScope; int? SlotId; string? SlotName; DateTime? LastCompletionUtc; DateTime? ExpiresUtc; TrainingCompletionSource? CompletionSource; TrainingDueSoonStatus Status; int? DaysDelta; }`.
+- `TrainingDueSoonStatus` enum: `{ NotRequired, Overdue, DueSoon, Compliant, NoRecord }` (mirrors decisions Q5 + Q6 + the OneTime-never-tracked carve-out).
+
+**UI changes.**
+- NEW: `Components/Pages/Organizations/Training/DueSoon.razor`.
+- MODIFIED: `Components/Pages/Organizations/Detail.razor` — Org-training tab gains a third link: *"'Training due soon' (N at-risk) →"* where N is `TrainingDueSoonService.ListAtRiskCountsAsync` returned (gated on `_isOrgManager` so non-managers don't trigger a wasted query). The "N at-risk" count is a small inline badge so the dashboard shows the org's liar-at-red count at-a-glance.
+- (Optional, out of scope for round 1) `Components/Layout/NavMenu.razor` gains a "Training due" link visible to Admin+MinistryDirector. Round 1 keeps it inside the Org-training tab so the navigation discovery path matches the existing "In-person training sessions" link from Round-FR-2.3.
+
+**Tests.**
+- NEW: `tests/ServantSync.Tests/TrainingDueSoonServiceTests.cs` (~25 tests) covering: gate (Admin + MinistryDirector in-org; others denied), overdue math (3 cadences × 3 completion states), 30-day-upcoming window boundary (29/30/31-day tested), OneTime-never-tracked carve-out, stub inclusion, multi-content single-person multi-row, sort orders (urgency / alphabetical-by-person / alphabetical-by-content), filter chips (All / Overdue only / Due-in-30 / Completed-recently).
+- MODIFIED: `tests/ServantSync.Tests/PageAccessTests.cs` (+2 entries for the new admin-gated + ministry-gated routes; matches the round-FR-3.3 `NewPersonService()` helper discipline for real-OrgAuth gates).
+- NO bUnit coverage added this round (consistent with the codebase's per-site discipline; the service-layer cohorts above cover the security-critical paths).
+
+**Edge cases.**
+- *Org has no training requirements configured:* page renders a Bootstrap `alert-info` panel with a deep-link to `/Organizations/{Id}/Training/Manage` ("This organization has no training requirements yet."). No grid.
+- *Org has requirements but ZERO at-risk members:* page renders an empty grid + an `alert-success` panel ("Everyone is up-to-date on training — great work!"). Future round 2 could add a "recently completed" feed here as a +1 signal.
+- *Stub assigned to a slot under a requirement (FR-3 + this flow):* stub IS in the grid. Coordinator can either (a) hand off the claim token + offer the stub training opportunity, (b) wait for the volunteer to register themselves and complete online, or (c) mark complete manually via the "Mark complete" modal (FR-2 path).
+- *Timezone:* date math is UTC-only (`ExpiresUtc` and `CompletionUtc` are stored as UTC; clock skew between ACA instances is irrelevant). The "Last completed on" stamp uses `LocalTime` for human display (round-AV); the urgency math is unaffected by display TZ.
+- *Multi-org person:* a coordinator of Org A sees only Org A's memberships in the grid. Multi-org volunteers are surfaced under each org independently — no cross-org rollup in round 1.
+- *Grid truncation:* round 1 returns ALL rows (no paging). A 50-requirement × 100-person org could produce ~5000 rows; round 2 introduces paging if this becomes a perf concern. Round-1 scale assumption: most churches have <50 requirements and <500 members → max row count ~25,000 for "All at-risk" (rarely all at-risk) → still renders fine on a single page.
+- *Person membership changed (e.g., a volunteer just added to the org):* the grid re-queries on Reload; the new person's existing completion is detected via the at-risk view the moment they become a member.
+
+**Decisions (resolved during spec authoring session).**
+1. **Slot Coordinator access:** **NO** this round. Slot scope is too narrow; Ministry Director + Admin cover the meaningful triage use cases (per RBAC + per the spec's "show me 'what's due' across ALL of my slots at once" use case).
+2. **Overdue + Upcoming are BOTH shown.** "All at-risk" chip is the default; filter chips let a coordinator isolate Overdue-only or Due-in-30-only. Surfacing both keeps the page useful for "what's lurking this month" planning, not just "who's already late" firefighting.
+3. **Person membership scope:** org-scoped (all `OrganizationMembership` rows in `{OrgId}` with any role).
+4. **Stub inclusion:** YES. Stubs are real volunteers-from-another-time; they need training. Round-3 already wired stubs into the slot-assignment + duty-assignment pipelines, so FR-6's training-at-risk view must include them or coordinators will miss them.
+5. **OneTime never-tracked carve-out:** `NotRequired` status, filtered out by default. Rationale: a OneTime requirement with no completions may mean "nobody's ever needed this", not "everyone is overdue." The carve-out prevents the grid from screaming about a perfectly-fine real-world scenario.
+6. **Sort order:** `By urgency` default. Overdue rows first (sorted by days-overdue DESC), then Due-in-30 rows (by days-until ASC), then alphabetical fallback if tied.
+7. **Email column source:** `Person.Email ?? IdentityUser.Email`. Person is preferred per round-FR-3's stub email column; IdentityUser falls back for users without a stub legacy.
+8. **Global `/SystemAdmin/TrainingDueSoon`:** OUT OF SCOPE for round 1; round 2 if SystemAdmin wants the same view across orgs.
+9. **Mark-complete modal in this grid (vs navigate to `/Training/Take`):** IN THIS GRID. Coordinator has higher completion throughput if the mark-complete dialog opens in-place on the grid instead of routing away. The modal reuses the same `notes` REQUIRED pattern as Round-FR-2.3's per-row single mark card; no new view-model needed.
+10. **Performance:** direct EF LINQ (no pre-computed table, no nightly job). Round-2 caching is a Tier-2 followup if a large org measurably slows the page.
+
+**Files this round would touch (when implementation starts).**
+- NEW service: `Services/ITrainingDueSoonService.cs` + `Services/TrainingDueSoonService.cs` (5-method service + 1 row record + 1 status enum).
+- NEW page: `Components/Pages/Organizations/Training/DueSoon.razor`.
+- NEW modals: Bootstrap modal markup inlined in `DueSoon.razor` for the "Mark complete" / "Notes required" / "Stub handoff" flows (matches Round-FR-2.3's in-page modal pattern).
+- MODIFIED: `Components/Pages/Organizations/Detail.razor` — gain the "Training due soon (N at-risk) →" link in the Org-training tab.
+- NEW tests: `tests/ServantSync.Tests/TrainingDueSoonServiceTests.cs` (~25 cases covering gate + math + sort + filter per decision Q1-Q10).
+- MODIFIED: `tests/ServantSync.Tests/PageAccessTests.cs` (+2 entries for gate).
+- NO migrations (all schema already exists).
+- (Optional Tier-2 followup) `Services/TrainingDueSoonCache.cs` if the LINQ is too slow on a 1000-row grid.
+
 

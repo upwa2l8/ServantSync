@@ -91,6 +91,9 @@ design.
   covers 6 decisions resolved (rename vs new value, dashboard structure,
   nav visibility, transitivity, Ministry Director scope, Slot Coordinator
   scope) and ~16 files touched when implementation starts.
+- **Round-FR-6: per-org "training due soon" grid — overdue + upcoming within 30 days** — see
+  [`PLAN.md` → Feature requests → Round-FR-6](PLAN.md#round-fr-6-per-org-training-due-soon-grid--overdue--upcoming-within-30-days).
+  Coordinators want a single org-scoped grid listing every volunteer who is "at risk on training" — either already overdue (`TrainingCompletion.ExpiresUtc` is in the past, or they have no completion record at all for a `TrainingRequirement` they should have) or upcoming within the next 30 days. Spec installs a new service `ITrainingDueSoonService` (paged `ListAtRiskAsync` + `ListAtRiskCountsAsync`) + a new `/Organizations/{OrgId:int}/Training/DueSoon` page with filter chips (All at-risk / Overdue only / Due in 30 days / Completed in last 30 days) + sort toggle (By urgency default / Alphabetical by person / By content) + an in-grid "Mark complete" modal reusing the Round-FR-2.3 per-row notes-required UX. Math drives off the existing `TrainingCompletion.ExpiresUtc` field — NO data-model change required. RBAC aligns with Round-FR-5: Organization Admin + Ministry Director see the grid; Slot Coordinator and Volunteer do NOT. Stub People (Round-FR-3) are included so coordinators see stub assignees at-risk alongside real volunteers. Spec covers 10 decisions resolved (slot-coord access, overdue-vs-upcoming, person scope, stub inclusion, OneTime never-tracked carve-out, sort order, email source, global /SystemAdmin overview deferred to round 2, mark-complete-modal vs navigate, performance / no cache for round 1). Spec calls for ~25 new tests in `TrainingDueSoonServiceTests.cs` + 2 `PageAccessTests` entries; no migrations.
 
 ## Where we are
 
