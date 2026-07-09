@@ -1,19 +1,6 @@
 @page "/"
 @attribute [Authorize]
 @rendermode InteractiveServer
-@* Volunteer / Manager routing on /:
-   - Managers (Admin or Coordinator of any org) see the org-wide KPI dashboard.
-   - Volunteers / non-managers are redirected to /MySchedule — that's their
-     canonical view (their own assignments + signed-up interests) and they're
-     not interested in org-wide metrics. The redirect happens via a flag-set
-     in OnInitializedAsync + handle-in-OnAfterRenderAsync, NOT a direct
-     Nav.NavigateTo during init, because Blazor's
-     `Microsoft.AspNetCore.Components.NavigationException` (which the
-     framework uses internally to abort a render cycle for a soft nav) does
-     not always get framework-swallowed in the prerender→interactive blend
-     used here — it surfaces to the user as an unhandled exception. Calling
-     NavigateTo from OnAfterRenderAsync sits OUTSIDE the render tree build
-     so the framework processes it cleanly. *@
 
 <PageTitle>ServantSync</PageTitle>
 
@@ -30,33 +17,36 @@
                 <div class="col-md-3">
                     <a class="card text-decoration-none h-100" href="Organizations">
                         <div class="card-body">
-                            <div class="text-muted small">Organizations</div>
+                            <div class="text-muted small">Ministries available</div>
                             @if (!_loaded)
                             {
                                 <SkeletonLoader Size="SkeletonLoader.SkeletonSize.Display" Columns="3" />
                             }
                             else
                             {
-                                <div class="display-6">@_orgCount</div>
+                                <div class="display-6">@_ministryCount</div>
                             }
                         </div>
                     </a>
                 </div>
-                <div class="col-md-3">
-                    <a class="card text-decoration-none h-100" href="People">
-                        <div class="card-body">
-                            <div class="text-muted small">Volunteers</div>
-                            @if (!_loaded)
-                            {
-                                <SkeletonLoader Size="SkeletonLoader.SkeletonSize.Display" Columns="3" />
-                            }
-                            else
-                            {
-                                <div class="display-6">@_personCount</div>
-                            }
-                        </div>
-                    </a>
-                </div>
+                @if (_isManager)
+                {
+                    <div class="col-md-3">
+                        <a class="card text-decoration-none h-100" href="People">
+                            <div class="card-body">
+                                <div class="text-muted small">Volunteers</div>
+                                @if (!_loaded)
+                                {
+                                    <SkeletonLoader Size="SkeletonLoader.SkeletonSize.Display" Columns="3" />
+                                }
+                                else
+                                {
+                                    <div class="display-6">@_personCount</div>
+                                }
+                            </div>
+                        </a>
+                    </div>
+                }
                 <div class="col-md-3">
                     <a class="card text-decoration-none h-100" href="Training">
                         <div class="card-body">
@@ -103,7 +93,7 @@
                             <h5 class="mb-0">My ministries</h5>
                             <div class="text-muted small">Ministries you have opted to follow. Sign-up opportunities on these will show up on <a href="Open">Browse open slots</a>.</div>
                         </div>
-                        <a class="btn btn-sm btn-outline-primary" href="Open">Browse open slots</a>
+                        <a class="btn btn-sm btn-outline-primary" href="Organizations">Browse ministries</a>
                     </div>
                     <div class="card-body">
                         @if (!_hasAnyOrgMembership)
@@ -174,10 +164,13 @@
 @inject ITrainingService TrainingService
 @inject IMinistryInterestService MinistryInterest
 @inject IOrgAuthService OrgAuth
-@inject NavigationManager Nav
 @code {
-    private int _orgCount, _personCount, _myPending, _myUpcoming;
+    private int _ministryCount, _personCount, _myPending, _myUpcoming;
     private bool _loaded;
+    // True when the signed-in user is Admin or Coordinator of any org
+    // (or SystemAdmin). Gates the Volunteers card and was previously
+    // the volunteer-redirect trigger — now only controls card visibility.
+    private bool _isManager;
     // Per-user state for the "My ministries" panel. The list is loaded in
     // OnInitializedAsync (one DB trip via the service's ListJoinedAsync),
     // then mutated in-memory when the user clicks Leave so we don't have
@@ -192,55 +185,34 @@
     private string? _lastMessage;
     private bool _lastIsError;
 
-    // Volunteer → /MySchedule redirect flag. Set during OnInitializedAsync
-    // (after the IsAnyOrgManagerAsync check fires). The actual NavigateTo
-    // is performed in OnAfterRenderAsync on the first render — Blazor's
-    // NavigationException that the IPC-based soft nav throws is not
-    // reliably framework-swallowed when invoked from OnInitializedAsync in
-    // the prerender→interactive blend used here (it surfaces as an
-    // unhandled exception in the user's runtime). OnAfterRenderAsync runs
-    // AFTER the initial render cycle, so calling NavigateTo from there is
-    // the canonical pattern documented in Microsoft.AspNetCore.Components
-    // for this scenario. Default is false so a non-Volunteer caller never
-    // triggers the redirect branch.
-    private bool _shouldRedirectToSchedule;
-
     protected override async Task OnInitializedAsync()
     {
-        // Volunteer / manager routing gate. Set _shouldRedirectToSchedule
-        // here and return — OnAfterRenderAsync performs the actual nav.
-        // The IsAnyOrgManagerAsync check is the same one NavMenu uses to
-        // gate the manage-only links, so a Volunteer naturally has `false`
-        // here and lands on the schedule. isManager=true short-circuits the
-        // redirect and lets the dashboard initialize.
         var state = await Auth.GetAuthenticationStateAsync();
-        var routingUserId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-        if (!string.IsNullOrWhiteSpace(routingUserId)
-            && !await OrgAuth.IsAnyOrgManagerAsync(routingUserId))
-        {
-            _shouldRedirectToSchedule = true;
-            // Returning here is safe — OnAfterRenderAsync runs on the next
-            // first-render frame and reads the flag, so the dashboard's
-            // data load is skipped entirely for the@rendermode InteractiveServer@rendermode InteractiveServer redirect path.
-            return;
-        }
-
-        await using var db = await DbFactory.CreateDbContextAsync();
-        _orgCount = await db.Organizations.CountAsync();
-        _personCount = await db.People.CountAsync();
-
         var userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+
         if (string.IsNullOrEmpty(userId))
         {
-            // The volunteer-redirect path doesn't reach here. We hit this
-            // branch only on the manager path when the auth state is
-            // somehow missing the user id (shouldn't happen on an
-            // authorized page, but defensive empty-state remains so the
-            // manager who somehow lands here without a claim sees the
-            // skeleton placeholders instead of an exception).
             _loaded = true;
             return;
         }
+
+        _isManager = await OrgAuth.IsAnyOrgManagerAsync(userId);
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+
+        // Ministry count: scoped to the user's orgs so a single-org
+        // volunteer sees their org's ministries, a multi-org volunteer
+        // sees the total, and a manager sees the org-wide count.
+        var myOrgIds = await db.OrganizationMemberships
+            .Where(m => m.PersonUserId == userId)
+            .Select(m => m.OrganizationId)
+            .ToListAsync();
+        _ministryCount = myOrgIds.Count > 0
+            ? await db.Ministries.CountAsync(m => myOrgIds.Contains(m.OrganizationId))
+            : 0;
+
+        // Volunteers card is manager-only; don't pay the DB trip otherwise.
+        _personCount = _isManager ? await db.People.CountAsync() : 0;
 
         var fromUtc = DateTime.UtcNow;
         var toUtc = fromUtc.AddDays(30);
@@ -308,22 +280,4 @@
         }
     }
 
-    protected override void OnAfterRender(bool firstRender)
-    {
-        // Volunteer → /MySchedule redirect. Called AFTER the initial
-        // render cycle, so the navigation does not throw a
-        // NavigationException that the framework can fail to swallow in
-        // the prerender→interactive blend. Soft nav (no forceLoad) keeps
-        // the Blazor circuit alive so the user is sent to the schedule
-        // page within the same SignalR connection rather than going
-        // through a full HTTP round-trip.
-        if (firstRender && _shouldRedirectToSchedule)
-        {
-            // Clear the flag so a subsequent re-render (rarely triggered
-            // but possible — e.g., an authentication-state change while
-            // the page is open) doesn't re-fire the navigation loop.
-            _shouldRedirectToSchedule = false;
-            Nav.NavigateTo("/MySchedule");
-        }
-    }
 }
