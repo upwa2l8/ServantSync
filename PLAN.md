@@ -1430,7 +1430,7 @@ migration needed (the `Coordinator → MinistryDirector` rename keeps value 1).
 - `PLAN.md` core data model item #1: update role list.
 - `README.md`: update Coordinator references.
 
-### Round-FR-6: per-org "training due soon" grid — overdue + upcoming within 30 days
+### Round-FR-6: per-org "training due soon" grid — overdue + upcoming within 30 days ✅ SHIPPED → 6721e66 (2026-07-08)
 
 **User ask (verbatim intent).** "Show by organization anyone who currently needs training or will need it within 30 days in a grid." Coordinators want a single org-scoped grid listing every volunteer in their organization who is **at risk on training** — either already overdue (their last `TrainingCompletion.ExpiresUtc` is in the past, or they have no completion record at all for a `TrainingRequirement` they should have) or upcoming within the next 30 days (their `ExpiresUtc` is `today ≤ ExpiresUtc ≤ today + 30 days`). Replaces the current "ask around + drill into each person" workflow with a glance-size table that prioritizes who's at risk this month, so the coordinator can schedule the next in-person session (Round-FR-2) or follow up with individual volunteers proactively.
 
@@ -1568,7 +1568,128 @@ Edge cases specifically tested in the service-layer tests:
 - NO migrations (all schema already exists).
 - (Optional Tier-2 followup) `Services/TrainingDueSoonCache.cs` if the LINQ is too slow on a 1000-row grid.
 
-### Round-FR-7: per-slot volunteer interest — let volunteers "subscribe" to slots separately from joining a ministry, and filter `/Open` accordingly
+### Round-FR-7: per-slot volunteer interest — let volunteers "subscribe" to slots separately from joining a ministry, and filter `/Open` accordingly ✅ SHIPPED
+
+**User ask (verbatim intent).** "Currently users can 'join' a ministry. I'd like for them to also be able to 'volunteer' for a slot. Then on open slots we show only slots which are volunteered for and not all slots within a ministry. Someone might want to see referee slots for a game but have no interest in coaching."
+
+**Why now.** Today the `/Open` filter (per round-FR-patterns) sits at the **ministry** granularity: a volunteer who joined an AWANA ministry sees every AWANA slot's open shifts, regardless of whether they actually want to coach, lead songs, do refreshments, or work the welcome desk. Concretely, the Springfield Youth Soccer League ministry with `Coach`, `AssistantCoach`, `GameDayReferee`, `Concessions`, and `DevotionLeader` slots, a parent who only wants to referee games still sees all five slot families' open shifts, and gets exit-button fatigue on /Open. Splitting the existing two-tier interest model — Org membership + Ministry interest — into a clean three-tier model — Org membership + Ministry interest + **Slot interest** (NEW) — gives the volunteer a single subscription knob per slot, and gives the `/Open` page a single new filter that says "I only want to see shifts for slots I've signed up for".
+
+**Modeling verdict (per the thinker's design pass).**
+
+| Option | Pros | Cons | Verdict |
+|---|---|---|---|
+| (A) NEW `SlotInterest` junction table | Clean mental model; /Open filter is straight JOIN; parallels `MinistryInterest` shape verbatim; Source-audit friendly | Yet another junction table | **CHOSEN** |
+| (B) Reuse `MinistryInterest` + SlotIndex side-table | Less schema | Ambiguous semantics ("subscribed to a ministry" doesn't answer "which slots in it"); /Open filter still needs a separate JOIN | REJECTED |
+| (C) Reuse `AssignmentStatus.Tentative` | Zero new schema | Assignments are time-windowed (Slots with `StartUtc`/`EndUtc`); interest is ongoing; Assignment FK shape doesn't fit "always want to referee" | REJECTED |
+
+**RBAC matrix.**
+
+| Action | Caller gate |
+|---|---|
+| Self subscribe to slot | `OrgMember(slot.Ministry.OrganizationId)` (Volunteer / MinistryDirector / Admin / SlotCoordinator in that org) — matches `MinistryInterestService.JoinAsync`'s exact same gate |
+| Self unsubscribe | Same |
+| Subscribe another person (coordinator delegates on volunteer's behalf) | `IOrgAuthService.CanManageSlotAsync(slotId)` — Admin of `slot.Ministry.OrganizationId`, MinistryDirector of the parent ministry, or `slot.CoordinatorPersonUserId == callerId` (Round-FR-5 coordinator chain) |
+| Unsubscribe another person | Same — TIGHTER than `MinistryInterest` (where any in-org member could remove) — slot interest is more sensitive than ministry interest because it drives the `/Open` default filter, so coordinators have more exclusive authority |
+| View `ListForSlotAsync(slotId)` (slot-coord interest roster) | `CanManageSlotAsync(slotId)` |
+
+**Model additions.**
+
+1. **`SlotInterest` (new model).**
+   - `Id` (int, PK)
+   - `PersonUserId` (string, FK Person, cascade-delete with Person)
+   - `ServiceSlotId` (int, FK ServiceSlot, cascade-delete with slot)
+   - `SubscribedUtc` (DateTime, default UtcNow)
+   - `Source` (`SlotInterestSource` enum, default `Explicit`)
+   - Composite-unique index on `(PersonUserId, ServiceSlotId)`.
+
+2. **Extend `Models/Enums.cs` with a new enum.**
+   ```csharp
+   public enum SlotInterestSource
+   {
+       Explicit = 0,            // volunteer clicked the Subscribe button
+       AutoFromAssignment = 1,  // auto-created by /Open's Sign-Up follow-up
+   }
+   ```
+
+3. **No change** to `OrganizationMembership`, `Assignment`, `TrainingCompletion`, `TrainingActivity`, `MinistryInterest`. The `PersonUserId` FK is a string and works whether the Person has a real IdentityUser or is a stub (Round-FR-3 parity). The existing `AssignmentService.ValidateAsync` training-gate works for stubs unchanged.
+
+**Library / service decisions.** Pure C# / EF. No new NuGet dependencies. The service shape mirrors `IMinistryInterestService` verbatim so a round-2 contributor can cross-walk the two with no mental translation.
+
+**Route surface.** All changes live on existing pages — no new routes this round.
+
+**Service additions: `ISlotInterestService`.**
+
+| Method | RBAC | Result enum |
+|---|---|---|
+| `SubscribeAsync(callerUserId, personUserId, slotId, ct)` | caller is `OrgMember(slot.Ministry.OrganizationId)` AND (caller == `personUserId` OR caller passes `CanManageSlotAsync(slotId)`) | `SlotInterestJoinResult { Subscribed, AlreadySubscribed, PermissionDenied, SlotNotFound }` |
+| `UnsubscribeAsync(callerUserId, personUserId, slotId, ct)` | Same | `SlotInterestLeaveResult { Unsubscribed, NotSubscribed, PermissionDenied, SlotNotFound }` |
+| `ListSubscribedAsync(personUserId, ct)` | Self (read-only) for the volunteer; populates `_subscribedSlots` cache + /Open filter | eager-loaded `ServiceSlot.Ministry` for the home-page panel + /Open filter |
+| `ListForSlotAsync(slotId, callerUserId, ct)` | caller has `CanManageSlotAsync(slotId)` | eager-loaded `Person` for the slot-coord interest roster |
+
+**Auto-subscribe on Sign-Up on `/Open` (per Q1 decision).** When a volunteer uses `/Open`'s "Sign up" action, `Open.razor.SignUp()` handler calls `AssignmentService.SignUpAsync` first, then on success independently fires `ISlotInterestService.SubscribeAsync(callerId, personUserId, slotId)` with `Source=AutoFromAssignment`. The Subscribe result is reported to the volunteer (green "Signed up" + small footer chip "Subscribed for future shifts") and any failure is rolled forward (see Q-C). **Coordinator-driven assignments via `AssignmentService.AssignAsync` (called from `ServiceSlots/Schedule.razor` etc.) DO NOT auto-subscribe** — only self-sign-ups through /Open do, so coordinators can't pollute volunteer preferences.
+
+**Auto-subscribe on TrainingSession Sign-Up (per Q-D decision).** **NO.** Training sessions don't have a `ServiceSlotId` FK (they're content-scoped via `TrainingContentId`), so there's no physical slot to subscribe to when a volunteer signs up for a training session. Coordinator-driven training-session sign-ups don't auto-subscribe either.
+
+**UI changes.**
+
+- **MODIFY**: `Components/Pages/ServiceSlots/Detail.razor` — add a prominent **"Subscribe to this slot"** / **"Subscribed (since {date})"** toggle in the top-right header area next to the existing manager edit buttons. Mirror the **"Interested"** / **"Join ministry"** badge placement pattern from `Ministries/Detail.razor`. Add a **"Subscribers (N)"** panel below the existing slot info card for managers (gate `CanManageSlotAsync(slotId)`) rendering `ListForSlotAsync(slotId)` — just `Person.DisplayName` + `SubscribedUtc` (LocalTime-stamped). NO source badge (per Q-B2 decision).
+- **MODIFY**: `Components/Pages/Ministries/Detail.razor` — add a compact **Subscribe ✓** / **Subscribed ✓** pill on each slot row next to the existing **Schedule** button, for quick multi-slot opt-in without navigating into the slot. Sourced from `ISlotInterestService.ListSubscribedAsync(personUserId)` once per page load and looked-up per row.
+- **MODIFY**: `Components/Pages/Open.razor`:
+  - Upgrade the existing 2-way filter (currently `All ministries` / `My ministries` toggle) to a **3-way pill segment** (per Q3 decision, replacing the current toggle):
+    - **All slots** — no interest filter (current default behavior for users with 0 subscriptions).
+    - **My ministries (M)** — current behavior, broad ministry-level filter.
+    - **My slots (N)** — narrow slot-level filter, NEW.
+  - **Auto-default** in `OnInitializedAsync`: seed `_filterMode = SlotInterest.rows.Any() ? MySlots : (MinistryInterest.rows.Any() ? MyMinistries : AllSlots)`. Persisted in `_filterMode` for the session; not URL-bound this round.
+  - Fire `SubscribeAsync(..., Source=AutoFromAssignment)` immediately after a successful `SignUpAsync`. The subscribe result is rendered as a small footer chip ("Subscribed for future shifts") on success and silently logged on failure (Q-C).
+- **MODIFY**: `Components/Pages/Home.razor` — add a new panel **"Slots I'm subscribed to (N)"** below the existing **"Ministries I'm interested in (N)"** panel. Same skeleton (card list with per-item Leave button). Volunteers can clear their whole slot-subscription list from this panel in one place.
+
+**Failure tolerance (per Q-C decision).** If `SignUpAsync` succeeds but the follow-up `SubscribeAsync` returns `PermissionDenied` or `SlotNotFound` (rare race: slot was deleted between assignment commit and subscribe call, or a coordinator-side revoke just happened), the volunteer still sees the standard green "Signed up" success — the subscribe side-effect is silently rolled forward and the failure is logged via `ILogger<Open>` for diagnosability. The volunteer knows they got the shift; a soft-preference failure should not surface as a red error that confuses them into thinking their assignment failed.
+
+**Audit / reporting.** `ListForSlotAsync(slotId)` is the slot coordinator's per-slot interest roster (names + since-date). The `Source` column is captured but NOT surfaced as a UI badge (Q-B2 decision) — coordinators primarily care *that* someone is reachable, not their origin journey. Round 2 could expose Source via a dedicated "My Preferences" self-audit page for the volunteer.
+
+**Edge cases + behavior.**
+- *Slot `IsActive=false`:* SlotInterest row persists; volunteer remains subscribed; `/Open` naturally hides the slot's shifts via the existing active-slot filter.
+- *Slot soft-deleted (still in DB, hidden via UI):* SlotInterest row persists; re-activation restores the volunteer's preference without data loss.
+- *Slot hard-deleted:* cascade-deletes SlotInterest.ServiceSlotId FK (slot deletion already cascades to TrainingRequirements).
+- *Person deleted:* cascade-deletes SlotInterest.PersonUserId FK.
+- *Cross-org subscribe attempt:* caller not in `slot.Ministry.OrganizationId` → `PermissionDenied`.
+- *Foreign-org coordinator trying to subscribe someone in their target slot:* `CanManageSlotAsync` denial → `PermissionDenied`.
+- *Subscriber is a stub Person (Round-FR-3):* row is created on stub's Person.UserId (string FK); on stub claim via `PersonClaimToken`, the `SlotInterest.PersonUserId` re-parents with `Person.UserId` automatically (same re-parent shape as `OrganizationMembership`/`Assignment`/`TrainingCompletion` — zero migration impact). Coordinator's `ListForSlotAsync` includes stub entries with `Person.IsStub=true` so the admin sees who's still pending registration.
+- *Sign-Up race: slot becomes full between page load and click:* `SignUpAsync` returns `SlotFull` BEFORE `SubscribeAsync` fires; no SlotInterest row created. Clean.
+- *User clicks Sign-Up twice quickly:* `SignUpAsync` creates one Assignment (existing idempotency); `SubscribeAsync`'s second call returns `AlreadySubscribed`, swallow naturally. Clean.
+- *Volunteer un-subscribes after signing up for a single shift:* the Assignment row stays; only the future `/Open` "My slots" filter disappears. Single backward-compatible round-trip.
+- *Sibling slots sharing a ministry:* subscribing to one doesn't subscribe to siblings — explicit per the new junction-table model. A "subscribe to all slot under this ministry" affordance is a round-2 follow-up.
+
+**Decisions (resolved during spec authoring session).**
+
+1. **Schema shape:** NEW `SlotInterest` table. Mirrors `MinistryInterest` shape verbatim (`PersonUserId`, `ServiceSlotId`, `SubscribedUtc`, `Source`). Composite-unique on `(PersonUserId, ServiceSlotId)`. Cascade FK on both Person + Slot.
+2. **UI placement:** Primary toggle on `ServiceSlots/Detail.razor` (one slot = one button); per-slot-row pill on `Ministries/Detail.razor` (multi-slot opt-in); per-shift-card footer pill on `Open.razor` (last-chance opt-in); new Home panel showing all subscribed slots.
+3. **`/Open` filter UX:** **3-way pill** (All slots / My ministries / My slots) replacing the current 2-way toggle. Auto-default based on user's existing subscribe/interest counts (slot-subscribe if any, else ministry-interest if any, else all-slots).
+4. **Auto-subscribe on Sign-Up:** **YES.** `Open.razor.SignUp()` calls both `AssignmentService.SignUpAsync` AND `ISlotInterestService.SubscribeAsync(Source=AutoFromAssignment)` sequentially. **`AssignmentService` itself stays clean** (no new DI dependency); the cross-service fan-out lives in the page handler. Coordinator-driven `AssignAsync` calls (manager side) DO NOT trigger auto-subscribe.
+5. **Audit field `SlotInterestSource`:** **FOR.** Enum in `Models/Enums.cs` (`Explicit=0`, `AutoFromAssignment=1`). NOT surfaced as a UI badge round 1 (might create clutter on coordinator rosters); captured for round-2 self-audit / data-quality debugging.
+6. **Failure tolerance:** **Roll forward silently.** Sign-Up success followed by Subscribe failure → volunteer sees green "Signed up" success message. Subscribe failure logged via `ILogger<Open>` for diagnosability. No red error UX for a soft-preference side-effect.
+7. **Cross-person subscribe gate:** **Tighten vs MinistryInterest.** Only `CanManageSlotAsync(slotId)` callers (Admin / MinistryDirector of `slot.Ministry` / `slot.CoordinatorPersonUserId == callerId`) can subscribe / unsubscribe on behalf of someone else. Stricter than `MinistryInterest` — slot interest is more sensitive than ministry interest because it drives the `/Open` filter default.
+8. **Stub seam:** **No special logic needed.** String FK to Person handles every stub case identically to real users. `ListForSlotAsync` rows render stub Persons with `Person.IsStub=true` so the coordinator sees who's still pending registration.
+9. **Email notification on subscribe:** **NO.** Silent subscription; coordinator sees the new row on `ServiceSlots/Detail.razor` next page load. Confirmed via user's Q2 decision.
+10. **Auto-subscribe from `TrainingSessionService.SignUpAsync`:** **NO.** Training sessions have no `ServiceSlotId` FK (they're content-scoped via `TrainingContentId`); no physical slot to subscribe to when a volunteer signs up for a training session. Coordinator-driven training-session sign-ups don't auto-subscribe either.
+
+**Files this round would touch (when implementation starts).**
+
+- NEW: `Models/SlotInterest.cs`.
+- MODIFY: `Models/Enums.cs` (add `SlotInterestSource` enum).
+- MODIFY: `Data/ApplicationDbContext.cs` (add `DbSet<SlotInterest> SlotInterests` + composite-unique index + cascade-FK configuration).
+- NEW: `Services/ISlotInterestService.cs`.
+- NEW: `Services/SlotInterestService.cs` (constructor: `IDbContextFactory<ApplicationDbContext>, ILogger<SlotInterestService>`; mirrors `MinistryInterestService`'s idempotency + permission-denied error swallowing verbatim).
+- MODIFY: `Program.cs` (DI registration: `builder.Services.AddScoped<ISlotInterestService, SlotInterestService>();`).
+- MODIFY: `Components/Pages/ServiceSlots/Detail.razor` (subscribe toggle in header + subscribed-since date text + Subscribers(N) panel for managers).
+- MODIFY: `Components/Pages/Ministries/Detail.razor` (per-slot-row subscribe pill sourced from `_subscribedSlots` set).
+- MODIFY: `Components/Pages/Open.razor` (3-way filter pill segment + auto-default logic + `_filterMode` state field + auto-subscribe-after-sign-up branch + small footer chip on success).
+- MODIFY: `Components/Pages/Home.razor` ("Slots I'm subscribed to (N)" panel below the existing ministries panel).
+- NEW migration: `AddSlotInterests` (pure additive; creates the table + composite-unique index; no schema mutations to existing tables; no data migration).
+- NEW tests: `tests/ServantSync.Tests/SlotInterestServiceTests.cs` (~14 cases mirroring `MinistryInterestServiceTests`' positive / negative / `AlreadySubscribed` / `PermissionDenied` matrix + 2 new edge cases: `AutoFromAssignment` source sets correctly when called from `Open.razor.SignUp()` flow; cross-org stub Person with re-parented slot interest after stub claim).
+
+**Performance notes.** Sample church has 4 members × 5 slots → SlotInterest is a ≤20-row junction. /Open filter JOIN is well within existing responsive budget (no paging needed round 1). The 3-way filter adds ~1 ms in-memory filter work to the Open.razor Reload query.
+
 
 **User ask (verbatim).** "Currently users can 'join' a ministry. I'd like for them to also be able to 'volunteer' for a slot. Then on open slots we show only slots which are volunteered for and not all slots within a ministry. Someone might want to see referee slots for a game but have no interest in coaching."
 
