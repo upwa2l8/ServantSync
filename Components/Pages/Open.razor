@@ -19,26 +19,38 @@
     the sign-up button so the coordinator can route you to the right content.
 </p>
 
-@* Filter pill: "My ministries" narrows to the user's MinistryInterest
-   rows; "All ministries" shows every open shift across all orgs the user
-   belongs to. For non-joined ministries, a "Join and sign up" button lets
-   the volunteer join the ministry and claim the shift in one action. *@
+@* Filter pills + org picker: "My ministries" narrows to the user's
+   MinistryInterest rows (optionally scoped to the selected org);
+   "All ministries" shows every open shift in the selected
+   organization (or across all orgs when "All organizations" is
+   picked). For non-joined ministries, a "Join and sign up" button
+   lets the volunteer join the ministry and claim the shift in one
+   action. *@
 @if (_userIdPresent && _hasMembership && !_loading)
 {
     <div class="d-flex justify-content-between align-items-center mb-3">
-        <div class="btn-group" role="group" aria-label="Filter open shifts by ministry set">
-            <button type="button"
-                    class="btn btn-sm @(_showOnlyJoined ? "btn-primary" : "btn-outline-primary")"
-                    @onclick="() => SetShowOnlyJoined(true)"
-                    title="Show only open shifts from ministries you have joined">
-                My ministries (@_joinedMinistryIds.Count)
-            </button>
-            <button type="button"
-                    class="btn btn-sm @(_showOnlyJoined ? "btn-outline-primary" : "btn-primary")"
-                    @onclick="() => SetShowOnlyJoined(false)"
-                    title="Show every open shift across every ministry in your organizations">
-                All ministries
-            </button>
+        <div class="d-flex gap-2 align-items-center">
+            <div class="btn-group" role="group" aria-label="Filter open shifts by ministry set">
+                <button type="button"
+                        class="btn btn-sm @(_showOnlyJoined ? "btn-primary" : "btn-outline-primary")"
+                        @onclick="() => SetShowOnlyJoined(true)"
+                        title="Show only open shifts from ministries you have joined">
+                    My ministries (@_joinedMinistryIds.Count)
+                </button>
+                <button type="button"
+                        class="btn btn-sm @(_showOnlyJoined ? "btn-outline-primary" : "btn-primary")"
+                        @onclick="() => SetShowOnlyJoined(false)"
+                        title="Show every open shift across every ministry in the selected organization">
+                    All ministries
+                </button>
+            </div>
+            <select class="form-select form-select-sm" style="width:auto" @bind="_selectedOrgId" @bind:after="OnOrgChanged">
+                <option value="0">All organizations (@_orgs.Count)</option>
+                @foreach (var o in _orgs)
+                {
+                    <option value="@o.Id">@o.Name</option>
+                }
+            </select>
         </div>
         @if (_joinedMinistryIds.Count > 0)
         {
@@ -207,6 +219,15 @@ else
     // query in Reload. Drives the empty-state CTA and the pill-segment
     // count badge.
     private HashSet<int> _joinedMinistryIds = new();
+    // Org picker: user's organization memberships (id + name) and the
+    // currently selected org. 0 = "All organizations" (no org filter).
+    private record OrgItem(int Id, string Name);
+    private List<OrgItem> _orgs = new();
+    private int _selectedOrgId;
+    // Cached active ministry IDs for the currently selected org.
+    // Populated in Reload when _selectedOrgId > 0; drives org-scoped
+    // filtering for both "My ministries" and "All ministries" modes.
+    private HashSet<int> _orgMinistryIds = new();
 
     protected override async Task OnInitializedAsync() => await Reload();
 
@@ -214,6 +235,15 @@ else
     {
         if (_showOnlyJoined == value) return;
         _showOnlyJoined = value;
+        await Reload();
+    }
+
+    /// <summary>
+    /// Fires after the org-picker @bind updates _selectedOrgId.
+    /// Reloads the shift list scoped to the newly selected org.
+    /// </summary>
+    private async Task OnOrgChanged()
+    {
         await Reload();
     }
 
@@ -267,6 +297,8 @@ else
                 _hasMembership = false;
                 _openShifts = new();
                 _joinedMinistryIds = new();
+                _orgs = new();
+                _orgMinistryIds = new();
                 return;
             }
 
@@ -276,25 +308,76 @@ else
             var hasMembership = await db.OrganizationMemberships
                 .AnyAsync(m => m.PersonUserId == userId);
 
+            // Fetch org memberships with names for the org picker dropdown.
+            var orgs = await db.OrganizationMemberships
+                .Where(m => m.PersonUserId == userId)
+                .Select(m => new OrgItem(m.OrganizationId, m.Organization.Name))
+                .OrderBy(o => o.Name)
+                .ToListAsync();
+            if (!iAmLatest()) return;
+
             // Refresh the joined-ministry id set each time so the pill
             // count and the empty-state CTA track any join/leave the
             // user just made elsewhere (e.g., on Home or on Ministries/Detail).
             var joined = await MinistryInterest.ListJoinedAsync(userId);
             if (!iAmLatest()) return;
 
+            // If a specific org is selected, fetch its active ministry IDs
+            // so we can scope both "My ministries" and "All ministries" to
+            // that org. Otherwise (_selectedOrgId == 0), leave it empty and
+            // the service-scoped query will cover all user orgs.
+            HashSet<int> orgMinistryIds;
+            if (_selectedOrgId > 0)
+            {
+                var ids = await db.Ministries
+                    .Where(m => m.OrganizationId == _selectedOrgId)
+                    .Select(m => m.Id)
+                    .ToListAsync();
+                if (!iAmLatest()) return;
+                orgMinistryIds = ids.ToHashSet();
+            }
+            else
+            {
+                orgMinistryIds = new();
+            }
+
             // 90-day forward window matches the MySchedule default chip.
             var fromUtc = DateTime.UtcNow;
             var toUtc = fromUtc.AddDays(90);
 
-            // Filter param: only pass when narrowed and the user has at
-            // least one joined ministry. Empty/null falls back to "all my
-            // orgs" in the service. Snapshotted into a local before each
-            // await chain so the read is deterministic for this run.
+            // Filter param: combines the ministry-scope toggle with the
+            // org picker. When an org is selected, both "My ministries"
+            // and "All ministries" are scoped to that org's active
+            // ministries. When "All organizations" is selected, the
+            // filter falls back to the pre-picker behaviour.
             var showOnlyJoined = _showOnlyJoined;
             var joinedIds = joined.Select(i => i.MinistryId).ToHashSet();
-            IReadOnlyCollection<int>? filter = (showOnlyJoined && joinedIds.Count > 0)
-                ? joinedIds
-                : null;
+            IReadOnlyCollection<int>? filter;
+            if (_selectedOrgId > 0)
+            {
+                if (showOnlyJoined && joinedIds.Count > 0)
+                {
+                    // Joined ministries, scoped to the selected org.
+                    filter = joinedIds.Where(id => orgMinistryIds.Contains(id)).ToHashSet();
+                }
+                else
+                {
+                    // All active ministries in the selected org.
+                    filter = orgMinistryIds;
+                }
+                // When the org has no ministries (or the intersection is
+                // empty), the service treats an empty filter as "no filter"
+                // and shows ALL orgs' shifts. A sentinel with a non-existent
+                // ministry ID forces zero rows instead.
+                if (filter.Count == 0) filter = new HashSet<int> { -1 };
+            }
+            else
+            {
+                // All organizations: current behaviour.
+                filter = (showOnlyJoined && joinedIds.Count > 0)
+                    ? joinedIds
+                    : null;
+            }
             var openShifts = await AssignmentService.ListOpenSlotOccurrencesAsync(userId, fromUtc, toUtc, filter);
 
             if (!iAmLatest()) return;
@@ -306,6 +389,8 @@ else
             _userIdPresent = true;
             _lastResult = null;
             _hasMembership = hasMembership;
+            _orgs = orgs;
+            _orgMinistryIds = orgMinistryIds;
             _joinedMinistryIds = joinedIds;
             _openShifts = openShifts.ToList();
         }
