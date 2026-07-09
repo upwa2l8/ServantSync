@@ -559,7 +559,7 @@ localization pass wires through cleanly without an interface bump.
 - `BRANDING.md`: add a new "Printed material" section cross-linking
   the PDF surface to the same brand tokens + text-wordmark rationale.- NEW tests: `tests/ServantSync.Tests/CalendarPdfBuilderTests.cs` (PDF byte-stream non-empty + page count per scope + brand-text present), `tests/ServantSync.Tests/QrCodeBuilderTests.cs` (encodes expected URL + reasonable byte size), and a `PageAccessTests` entry for the new endpoint's auth gate.
 
-### Round-FR-2: in-person scheduled training sessions with manual-completion audit
+### Round-FR-2: in-person scheduled training sessions with manual-completion audit ✅ SHIPPED → 53d5ec2 (2026-07-07)
 
 **User ask (verbatim intent).** Coordinators want to schedule in-person
 training events (date/time/location), let volunteers sign up for those
@@ -743,7 +743,7 @@ compete with regular assignments. A future round could add a dedicated
   extend `tests/ServantSync.Tests/TrainingServiceTests.cs` for
   `MarkSingleCompleteAsync`.
 
-### Round-FR-3: manually-added volunteers with account linking
+### Round-FR-3: manually-added volunteers with account linking ✅ SHIPPED → 11e0235 (2026-07-06)
 
 **User ask (verbatim intent).** Org admins want to add volunteers to
 the system before those volunteers have an email address or
@@ -1190,4 +1190,231 @@ in (New, UnderReview, Planned)"* and bulk-transition them to
   `MemoryCache`-backed counter, triage transitions, honeypot
   silent-reject). Extend `tests/ServantSync.Tests/PageAccessTests.cs`
   for the new SystemAdmin-gated routes.
+
+### Round-FR-5: role reorganization — Ministry Director + Slot Coordinator + role-based dashboards
+
+**User ask (verbatim intent).** Reorganize the role hierarchy so the
+separation of concerns is more distinct:
+- **App Admin (SystemAdmin)** — no changes.
+- **Organization Admin** — no changes.
+- **Ministry Director** (renamed from the current Coordinator role) —
+  oversees one or more specific ministries they've been assigned to
+  (e.g. "director of AWANA", "director of the soccer league ministry").
+  Can manage their assigned ministries and sub-ministries transitively,
+  and can add to the training catalog for their organization.
+- **Slot Coordinator** (new role) — manages individual service slots
+  under a ministry. Coordinates volunteers and times for those slots.
+  Sits under the Ministry Director in the hierarchy.
+- **Volunteer** — no changes.
+
+The user also wants role-specific dashboard views:
+- Organization Admin dashboard (already exists)
+- Ministry Director dashboard (new — shows assignments across assigned ministries)
+- Slot Coordinator dashboard (new — shows assignments across assigned slots)
+
+**Why now.** The current "Coordinator" role is too broad — it grants
+org-wide management access alongside Admin. Real-world churches have
+ministry-specific directors (AWANA, worship, children's) who should only
+see and manage their own areas, and per-slot coordinators (greeter lead,
+welcome desk lead) who should see even less. Splitting the role into
+Ministry Director and Slot Coordinator gives each tier exactly the access
+they need without over-provisioning.
+
+**Role hierarchy (descending authority).**
+
+| Role | Scope | Dashboard | Nav links |
+|------|-------|-----------|-----------|
+| SystemAdmin | All orgs (visibility only; no write bypass) | Sees everything | System admin link |
+| Admin | Full org management | All org assignments | Organizations, Volunteers, Leagues, Dashboard, In-person training |
+| MinistryDirector | Assigned ministries + sub-ministries (transitive) | Assignments under their ministries | Dashboard, In-person training |
+| SlotCoordinator | Assigned slots only | Assignments for their slots | Dashboard only |
+| Volunteer | No management | N/A | Training, My schedule, Browse open slots |
+
+**Key design principle.** The `OrganizationRole` enum value controls UI
+visibility (which nav links, which dashboard type). Actual management
+authority for specific entities comes from the `CoordinatorPersonUserId`
+field on `Ministry` / `ServiceSlot`. A Ministry Director gets their
+management scope from BOTH their membership role AND their
+`CoordinatorPersonUserId` assignment on specific ministries. A Slot
+Coordinator gets their scope from their `CoordinatorPersonUserId`
+assignment on specific slots.
+
+**Enum changes (`Models/Enums.cs`).**
+```csharp
+public enum OrganizationRole
+{
+    Volunteer = 0,
+    MinistryDirector = 1,  // renamed from Coordinator (same value — zero DB migration impact)
+    Admin = 2,
+    SlotCoordinator = 3,   // NEW
+}
+```
+
+The rename from `Coordinator` to `MinistryDirector` keeps the same
+underlying value (1), so existing database rows are unaffected. The new
+`SlotCoordinator = 3` is purely additive.
+
+**Authorization changes (`Services/OrgAuthService.cs`).**
+
+| Method | Before | After | Reason |
+|--------|--------|-------|--------|
+| `CanManageOrgAsync` | Admin \|\| Coordinator | **Admin only** | Ministry Directors manage ministries, not the whole org |
+| `IsOrgAdminAsync` | Admin only | No change | — |
+| `IsAnyOrgAdminAsync` | Admin in any org | No change | — |
+| `IsAnyOrgManagerAsync` | Admin \|\| Coordinator | Admin \|\| MinistryDirector \|\| SlotCoordinator | Drives dashboard + nav visibility |
+| `CanManageMinistryAsync` | Admin\|\|Coordinator \|\| ministry CoordPersonUserId \|\| parent Coord | Same logic, but now checks Admin\|\|**MinistryDirector** instead of Admin\|\|Coordinator | Ministry scope is already entity-assignment-based — no change to the entity-level checks |
+| `CanManageSlotAsync` | Slot CoordPersonUserId \|\| delegates to CanManageMinistry | No change needed | Already scoped by entity assignment |
+
+**New methods to add:**
+- `IsMinistryDirectorAsync(userId, orgId)` — single-org check
+- `IsSlotCoordinatorAsync(userId, orgId)` — single-org check
+- `IsAnyMinistryDirectorAsync(userId)` — any-org check (for nav visibility)
+- `IsAnySlotCoordinatorAsync(userId)` — any-org check (for nav visibility)
+- `IsAnyTrainingManagerAsync(userId)` — Admin \|\| MinistryDirector (for training-catalog nav links)
+
+**Service authorization updates.**
+
+| File | Line/Method | Before | After |
+|------|------------|--------|-------|
+| `TrainingSessionService.cs` | `IsCallerOrgManagerAsync` (line 749) | Admin \|\| Coordinator | Admin \|\| MinistryDirector |
+| `TrainingService.cs` | `MarkSingleCompleteAsync` (line 495) | Admin \|\| Coordinator | Admin \|\| MinistryDirector |
+| `SlotDocumentService.cs` | Lines 151, 271 | Admin \|\| Coordinator | Admin \|\| MinistryDirector |
+
+**Dashboard changes (`Components/Pages/Dashboard.razor`).**
+
+Single `/Dashboard` page with three role-based query paths:
+
+1. **Admin view (existing):** All assignments for selected org.
+2. **Ministry Director view:** Only assignments where
+   `Ministry.CoordinatorPersonUserId == userId` (their assigned
+   ministries). Org picker shows only orgs where the user holds
+   `MinistryDirector` role.
+3. **Slot Coordinator view:** Only assignments where
+   `ServiceSlot.CoordinatorPersonUserId == userId` (their assigned
+   slots). Org picker shows only orgs where the user holds
+   `SlotCoordinator` role.
+
+KPI cards (Assignments, Unique volunteers, Person overlaps,
+Outstanding trainings) are scoped to the role-filtered assignment set.
+Title/description changes per role:
+- Admin: "Organization dashboard"
+- MinistryDirector: "Ministry director dashboard"
+- SlotCoordinator: "Slot coordinator dashboard"
+
+SystemAdmin gets the all-orgs view (existing behavior).
+
+**NavMenu changes (`Components/Layout/NavMenu.razor`).**
+
+Replace single `_isManager` flag with three role-aware flags:
+
+| Flag | Who | Shows |
+|------|-----|-------|
+| `_isAdmin` | Admin in any org | Organizations, Volunteers, Leagues |
+| `_isTrainingManager` | Admin \|\| MinistryDirector | Dashboard, In-person training |
+| `_isSlotCoordinator` | SlotCoordinator in any org | Dashboard only |
+| `_isSystemAdmin` | SystemAdmin identity role | System admin link (no change) |
+
+Expected nav structure:
+```
+Home                        → all authenticated
+Organizations               → _isAdmin only
+Volunteers                  → _isAdmin only
+Leagues                     → _isAdmin only
+Dashboard                   → _isTrainingManager || _isSlotCoordinator
+In-person training          → _isTrainingManager only
+Training                    → all authenticated
+My schedule                 → all authenticated
+Browse open slots           → all authenticated
+Account                     → all authenticated
+System admin                → _isSystemAdmin only
+```
+
+**Other page authorization updates.**
+
+| File | Current Check | Change |
+|------|--------------|--------|
+| `Organizations/Index.razor` | Admin \|\| Coordinator | Admin only |
+| `People/Index.razor` | Admin \|\| Coordinator | Admin only |
+| `Leagues/Teams/New.razor` | Admin \|\| Coordinator \|\| ministry Coord | Admin \|\| MinistryDirector \|\| ministry Coord |
+| `Organizations/Coordinators.razor` | Admin \|\| Coordinator | Admin \|\| MinistryDirector |
+| Various detail pages | CanManageMinistry / CanManageSlot | No change (delegates to updated OrgAuthService) |
+
+**DatabaseSeeder changes (`Data/DatabaseSeeder.cs`).**
+Lines 131, 135, 136: Change `OrganizationRole.Coordinator` →
+`OrganizationRole.MinistryDirector`. These seed demo users (a coordinator
+and coaches) who should become MinistryDirector since they manage
+ministries.
+
+**Test file changes.**
+All test files (~16 files, ~40+ occurrences) need find-replace:
+`OrganizationRole.Coordinator` → `OrganizationRole.MinistryDirector`.
+Test method names like `UpdateRole_PromotesToCoordinator` should be
+renamed to `…PromotesToMinistryDirector` for clarity.
+
+New OrgAuthService tests needed for:
+- `IsMinistryDirectorAsync` (positive + negative)
+- `IsSlotCoordinatorAsync` (positive + negative)
+- `IsAnyMinistryDirectorAsync` / `IsAnySlotCoordinatorAsync`
+- `IsAnyTrainingManagerAsync`
+- `CanManageOrgAsync` now denies MinistryDirector
+
+**Migration.**
+`dotnet ef migrations add AddSlotCoordinatorRole` — purely additive
+(new enum value `SlotCoordinator = 3` in the model snapshot). No data
+migration needed (the `Coordinator → MinistryDirector` rename keeps value 1).
+
+**Documentation updates.**
+- `PLAN.md` core data model item #1: update role description to list
+  Volunteer / MinistryDirector / Admin / SlotCoordinator.
+- `README.md`: update any references to "Coordinator" role.
+
+**Decisions (resolved during spec planning session).**
+1. **Rename vs. new value for Coordinator:** **Rename to MinistryDirector,
+   keep value=1.** Existing database rows get the new label automatically
+   (EF Core stores enums as ints). No data migration needed.
+2. **Dashboard structure:** **Single `/Dashboard` page with role-based
+   views.** The user selected this over separate pages.
+3. **Nav visibility:** **Restricted.** Ministry Directors see dashboard +
+   training catalog. Slot Coordinators see dashboard only. Main nav links
+   (Orgs, Volunteers, Leagues) are Admin-only.
+4. **Ministry Director authority:** **Transitive.** A Ministry Director
+   of a parent ministry automatically manages sub-ministries and their
+   slots. This matches the existing `CanManageMinistryAsync` behavior
+   which already handles parent-ministry transitivity.
+5. **Ministry Director scope:** **Assigned ministries only.** A Ministry
+   Director sees/manages only ministries where they are the
+   `CoordinatorPersonUserId` — NOT all ministries in the org. The
+   `OrganizationRole.MinistryDirector` membership label controls UI
+   visibility (nav links, dashboard type); the `CoordinatorPersonUserId`
+   on specific `Ministry` rows controls actual data scoping.
+6. **Slot Coordinator scope:** **Assigned slots only.** Same pattern as
+   Ministry Director — the membership label enables dashboard access;
+   the `CoordinatorPersonUserId` on specific `ServiceSlot` rows controls
+   which slots they see.
+
+**Files this round would touch (when implementation starts).**
+- `Models/Enums.cs`: rename Coordinator → MinistryDirector, add SlotCoordinator.
+- `Services/OrgAuthService.cs`: interface + implementation — 5 new methods,
+  tightened `CanManageOrgAsync`, updated `IsAnyOrgManagerAsync`.
+- `Services/TrainingSessionService.cs`: `IsCallerOrgManagerAsync` gate.
+- `Services/TrainingService.cs`: `MarkSingleCompleteAsync` gate.
+- `Services/SlotDocumentService.cs`: two `isOrgAdminOrCoordinator` checks.
+- `Components/Layout/NavMenu.razor`: three role-aware flags + restructured
+  nav link visibility.
+- `Components/Pages/Dashboard.razor`: role-based query paths + KPI scoping +
+  title/per-role copy.
+- `Components/Pages/Organizations/Index.razor`: Admin-only gate.
+- `Components/Pages/People/Index.razor`: Admin-only gate.
+- `Components/Pages/Leagues/Teams/New.razor`: permission message update.
+- `Components/Pages/Organizations/Coordinators.razor`: permission message
+  update.
+- `Data/DatabaseSeeder.cs`: three membership rows.
+- `tests/ServantSync.Tests/*.cs` (~16 files): find-replace
+  `OrganizationRole.Coordinator` → `OrganizationRole.MinistryDirector`.
+- `tests/ServantSync.Tests/OrgAuthServiceTests.cs`: new test cases for
+  MinistryDirector + SlotCoordinator auth methods.
+- NEW migration: `AddSlotCoordinatorRole`.
+- `PLAN.md` core data model item #1: update role list.
+- `README.md`: update Coordinator references.
+
 

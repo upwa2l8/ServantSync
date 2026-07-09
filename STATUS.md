@@ -73,6 +73,24 @@ design.
   other queued specs: admins can mark inbound requests as *"tracked
   in Round-FR-2"* (the `LinkedSpecAnchor` column) so submitters see
   their idea has been heard even before any code ships.
+- **Round-FR-5: role reorganization — Ministry Director + Slot Coordinator
+  + role-based dashboards** — see
+  [`PLAN.md` → Feature requests → Round-FR-5](PLAN.md#round-fr-5-role-reorganization--ministry-director--slot-coordinator--role-based-dashboards).
+  Splits the current Coordinator role into two distinct tiers: Ministry
+  Director (assigned to specific ministries via `CoordinatorPersonUserId`;
+  manages their ministries + sub-ministries transitively; can add to the
+  training catalog) and Slot Coordinator (assigned to specific slots via
+  `CoordinatorPersonUserId`; manages only those slots). Renames the enum
+  `Coordinator=1` → `MinistryDirector=1` (same value, zero data migration)
+  and adds `SlotCoordinator=3`. Restructures the NavMenu with role-aware
+  link visibility (Admin sees full nav; Ministry Director sees Dashboard +
+  In-person training; Slot Coordinator sees Dashboard only). Upgrades the
+  single `/Dashboard` page with three role-filtered query paths: Admin
+  sees all org assignments, Ministry Director sees only their ministry
+  assignments, Slot Coordinator sees only their slot assignments. Spec
+  covers 6 decisions resolved (rename vs new value, dashboard structure,
+  nav visibility, transitivity, Ministry Director scope, Slot Coordinator
+  scope) and ~16 files touched when implementation starts.
 
 ## Where we are
 
