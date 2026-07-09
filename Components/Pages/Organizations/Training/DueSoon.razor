@@ -463,7 +463,21 @@ else
         var d = r.DaysDelta ?? 0;
         return d switch
         {
-            < 0 => $"{Math.Abs(d)}d overdue",
+            // NOTE: do NOT refactor the `< 0` literal back into this arm.
+            // The Razor parser sees a bare `<` followed by whitespace at the
+            // start of a switch arm as the opening of an HTML tag and exits
+            // C# parse mode, which (a) leaves the entire @code block flagged
+            // with RZ1006 "missing closing '}'", and (b) re-evaluates the
+            // rest of the @code declarations as Razor markup — so [Parameter]
+            // properties and [Inject] fields emit CS0106 / CS0103 cascades.
+            // This affected commit 6721e66 (Round-FR-6) and was confirmed
+            // blocked only the Release `dotnet publish` step (Docker build
+            // for Azure Container Apps) — Debug builds + tests passed locally.
+            // `_ when d < 0` keeps the same redirect-to-discard pattern but
+            // moves the relational operator after a non-`<` token, so Razor
+            // doesn't trip on it. (Teams/Detail.razor uses the same pattern
+            // for the same reason — grep `< \d+ =>` to find any future strays.)
+            _ when d < 0 => $"{Math.Abs(d)}d overdue",
             0 => "due today",
             var v => $"{v}d left"
         };
