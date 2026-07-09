@@ -246,6 +246,7 @@ app.MapPost("/Account/Logout", async (SignInManager<IdentityUser> signIn) =>
 // STATUS.md round-AN for the full triage.
 app.MapPost("/Account/PerformLogin", async (
     HttpContext ctx,
+    ILogger<Program> logger,
     SignInManager<IdentityUser> signIn,
     IAntiforgery antiforgery) =>
 {
@@ -273,7 +274,19 @@ app.MapPost("/Account/PerformLogin", async (
     // production browser reproduction to capture the actual exception
     // text from /Error (RequestId is in the page body) to drive
     // the next-round fix.
+    //
+    // FR-LOGIN-SENTINEL: 4 diagnostic log points marked with the
+    // [FR-LOGIN-SENTINEL] prefix so they are easy to grep in
+    // Azure Container Apps logs (`az containerapp logs show
+    // --follow`). The sentinel sequence is validate_request_start
+    // → validate_request_passed → signin_result → redirect_about_to_return.
+    // On the next prod reproduction, the absent sentinel will
+    // localize which downstream step is throwing — e.g. if
+    // "validate_request_passed" appears but "signin_result" does
+    // not, PasswordSignInAsync is the throw site.
+    logger.LogInformation("[FR-LOGIN-SENTINEL] validate_request_start");
     await antiforgery.ValidateRequestAsync(ctx);
+    logger.LogInformation("[FR-LOGIN-SENTINEL] validate_request_passed");
     var form = await ctx.Request.ReadFormAsync();
     var email = form["email"].ToString();
     var password = form["password"].ToString();
@@ -286,17 +299,25 @@ app.MapPost("/Account/PerformLogin", async (
 
     var result = await signIn.PasswordSignInAsync(
         email, password, remember, lockoutOnFailure: false);
+    logger.LogInformation(
+        "[FR-LOGIN-SENTINEL] signin_result: Succeeded={Succeeded} IsLockedOut={IsLockedOut} IsNotAllowed={IsNotAllowed} RequiresTwoFactor={RequiresTwoFactor}",
+        result.Succeeded, result.IsLockedOut, result.IsNotAllowed, result.RequiresTwoFactor);
     if (result.Succeeded)
+    {
+        logger.LogInformation("[FR-LOGIN-SENTINEL] redirect_about_to_return: success -> {SafeTarget}", safeTarget);
         return Results.Redirect(safeTarget);
+    }
 
     // `error` = {locked, invalid} — both branches render in the
     // Login.razor switch-block.
     var errorToken = result.IsLockedOut ? "locked" : "invalid";
+    logger.LogInformation("[FR-LOGIN-SENTINEL] redirect_about_to_return: failure ({ErrorToken}) -> /Account/Login", errorToken);
     return Results.Redirect($"/Account/Login?returnUrl={Uri.EscapeDataString(safeTarget)}&error={errorToken}");
 });
 
 app.MapPost("/Account/PerformRegister", async (
     HttpContext ctx,
+    ILogger<Program> logger,
     UserManager<IdentityUser> users,
     SignInManager<IdentityUser> signIn,
     IDbContextFactory<ApplicationDbContext> dbFactory,
@@ -306,7 +327,16 @@ app.MapPost("/Account/PerformRegister", async (
     // FR-LOGIN-REVERT: see the FR-LOGIN-REVERT comment block on
     // PerformLogin above — same restore. The explicit validate here
     // was always working; the symptom is unrelated to this endpoint.
+    //
+    // FR-LOGIN-SENTINEL: 4 diagnostic log points matched to the
+    // PerformRegister breakpoints — validate_request_start ->
+    // validate_request_passed -> signin_result (here: UserManager.CreateAsync
+    // succeeds + SignInAsync returns before the final redirect) ->
+    // redirect_about_to_return. Same grep prefix on Azure Container
+    // Apps logs as PerformLogin.
+    logger.LogInformation("[FR-LOGIN-SENTINEL] validate_request_start");
     await antiforgery.ValidateRequestAsync(ctx);
+    logger.LogInformation("[FR-LOGIN-SENTINEL] validate_request_passed");
     var form = await ctx.Request.ReadFormAsync();
     var firstName = form["firstName"].ToString().Trim();
     var lastName = form["lastName"].ToString().Trim();
@@ -424,7 +454,16 @@ app.MapPost("/Account/PerformRegister", async (
         }
     }
 
-    return Results.Redirect(UrlSafety.IsLocalUrl(returnUrl) ? returnUrl : "/");
+    logger.LogInformation("[FR-LOGIN-SENTINEL] signin_result: UserCreated.Succeeded={Succeeded} ClaimProvided={ClaimProvided} NewUserId={NewUserId}", create.Succeeded, !string.IsNullOrEmpty(claim), user.Id);
+    // FR-LOGIN-SENTINEL: rename to `finalSafeTarget` because there is
+    // an existing `var safeTarget = ...` declared inside the
+    // `if (!create.Succeeded)` and the `if (outcome.Result != StubClaimResult.Succeeded)`
+    // blocks higher up in this method; declaring another
+    // `safeTarget` at the outer scope triggers CS0136 (a local named
+    // 'safeTarget' is used in an enclosing local declaration).
+    var finalSafeTarget = UrlSafety.IsLocalUrl(returnUrl) ? returnUrl : "/";
+    logger.LogInformation("[FR-LOGIN-SENTINEL] redirect_about_to_return: {SafeTarget}", finalSafeTarget);
+    return Results.Redirect(finalSafeTarget);
 });
 
 // ICS subscribe feed for /MySchedule. Auth-gated. Returns text/calendar with
