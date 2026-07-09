@@ -239,12 +239,20 @@ else
         await Reload();
     }
 
-    /// <summary>
-    /// Fires after the org-picker @bind updates _selectedOrgId.
-    /// Reloads the shift list scoped to the newly selected org.
-    /// </summary>
+    // One-time skip for the org-picker @bind:after. Blazor fires
+    // @bind:after during the initial render (after OnInitializedAsync
+    // already loaded data), so the first call is spurious. The flag
+    // self-clears once, then all subsequent user-initiated org changes
+    // trigger a real Reload.
+    private bool _skipNextBindAfter = true;
+
     private async Task OnOrgChanged()
     {
+        if (_skipNextBindAfter)
+        {
+            _skipNextBindAfter = false;
+            return;
+        }
         await Reload();
     }
 
