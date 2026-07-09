@@ -150,6 +150,13 @@ builder.Services.AddScoped<ISlotManagementService, SlotManagementService>();
 // row in SystemAdminGrantAudits.
 builder.Services.AddScoped<ISystemAdminManagementService, SystemAdminManagementService>();
 builder.Services.AddScoped<IMinistryInterestService, MinistryInterestService>();
+// Round-FR-6 (service layer): per-org training-due-soon grid. New
+// service + new count widget + new page (DueSoon.razor ships next
+// round, layered incrementally to mirror Round-FR-2's
+// service-then-Razor split). Same DI lifetime as the rest of the
+// domain services because every Razor page resolves it via a scoped
+// factory.
+builder.Services.AddScoped<ITrainingDueSoonService, TrainingDueSoonService>();
 builder.Services.AddScoped<ICoordinatorAssignmentsService, CoordinatorAssignmentsService>();
 // Round-AI: self-heal handler. The Take page calls this on every
 // volunteer visit when the content is a local PDF whose TotalPageCount
