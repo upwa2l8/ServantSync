@@ -28,6 +28,11 @@ public class ApplicationDbContext : IdentityDbContext<IdentityUser>
     public DbSet<OrganizationMembership> OrganizationMemberships => Set<OrganizationMembership>();
     public DbSet<Ministry> Ministries => Set<Ministry>();
     public DbSet<MinistryInterest> MinistryInterests => Set<MinistryInterest>();
+    // Round-FR-7: per-slot volunteer interest. Junction parallel to
+    // MinistryInterests but maps Person → ServiceSlot (sibling-level
+    // preference, not ministry-level). Drives the /Open "My slots" filter
+    // + the slot-detail Subscribe toggle + the coord Subscribers panel.
+    public DbSet<SlotInterest> SlotInterests => Set<SlotInterest>();
     public DbSet<ServiceSlot> ServiceSlots => Set<ServiceSlot>();
     public DbSet<SlotOccurrence> SlotOccurrences => Set<SlotOccurrence>();
     public DbSet<TrainingContent> TrainingContents => Set<TrainingContent>();
@@ -159,6 +164,28 @@ public class ApplicationDbContext : IdentityDbContext<IdentityUser>
                 .OnDelete(DeleteBehavior.ClientCascade);
             // Indexed on PersonUserId alone so ListJoinedAsync (per-user
             // query) is a single index seek rather than a scan.
+            b.HasIndex(i => i.PersonUserId);
+        });
+
+        // ---- SlotInterest (Round-FR-7) ----
+        // Sibling-level preference vs MinistryInterest's ministry-level.
+        // Same FK cascade + composite-unique pattern; ServiceSlot gets
+        // ClientCascade (no Person → ServiceSlot → SlotInterest cycle
+        // collision with Person → ServiceSlot (SetNull)).
+        modelBuilder.Entity<SlotInterest>(b =>
+        {
+            b.HasIndex(i => new { i.PersonUserId, i.ServiceSlotId }).IsUnique();
+            b.HasOne(i => i.Person)
+                .WithMany()
+                .HasForeignKey(i => i.PersonUserId)
+                .OnDelete(DeleteBehavior.Cascade);
+            b.HasOne(i => i.ServiceSlot)
+                .WithMany()
+                .HasForeignKey(i => i.ServiceSlotId)
+                .OnDelete(DeleteBehavior.ClientCascade);
+            // Indexed on PersonUserId alone so ListSubscribedAsync (per-user
+            // query — the /Open "My slots" filter + the Home panel) is a
+            // single index seek rather than a scan.
             b.HasIndex(i => i.PersonUserId);
         });
 

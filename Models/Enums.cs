@@ -200,3 +200,28 @@ public enum TrainingDueSoonSort
     ByPersonName = 1,
     ByContentTitle = 2,
 }
+
+/// <summary>
+/// Round-FR-7: how a <see cref="SlotInterest"/> row was created.
+/// <see cref="Explicit"/> is the volunteer-clicked-Subscribe-button path
+/// (the canonical self-service toggle on <c>ServiceSlots/Detail.razor</c>,
+/// the per-slot-row pill on <c>Ministries/Detail.razor</c>, and the
+/// per-shift-card Subscribe on <c>Open.razor</c>).
+/// <see cref="AutoFromAssignment"/> is the auto-create-follow-up path
+/// fired AFTER a successful <c>AssignmentService.SignUpAsync</c> on the
+/// <c>Open.razor</c> page — per FR-7 spec Q1 decision (user picked YES).
+/// NOT surfaced as a UI badge on the slot-coord roster round 1
+/// (Q-B2 decision); captured for round-2 self-audit / data-quality
+/// tooling. Coordinator-driven <c>AssignmentService.AssignAsync</c>
+/// calls (the management side from <c>ServiceSlots/Schedule.razor</c>)
+/// DO NOT trigger auto-subscribe — only self-sign-ups through /Open do,
+/// so coordinators can't pollute volunteer preferences.
+/// </summary>
+public enum SlotInterestSource
+{
+    /// <summary>Volunteer clicked the Subscribe button.</summary>
+    Explicit = 0,
+
+    /// <summary>Auto-created follow-up to a successful <c>Open.razor</c> Sign-Up.</summary>
+    AutoFromAssignment = 1,
+}

@@ -150,6 +150,14 @@ builder.Services.AddScoped<ISlotManagementService, SlotManagementService>();
 // row in SystemAdminGrantAudits.
 builder.Services.AddScoped<ISystemAdminManagementService, SystemAdminManagementService>();
 builder.Services.AddScoped<IMinistryInterestService, MinistryInterestService>();
+// Round-FR-7: per-slot volunteer interest (sibling-level preference vs
+// MinistryInterest's ministry-level). SlotInterest table mirrors the
+// MinistryInterest pattern verbatim; this service exposes the
+// Subscribe / Unsubscribe / ListSubscribed / ListForSlot surface that
+// the slot-detail Subscribe toggle, the /Open 3-way filter, and the
+// coord Subscribers(N) panel all bind to. See PLAN.md → Round-FR-7
+// for the per-method RBAC matrix.
+builder.Services.AddScoped<ISlotInterestService, SlotInterestService>();
 // Round-FR-6 (service layer): per-org training-due-soon grid. New
 // service + new count widget + new page (DueSoon.razor ships next
 // round, layered incrementally to mirror Round-FR-2's
