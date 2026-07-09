@@ -2,7 +2,7 @@
 @attribute [Authorize]
 @rendermode InteractiveServer
 
-<PageTitle>Coordinator dashboard</PageTitle>
+<PageTitle>Organization dashboard</PageTitle>
 
 <nav aria-label="breadcrumb" class="mb-2">
     <ol class="breadcrumb mb-0">
@@ -27,7 +27,7 @@ else if (_manageableOrgs.Count == 0)
     else
     {
         <div class="alert alert-secondary">
-            You're not a coordinator or admin in any organization yet. Ask an admin to add you,
+            You're not a manager or admin in any organization yet. Ask an admin to add you,
             or browse <a href="Organizations">available organizations</a>.
         </div>
     }
@@ -153,7 +153,7 @@ else
     private bool _isAnyOrgAdmin;
     private bool _isAnyMinistryDirector;
     private bool _isAnySlotCoordinator;
-    private string _title = "Coordinator dashboard";
+    private string _title = "Organization dashboard";
     private DateTime _fromUtc = DateTime.UtcNow;
     private DateTime _toUtc = DateTime.UtcNow.AddDays(14);
     private DateTime _anchorDate = new(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1);

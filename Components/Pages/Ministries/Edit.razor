@@ -40,7 +40,7 @@
 
     <div class="row g-2">
         <div class="col-md-6">
-            <label class="form-label">Coordinator</label>
+            <label class="form-label">Director</label>
             <select class="form-select" @bind="_model.CoordinatorPersonUserId">
                 <option value="">— none —</option>
                 @foreach (var p in _members)
@@ -52,13 +52,12 @@
         <div class="col-md-6">
             <div class="form-floating">
                 <InputText id="cemail" class="form-control" @bind-Value="_model.CoordinatorEmail" />
-                <label for="cemail">Coordinator email</label>
+                <label for="cemail">Director email</label>
             </div>
         </div>
     </div>
     <div class="form-floating mt-2">
-        <InputText id="cphone" class="form-control" @bind-Value="_model.CoordinatorPhone" />
-        <label for="cphone">Coordinator phone</label>
+        <InputText id="cphone" class="form-control" @bind-Value="_model.CoordinatorPhone" />                <label for="cphone">Director phone</label>
     </div>
 
     <div class="mt-3">

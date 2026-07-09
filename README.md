@@ -78,12 +78,12 @@ All passwords are `Passw0rd!`.
 | Email                       | Display name    | Role in Demo Church | Notes                                              |
 |-----------------------------|-----------------|---------------------|----------------------------------------------------|
 | `admin@demo.local`          | Alex Admin      | **Admin**           | Can manage the org, its ministries, and its users. |
-| `coordinator@demo.local`    | Chris Coordinator | **Coordinator**   | Can manage the org's scheduling surface only.      |
+| `coordinator@demo.local`    | Chris Coordinator | **Ministry Director** | Can manage the org's scheduling surface only.      |
 | `volunteer@demo.local`      | Vee Volunteer   | **Volunteer**       | Safe-Spaces compliant (completed 1 month ago).     |
 | `volunteer2@demo.local`     | Val Walker      | **Volunteer**       | Safe-Spaces compliant (completed 2 months ago).    |
 | `league-admin@demo.local`   | Logan League-Admin | **Admin**        | League admin for Springfield Youth Soccer.        |
-| `coach1@demo.local`         | Casey Coach     | **Coordinator**     | Coach of both U10 Boys teams.                       |
-| `coach2@demo.local`         | Morgan Coach    | **Coordinator**     | Coach of both U12 Girls teams.                      |
+| `coach1@demo.local`         | Casey Coach     | **Ministry Director** | Coach of both U10 Boys teams.                       |
+| `coach2@demo.local`         | Morgan Coach    | **Ministry Director** | Coach of both U12 Girls teams.                      |
 | `ref1@demo.local`           | Riley Referee   | **Volunteer**       | Concussion-compliant (completed 2 months ago).     |
 | `ref2@demo.local`           | Quinn Referee   | **Volunteer**       | Concussion-compliant (completed 1 month ago).      |
 | `devotion@demo.local`       | Drew Devotion   | **Volunteer**       | Pre-game devotion leader.                          |
@@ -158,7 +158,7 @@ The same Demo Church org also owns a `Springfield Youth Soccer League`
 ministry with three sub-ministries (each with its own coordinator via
 `Ministry.CoordinatorPersonUserId`):
 
-| Sub-ministry | Coordinator      | Slots under it                                                  |
+| Sub-ministry | Director          | Slots under it                                                  |
 |--------------|------------------|-----------------------------------------------------------------|
 | `Referees`   | Riley Referee    | `Game-Day Referee` (Concussion training required)               |
 | `Concessions`| Sam Concessions  | `Concession Stand Worker`                                       |
