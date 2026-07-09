@@ -239,20 +239,8 @@ else
         await Reload();
     }
 
-    // One-time skip for the org-picker @bind:after. Blazor fires
-    // @bind:after during the initial render (after OnInitializedAsync
-    // already loaded data), so the first call is spurious. The flag
-    // self-clears once, then all subsequent user-initiated org changes
-    // trigger a real Reload.
-    private bool _skipNextBindAfter = true;
-
     private async Task OnOrgChanged()
     {
-        if (_skipNextBindAfter)
-        {
-            _skipNextBindAfter = false;
-            return;
-        }
         await Reload();
     }
 
@@ -318,10 +306,13 @@ else
                 .AnyAsync(m => m.PersonUserId == userId);
 
             // Fetch org memberships with names for the org picker dropdown.
+            // OrderBy comes before Select so EF Core can translate the
+            // sort to SQL. After projecting into the OrgItem record,
+            // EF Core can't trace property access back to DB columns.
             var orgs = await db.OrganizationMemberships
                 .Where(m => m.PersonUserId == userId)
+                .OrderBy(m => m.Organization.Name)
                 .Select(m => new OrgItem(m.OrganizationId, m.Organization.Name))
-                .OrderBy(o => o.Name)
                 .ToListAsync();
             if (!iAmLatest()) return;
 
