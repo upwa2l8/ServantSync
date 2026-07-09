@@ -26,7 +26,7 @@ public class TrainingSessionServiceTests : SqliteTestBase
     {
         var org = TestData.Org(Factory, "Org A");
         var coord = TestData.Person(Factory, "Chris", "Coord");
-        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.MinistryDirector);
 
         var start = DateTime.UtcNow.AddDays(7);
         var end = start.AddHours(1);
@@ -93,7 +93,7 @@ public class TrainingSessionServiceTests : SqliteTestBase
         var orgA = TestData.Org(Factory, "Org A");
         var orgB = TestData.Org(Factory, "Org B");
         var coordB = TestData.Person(Factory, "Chris", "Coord");
-        TestData.Membership(Factory, coordB.UserId, orgB.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coordB.UserId, orgB.Id, OrganizationRole.MinistryDirector);
         var start = DateTime.UtcNow.AddDays(7);
 
         var result = await NewService().CreateAsync(
@@ -108,7 +108,7 @@ public class TrainingSessionServiceTests : SqliteTestBase
     {
         var org = TestData.Org(Factory, "Org A");
         var coord = TestData.Person(Factory, "Chris", "Coord");
-        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.MinistryDirector);
         var start = DateTime.UtcNow.AddDays(7);
 
         var result = await NewService().CreateAsync(
@@ -123,7 +123,7 @@ public class TrainingSessionServiceTests : SqliteTestBase
     {
         var org = TestData.Org(Factory, "Org A");
         var coord = TestData.Person(Factory, "Chris", "Coord");
-        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.MinistryDirector);
         var start = DateTime.UtcNow.AddDays(7);
 
         var result = await NewService().CreateAsync(
@@ -138,7 +138,7 @@ public class TrainingSessionServiceTests : SqliteTestBase
     {
         var org = TestData.Org(Factory, "Org A");
         var coord = TestData.Person(Factory, "Chris", "Coord");
-        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.MinistryDirector);
         var start = DateTime.UtcNow.AddDays(7);
 
         var result = await NewService().CreateAsync(
@@ -155,7 +155,7 @@ public class TrainingSessionServiceTests : SqliteTestBase
         // — the model trusts the input, the service refuses.
         var org = TestData.Org(Factory, "Org A");
         var coord = TestData.Person(Factory, "Chris", "Coord");
-        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.MinistryDirector);
         var start = DateTime.UtcNow.AddDays(7);
 
         var result = await NewService().CreateAsync(
@@ -171,7 +171,7 @@ public class TrainingSessionServiceTests : SqliteTestBase
         var org = TestData.Org(Factory, "Org A");
         var content = TestData.TrainingContent(Factory, org.Id, "Welcome Training");
         var coord = TestData.Person(Factory, "Chris", "Coord");
-        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.MinistryDirector);
         var start = DateTime.UtcNow.AddDays(7);
 
         var result = await NewService().CreateAsync(
@@ -195,7 +195,7 @@ public class TrainingSessionServiceTests : SqliteTestBase
         var orgB = TestData.Org(Factory, "Org B");
         var foreignContent = TestData.TrainingContent(Factory, orgB.Id, "Foreign B training");
         var coordA = TestData.Person(Factory, "Chris", "Coord");
-        TestData.Membership(Factory, coordA.UserId, orgA.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coordA.UserId, orgA.Id, OrganizationRole.MinistryDirector);
         var start = DateTime.UtcNow.AddDays(7);
 
         var result = await NewService().CreateAsync(
@@ -229,7 +229,7 @@ public class TrainingSessionServiceTests : SqliteTestBase
     {
         var org = TestData.Org(Factory, "Org A");
         var coord = TestData.Person(Factory, "Chris", "Coord");
-        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.MinistryDirector);
         var s = TestData.TrainingSession(Factory, org.Id, "Original");
         var newStart = DateTime.UtcNow.AddDays(14);
         var newEnd = newStart.AddHours(2);
@@ -254,7 +254,7 @@ public class TrainingSessionServiceTests : SqliteTestBase
     {
         var org = TestData.Org(Factory, "Org A");
         var coord = TestData.Person(Factory, "Chris", "Coord");
-        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.MinistryDirector);
         var start = DateTime.UtcNow.AddDays(7);
 
         var result = await NewService().EditAsync(
@@ -271,7 +271,7 @@ public class TrainingSessionServiceTests : SqliteTestBase
         // Coord can't edit history.
         var org = TestData.Org(Factory, "Org A");
         var coord = TestData.Person(Factory, "Chris", "Coord");
-        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.MinistryDirector);
         var s = TestData.TrainingSession(Factory, org.Id, "Cancelled session",
             status: TrainingSessionStatus.Cancelled);
 
@@ -288,7 +288,7 @@ public class TrainingSessionServiceTests : SqliteTestBase
         // Same reason as Cancelled; the mark has finalized attendance.
         var org = TestData.Org(Factory, "Org A");
         var coord = TestData.Person(Factory, "Chris", "Coord");
-        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.MinistryDirector);
         var s = TestData.TrainingSession(Factory, org.Id, "Completed session",
             status: TrainingSessionStatus.Completed);
 
@@ -304,7 +304,7 @@ public class TrainingSessionServiceTests : SqliteTestBase
     {
         var org = TestData.Org(Factory, "Org A");
         var coord = TestData.Person(Factory, "Chris", "Coord");
-        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.MinistryDirector);
         var s = TestData.TrainingSession(Factory, org.Id);
         var start = DateTime.UtcNow.AddDays(7);
 
@@ -323,7 +323,7 @@ public class TrainingSessionServiceTests : SqliteTestBase
     {
         var org = TestData.Org(Factory, "Org A");
         var coord = TestData.Person(Factory, "Chris", "Coord");
-        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.MinistryDirector);
         var s = TestData.TrainingSession(Factory, org.Id);
 
         var result = await NewService().CancelAsync(s.Id, coord.UserId);
@@ -340,7 +340,7 @@ public class TrainingSessionServiceTests : SqliteTestBase
     {
         var org = TestData.Org(Factory, "Org A");
         var coord = TestData.Person(Factory, "Chris", "Coord");
-        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.MinistryDirector);
         var s = TestData.TrainingSession(Factory, org.Id, status: TrainingSessionStatus.Cancelled);
 
         var result = await NewService().CancelAsync(s.Id, coord.UserId);
@@ -353,7 +353,7 @@ public class TrainingSessionServiceTests : SqliteTestBase
     {
         var org = TestData.Org(Factory, "Org A");
         var coord = TestData.Person(Factory, "Chris", "Coord");
-        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.MinistryDirector);
         var s = TestData.TrainingSession(Factory, org.Id, status: TrainingSessionStatus.Completed);
 
         var result = await NewService().CancelAsync(s.Id, coord.UserId);
@@ -366,7 +366,7 @@ public class TrainingSessionServiceTests : SqliteTestBase
     {
         var org = TestData.Org(Factory, "Org A");
         var coord = TestData.Person(Factory, "Chris", "Coord");
-        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.MinistryDirector);
 
         var result = await NewService().CancelAsync(999_999, coord.UserId);
 
@@ -379,7 +379,7 @@ public class TrainingSessionServiceTests : SqliteTestBase
         var org = TestData.Org(Factory, "Org A");
         var coord = TestData.Person(Factory, "Chris", "Coord");
         var volunteer = TestData.Person(Factory, "Vicky", "Volunteer");
-        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.MinistryDirector);
         TestData.Membership(Factory, volunteer.UserId, org.Id, OrganizationRole.Volunteer);
         var s = TestData.TrainingSession(Factory, org.Id);
 
@@ -464,7 +464,7 @@ public class TrainingSessionServiceTests : SqliteTestBase
         var org = TestData.Org(Factory, "Org A");
         var content = TestData.TrainingContent(Factory, org.Id, "Linked training");
         var coord = TestData.Person(Factory, "Chris", "Coord");
-        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.MinistryDirector);
         var s = TestData.TrainingSession(Factory, org.Id,
             trainingContentId: content.Id);
         TestData.TrainingSessionAttendee(Factory, s.Id, coord.UserId);
@@ -492,7 +492,7 @@ public class TrainingSessionServiceTests : SqliteTestBase
         var org = TestData.Org(Factory, "Org A");
         var coord = TestData.Person(Factory, "Chris", "Coord");
         var volunteer = TestData.Person(Factory, "Vicky", "Volunteer");
-        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.MinistryDirector);
         TestData.Membership(Factory, volunteer.UserId, org.Id, OrganizationRole.Volunteer);
         var s = TestData.TrainingSession(Factory, org.Id);
 
@@ -557,7 +557,7 @@ public class TrainingSessionServiceTests : SqliteTestBase
         var v1 = TestData.Person(Factory, "Vicky1", "V");
         var v2 = TestData.Person(Factory, "Vicky2", "V");
         var v3 = TestData.Person(Factory, "Vicky3", "V");
-        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.MinistryDirector);
         TestData.Membership(Factory, v1.UserId, org.Id, OrganizationRole.Volunteer);
         TestData.Membership(Factory, v2.UserId, org.Id, OrganizationRole.Volunteer);
         TestData.Membership(Factory, v3.UserId, org.Id, OrganizationRole.Volunteer);
@@ -600,7 +600,7 @@ public class TrainingSessionServiceTests : SqliteTestBase
         // session permanently locked.
         var org = TestData.Org(Factory, "Org A");
         var coord = TestData.Person(Factory, "Chris", "Coord");
-        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.MinistryDirector);
         var s = TestData.TrainingSession(Factory, org.Id, maxAttendees: null);
 
         // 10 sign-ups, no resistance.
@@ -697,7 +697,7 @@ public class TrainingSessionServiceTests : SqliteTestBase
         // friendly result rather than silently succeeding.
         var org = TestData.Org(Factory, "Org A");
         var coord = TestData.Person(Factory, "Chris", "Coord");
-        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.MinistryDirector);
         var s = TestData.TrainingSession(Factory, org.Id);
 
         var result = await NewService().MarkAttendeesCompleteAsync(
@@ -715,7 +715,7 @@ public class TrainingSessionServiceTests : SqliteTestBase
         var org = TestData.Org(Factory, "Org A");
         var coord = TestData.Person(Factory, "Chris", "Coord");
         var volunteer = TestData.Person(Factory, "Vicky", "Volunteer");
-        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.MinistryDirector);
         TestData.Membership(Factory, volunteer.UserId, org.Id, OrganizationRole.Volunteer);
         var s = TestData.TrainingSession(Factory, org.Id);
         TestData.TrainingSessionAttendee(Factory, s.Id, volunteer.UserId);
@@ -735,7 +735,7 @@ public class TrainingSessionServiceTests : SqliteTestBase
         var org = TestData.Org(Factory, "Org A");
         var coord = TestData.Person(Factory, "Chris", "Coord");
         var volunteer = TestData.Person(Factory, "Vicky", "Volunteer");
-        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.MinistryDirector);
         TestData.Membership(Factory, volunteer.UserId, org.Id, OrganizationRole.Volunteer);
         var s = TestData.TrainingSession(Factory, org.Id);
         TestData.TrainingSessionAttendee(Factory, s.Id, volunteer.UserId);
@@ -776,7 +776,7 @@ public class TrainingSessionServiceTests : SqliteTestBase
         var coord = TestData.Person(Factory, "Chris", "Coord");
         var inOrgVolunteer = TestData.Person(Factory, "Vicky", "V");
         var stranger = TestData.Person(Factory, "Stranger", "McNobody");
-        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.MinistryDirector);
         TestData.Membership(Factory, inOrgVolunteer.UserId, org.Id, OrganizationRole.Volunteer);
         // Intentionally NO Membership row for stranger.
         var s = TestData.TrainingSession(Factory, org.Id);
@@ -806,7 +806,7 @@ public class TrainingSessionServiceTests : SqliteTestBase
         var content = TestData.TrainingContent(Factory, org.Id, "Safe Spaces");
         var coord = TestData.Person(Factory, "Chris", "Coord");
         var volunteer = TestData.Person(Factory, "Vicky", "Volunteer");
-        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.MinistryDirector);
         TestData.Membership(Factory, volunteer.UserId, org.Id, OrganizationRole.Volunteer);
         var s = TestData.TrainingSession(Factory, org.Id, trainingContentId: content.Id);
         TestData.TrainingSessionAttendee(Factory, s.Id, volunteer.UserId);
@@ -838,7 +838,7 @@ public class TrainingSessionServiceTests : SqliteTestBase
         var org = TestData.Org(Factory, "Org A");
         var coord = TestData.Person(Factory, "Chris", "Coord");
         var volunteer = TestData.Person(Factory, "Vicky", "Volunteer");
-        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.MinistryDirector);
         TestData.Membership(Factory, volunteer.UserId, org.Id, OrganizationRole.Volunteer);
         var s = TestData.TrainingSession(Factory, org.Id);
         TestData.TrainingSessionAttendee(Factory, s.Id, volunteer.UserId);
@@ -863,7 +863,7 @@ public class TrainingSessionServiceTests : SqliteTestBase
         var content = TestData.TrainingContent(Factory, org.Id, "Safe Spaces");
         var coord = TestData.Person(Factory, "Chris", "Coord");
         var volunteer = TestData.Person(Factory, "Vicky", "Volunteer");
-        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.MinistryDirector);
         TestData.Membership(Factory, volunteer.UserId, org.Id, OrganizationRole.Volunteer);
         var s = TestData.TrainingSession(Factory, org.Id,
             trainingContentId: content.Id,
@@ -895,7 +895,7 @@ public class TrainingSessionServiceTests : SqliteTestBase
         var org = TestData.Org(Factory, "Org A");
         var coord = TestData.Person(Factory, "Chris", "Coord");
         var volunteer = TestData.Person(Factory, "Vicky", "Volunteer");
-        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.MinistryDirector);
         TestData.Membership(Factory, volunteer.UserId, org.Id, OrganizationRole.Volunteer);
         var s = TestData.TrainingSession(Factory, org.Id, trainingContentId: null);
         TestData.TrainingSessionAttendee(Factory, s.Id, volunteer.UserId);
@@ -924,7 +924,7 @@ public class TrainingSessionServiceTests : SqliteTestBase
         var content = TestData.TrainingContent(Factory, org.Id, "Safe Spaces");
         var coord = TestData.Person(Factory, "Chris", "Coord");
         var volunteer = TestData.Person(Factory, "Vicky", "Volunteer");
-        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.MinistryDirector);
         TestData.Membership(Factory, volunteer.UserId, org.Id, OrganizationRole.Volunteer);
         var s = TestData.TrainingSession(Factory, org.Id, trainingContentId: content.Id);
         TestData.TrainingSessionAttendee(Factory, s.Id, volunteer.UserId);
@@ -955,7 +955,7 @@ public class TrainingSessionServiceTests : SqliteTestBase
         var content = TestData.TrainingContent(Factory, org.Id, "Safe Spaces");
         var coord = TestData.Person(Factory, "Chris", "Coord");
         var walkIn = TestData.Person(Factory, "Walker", "In");
-        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.MinistryDirector);
         TestData.Membership(Factory, walkIn.UserId, org.Id, OrganizationRole.Volunteer);
         var s = TestData.TrainingSession(Factory, org.Id, trainingContentId: content.Id);
         // walker is in the org but NOT on the original attendee list.
@@ -988,7 +988,7 @@ public class TrainingSessionServiceTests : SqliteTestBase
         var content = TestData.TrainingContent(Factory, org.Id, "Safe Spaces");
         var coord = TestData.Person(Factory, "Chris", "Coord");
         var volunteer = TestData.Person(Factory, "Vicky", "Volunteer");
-        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.MinistryDirector);
         TestData.Membership(Factory, volunteer.UserId, org.Id, OrganizationRole.Volunteer);
         var s = TestData.TrainingSession(Factory, org.Id, trainingContentId: content.Id);
         TestData.TrainingSessionAttendee(Factory, s.Id, volunteer.UserId);
@@ -1024,7 +1024,7 @@ public class TrainingSessionServiceTests : SqliteTestBase
         var v1 = TestData.Person(Factory, "Vicky1", "V");
         var v2 = TestData.Person(Factory, "Vicky2", "V");
         var v3 = TestData.Person(Factory, "Vicky3", "V");
-        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.MinistryDirector);
         TestData.Membership(Factory, v1.UserId, org.Id, OrganizationRole.Volunteer);
         TestData.Membership(Factory, v2.UserId, org.Id, OrganizationRole.Volunteer);
         TestData.Membership(Factory, v3.UserId, org.Id, OrganizationRole.Volunteer);
@@ -1060,7 +1060,7 @@ public class TrainingSessionServiceTests : SqliteTestBase
         var org = TestData.Org(Factory, "Org A");
         var coord = TestData.Person(Factory, "Chris", "Coord");
         var volunteer = TestData.Person(Factory, "Vicky", "Volunteer");
-        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.MinistryDirector);
         TestData.Membership(Factory, volunteer.UserId, org.Id, OrganizationRole.Volunteer);
 
         var result = await NewService().MarkAttendeesCompleteAsync(
@@ -1135,7 +1135,7 @@ public class TrainingSessionServiceTests : SqliteTestBase
         var v1 = TestData.Person(Factory, "Vicky1", "V");
         var v2 = TestData.Person(Factory, "Vicky2", "V");
         var v3 = TestData.Person(Factory, "Vicky3", "V");
-        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.MinistryDirector);
         TestData.Membership(Factory, v1.UserId, org.Id, OrganizationRole.Volunteer);
         TestData.Membership(Factory, v2.UserId, org.Id, OrganizationRole.Volunteer);
         TestData.Membership(Factory, v3.UserId, org.Id, OrganizationRole.Volunteer);
@@ -1167,7 +1167,7 @@ public class TrainingSessionServiceTests : SqliteTestBase
         var coord = TestData.Person(Factory, "Chris", "Coord");
         var v1 = TestData.Person(Factory, "Vicky1", "V");
         var v2 = TestData.Person(Factory, "Vicky2", "V");
-        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.MinistryDirector);
         TestData.Membership(Factory, v1.UserId, org.Id, OrganizationRole.Volunteer);
         TestData.Membership(Factory, v2.UserId, org.Id, OrganizationRole.Volunteer);
         var s = TestData.TrainingSession(Factory, org.Id, maxAttendees: 2);
@@ -1244,7 +1244,7 @@ public class TrainingSessionServiceTests : SqliteTestBase
         var content = TestData.TrainingContent(Factory, org.Id, "Safe Spaces");
         var coord = TestData.Person(Factory, "Chris", "Coord");
         var volunteer = TestData.Person(Factory, "Vicky", "Volunteer");
-        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.MinistryDirector);
         TestData.Membership(Factory, volunteer.UserId, org.Id, OrganizationRole.Volunteer);
         var s = TestData.TrainingSession(Factory, org.Id, trainingContentId: content.Id);
         TestData.TrainingSessionAttendee(Factory, s.Id, volunteer.UserId);
@@ -1280,7 +1280,7 @@ public class TrainingSessionServiceTests : SqliteTestBase
         var org = TestData.Org(Factory, "Org A");
         var coord = TestData.Person(Factory, "Chris", "Coord");
         var volunteer = TestData.Person(Factory, "Vicky", "Volunteer");
-        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.MinistryDirector);
         TestData.Membership(Factory, volunteer.UserId, org.Id, OrganizationRole.Volunteer);
         var s = TestData.TrainingSession(Factory, org.Id, trainingContentId: null);
         TestData.TrainingSessionAttendee(Factory, s.Id, volunteer.UserId);
@@ -1311,7 +1311,7 @@ public class TrainingSessionServiceTests : SqliteTestBase
         var content = TestData.TrainingContent(Factory, org.Id, "Safe Spaces");
         var coord = TestData.Person(Factory, "Chris", "Coord");
         var volunteer = TestData.Person(Factory, "Vicky", "Volunteer");
-        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.MinistryDirector);
         TestData.Membership(Factory, volunteer.UserId, org.Id, OrganizationRole.Volunteer);
         var s = TestData.TrainingSession(Factory, org.Id, trainingContentId: content.Id);
         TestData.TrainingSessionAttendee(Factory, s.Id, volunteer.UserId);
@@ -1343,7 +1343,7 @@ public class TrainingSessionServiceTests : SqliteTestBase
         var content = TestData.TrainingContent(Factory, org.Id, "Safe Spaces");
         var coord = TestData.Person(Factory, "Chris", "Coord");
         var volunteer = TestData.Person(Factory, "Vicky", "Volunteer");
-        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.MinistryDirector);
         TestData.Membership(Factory, volunteer.UserId, org.Id, OrganizationRole.Volunteer);
         var s = TestData.TrainingSession(Factory, org.Id, trainingContentId: content.Id);
         TestData.TrainingSessionAttendee(Factory, s.Id, volunteer.UserId);
@@ -1374,7 +1374,7 @@ public class TrainingSessionServiceTests : SqliteTestBase
         var content = TestData.TrainingContent(Factory, org.Id, "Safe Spaces");
         var coord = TestData.Person(Factory, "Chris", "Coord");
         var walkIn = TestData.Person(Factory, "Walker", "In");
-        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.MinistryDirector);
         TestData.Membership(Factory, walkIn.UserId, org.Id, OrganizationRole.Volunteer);
         var s = TestData.TrainingSession(Factory, org.Id, trainingContentId: content.Id);
         // walkIn is in the org but NOT on the original attendee list.
@@ -1421,7 +1421,7 @@ public class TrainingSessionServiceTests : SqliteTestBase
         var orgB = TestData.Org(Factory, "Org B");
         var coordB = TestData.Person(Factory, "Chris", "Coord");
         var volunteerA = TestData.Person(Factory, "Vicky", "V");
-        TestData.Membership(Factory, coordB.UserId, orgB.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coordB.UserId, orgB.Id, OrganizationRole.MinistryDirector);
         TestData.Membership(Factory, volunteerA.UserId, orgA.Id, OrganizationRole.Volunteer);
         var s = TestData.TrainingSession(Factory, orgA.Id);
         TestData.TrainingSessionAttendee(Factory, s.Id, volunteerA.UserId);
@@ -1442,7 +1442,7 @@ public class TrainingSessionServiceTests : SqliteTestBase
         var org = TestData.Org(Factory, "Org A");
         var coord = TestData.Person(Factory, "Chris", "Coord");
         var stranger = TestData.Person(Factory, "Stranger", "McNobody");
-        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.MinistryDirector);
         // Intentionally NO Membership row for stranger.
         var s = TestData.TrainingSession(Factory, org.Id);
         TestData.TrainingSessionAttendee(Factory, s.Id, stranger.UserId);
@@ -1459,7 +1459,7 @@ public class TrainingSessionServiceTests : SqliteTestBase
         var org = TestData.Org(Factory, "Org A");
         var coord = TestData.Person(Factory, "Chris", "Coord");
         var volunteer = TestData.Person(Factory, "Vicky", "Volunteer");
-        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.MinistryDirector);
         TestData.Membership(Factory, volunteer.UserId, org.Id, OrganizationRole.Volunteer);
         var s = TestData.TrainingSession(Factory, org.Id);
         TestData.TrainingSessionAttendee(Factory, s.Id, volunteer.UserId);
@@ -1476,7 +1476,7 @@ public class TrainingSessionServiceTests : SqliteTestBase
         // Renamed in polish-4 (was ...ValidationFailed) — empty personUserId fails the membership check, not the auth check.
         var org = TestData.Org(Factory, "Org A");
         var coord = TestData.Person(Factory, "Chris", "Coord");
-        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.MinistryDirector);
         var s = TestData.TrainingSession(Factory, org.Id);
 
         var result = await NewService().SetAttendedAsync(
@@ -1494,7 +1494,7 @@ public class TrainingSessionServiceTests : SqliteTestBase
         var org = TestData.Org(Factory, "Org A");
         var coord = TestData.Person(Factory, "Chris", "Coord");
         var volunteer = TestData.Person(Factory, "Vicky", "Volunteer");
-        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.MinistryDirector);
         TestData.Membership(Factory, volunteer.UserId, org.Id, OrganizationRole.Volunteer);
         var s = TestData.TrainingSession(Factory, org.Id, status: TrainingSessionStatus.Cancelled);
         TestData.TrainingSessionAttendee(Factory, s.Id, volunteer.UserId);
@@ -1511,7 +1511,7 @@ public class TrainingSessionServiceTests : SqliteTestBase
         var org = TestData.Org(Factory, "Org A");
         var coord = TestData.Person(Factory, "Chris", "Coord");
         var volunteer = TestData.Person(Factory, "Vicky", "Volunteer");
-        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.MinistryDirector);
         TestData.Membership(Factory, volunteer.UserId, org.Id, OrganizationRole.Volunteer);
         var s = TestData.TrainingSession(Factory, org.Id, status: TrainingSessionStatus.Completed);
         TestData.TrainingSessionAttendee(Factory, s.Id, volunteer.UserId);
@@ -1528,7 +1528,7 @@ public class TrainingSessionServiceTests : SqliteTestBase
         var org = TestData.Org(Factory, "Org A");
         var coord = TestData.Person(Factory, "Chris", "Coord");
         var volunteer = TestData.Person(Factory, "Vicky", "Volunteer");
-        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.MinistryDirector);
         TestData.Membership(Factory, volunteer.UserId, org.Id, OrganizationRole.Volunteer);
 
         var result = await NewService().SetAttendedAsync(
@@ -1548,7 +1548,7 @@ public class TrainingSessionServiceTests : SqliteTestBase
         var org = TestData.Org(Factory, "Org A");
         var coord = TestData.Person(Factory, "Chris", "Coord");
         var volunteer = TestData.Person(Factory, "Vicky", "Volunteer");
-        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.MinistryDirector);
         TestData.Membership(Factory, volunteer.UserId, org.Id, OrganizationRole.Volunteer);
         var s = TestData.TrainingSession(Factory, org.Id);
         TestData.TrainingSessionAttendee(Factory, s.Id, volunteer.UserId);
@@ -1571,7 +1571,7 @@ public class TrainingSessionServiceTests : SqliteTestBase
         var content = TestData.TrainingContent(Factory, org.Id, "Safe Spaces");
         var coord = TestData.Person(Factory, "Chris", "Coord");
         var volunteer = TestData.Person(Factory, "Vicky", "Volunteer");
-        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.MinistryDirector);
         TestData.Membership(Factory, volunteer.UserId, org.Id, OrganizationRole.Volunteer);
         var s = TestData.TrainingSession(Factory, org.Id, trainingContentId: content.Id);
         TestData.TrainingSessionAttendee(Factory, s.Id, volunteer.UserId);
@@ -1693,7 +1693,7 @@ public class TrainingSessionServiceTests : SqliteTestBase
         var content = TestData.TrainingContent(Factory, org.Id, "Safe Spaces");
         var coord = TestData.Person(Factory, "Chris", "Coord");
         var volunteer = TestData.Person(Factory, "Vicky", "Volunteer");
-        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.MinistryDirector);
         TestData.Membership(Factory, volunteer.UserId, org.Id, OrganizationRole.Volunteer);
         var s = TestData.TrainingSession(Factory, org.Id, trainingContentId: content.Id);
         TestData.TrainingSessionAttendee(Factory, s.Id, volunteer.UserId);

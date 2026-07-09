@@ -75,7 +75,7 @@ public class OrganizationServiceTests : SqliteTestBase
         // Caller is only a Coordinator of an existing org, not an Admin.
         var seedOrg = TestData.Org(Factory);
         var coordinator = TestData.Person(Factory);
-        TestData.Membership(Factory, coordinator.UserId, seedOrg.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coordinator.UserId, seedOrg.Id, OrganizationRole.MinistryDirector);
 
         var newId = await NewSvc().CreateOrgAsync(
             callerUserId: coordinator.UserId,
@@ -322,7 +322,7 @@ public class OrganizationServiceTests : SqliteTestBase
         {
             var admin = TestData.Person(Factory);
             TestData.Membership(Factory, admin.UserId, org.Id, OrganizationRole.Admin);
-            TestData.Membership(Factory, coordinator.UserId, org.Id, OrganizationRole.Coordinator);
+            TestData.Membership(Factory, coordinator.UserId, org.Id, OrganizationRole.MinistryDirector);
             var row = await db.Organizations.FindAsync(org.Id);
             row!.RegistrationToken = seedToken;
             await db.SaveChangesAsync();
@@ -530,7 +530,7 @@ public class OrganizationServiceTests : SqliteTestBase
         // gate prevents.
         var seedOrg = TestData.Org(Factory);
         var coordinator = TestData.Person(Factory);
-        TestData.Membership(Factory, coordinator.UserId, seedOrg.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coordinator.UserId, seedOrg.Id, OrganizationRole.MinistryDirector);
         // Deliberately NOT SeedingSystemAdmin here.
 
         var newId = await NewSvc().CreateOrgAsync(

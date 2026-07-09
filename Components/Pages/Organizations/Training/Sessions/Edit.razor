@@ -165,11 +165,11 @@
             _authChecked = true;
             return;
         }
-        _canSubmit = await OrgAuth.CanManageOrgAsync(_userId, OrgId);
+        _canSubmit = await OrgAuth.IsOrgAdminAsync(_userId, OrgId) || await OrgAuth.IsMinistryDirectorAsync(_userId, OrgId);
         if (!_canSubmit)
         {
             _isError = true;
-            _message = "Only coordinators or admins of this organization can edit training sessions.";
+            _message = "Only admins or Ministry Directors of this organization can edit training sessions.";
             _authChecked = true;
             return;
         }

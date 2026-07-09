@@ -13,7 +13,7 @@ public interface IOrgAuthService
     /// </summary>
     Task<OrganizationRole?> GetRoleAsync(string userId, int organizationId, CancellationToken ct = default);
 
-    /// <summary>True if the user is the org's Admin or Coordinator.</summary>
+    /// <summary>Round-FR-5: True if the user is the org's Admin.</summary>
     Task<bool> CanManageOrgAsync(string userId, int organizationId, CancellationToken ct = default);
 
     /// <summary>True if the user is the org's Admin.</summary>
@@ -23,39 +23,84 @@ public interface IOrgAuthService
     Task<bool> IsAnyOrgAdminAsync(string userId, CancellationToken ct = default);
 
     /// <summary>
-    /// True if the user holds Admin or Coordinator role in any
-    /// organization. Used by the nav menu to decide whether to show links
-    /// the user actually needs (Dashboard, Organizations listing, full
-    /// People listing, Leagues) versus links a defacto-volunteer-only
-    /// user needs (My schedule, Browse open slots, My training).
+    /// True if the user holds Admin, MinistryDirector, or
+    /// SlotCoordinator role in any organization. Used by the nav menu
+    /// to decide whether to show management-style links the user
+    /// actually needs versus links a defacto-volunteer-only user needs
+    /// (My schedule, Browse open slots, My training). Round-FR-5
+    /// broadened from "Admin or Coordinator" so a Ministry Director
+    /// or Slot Coordinator sees their dashboard link.
     /// </summary>
     Task<bool> IsAnyOrgManagerAsync(string userId, CancellationToken ct = default);
 
+    /// <summary>Round-FR-5: True iff the user's role in the given org is
+    /// exactly <see cref="OrganizationRole.MinistryDirector"/>.
+    /// Drives the Dashboard's ministry-tier query path and the
+    /// training-catalog "manage" affordance.</summary>
+    Task<bool> IsMinistryDirectorAsync(string userId, int organizationId, CancellationToken ct = default);
+
+    /// <summary>Round-FR-5: True iff the user's role in the given org is
+    /// exactly <see cref="OrganizationRole.SlotCoordinator"/>.
+    /// Drives the Dashboard's slot-tier query path.</summary>
+    Task<bool> IsSlotCoordinatorAsync(string userId, int organizationId, CancellationToken ct = default);
+
+    /// <summary>Round-FR-5: Any-org counterpart of
+    /// <see cref="IsMinistryDirectorAsync"/>. Drives nav-menu link
+    /// visibility for users who manage ministries without being
+    /// Admis (the existing <see cref="IsAnyOrgAdminAsync"/>
+    /// stays Admin-only).</summary>
+    Task<bool> IsAnyMinistryDirectorAsync(string userId, CancellationToken ct = default);
+
+    /// <summary>Round-FR-5: Any-org counterpart of
+    /// <see cref="IsSlotCoordinatorAsync"/>. Drives nav-menu link
+    /// visibility for users who coordinate specific slots without any
+    /// broader management role.</summary>
+    Task<bool> IsAnySlotCoordinatorAsync(string userId, CancellationToken ct = default);
+
+    /// <summary>Round-FR-5: True iff the user can manage the training
+    /// catalog for at least one org they belong to (Admin or
+    /// MinistryDirector in any org). Drives visibility of the
+    /// "In-person training" / "Training/Manage" link in the nav
+    /// menu. Slot Coordinators deliberately do NOT count — they manage
+    /// slots, not training.</summary>
+    Task<bool> IsAnyTrainingManagerAsync(string userId, CancellationToken ct = default);
+
     /// <summary>
     /// True if the user can manage a specific ministry. They are authorized
-    /// if they are an Admin/Coordinator of the parent organization, or the
+    /// if they are an Admin of the parent organization, or the
     /// ministry's own <c>CoordinatorPersonUserId</c>, or the coordinator of
     /// its parent ministry (which transitively owns sub-ministries).
+    /// Round-FR-5: the per-entity <c>CoordinatorPersonUserId</c> check
+    /// already covers Ministry-Directors-of-this-ministry, so an
+    /// entity-restricted coordinator continues to pass without
+    /// needing org-wide Admin.
     /// </summary>
     Task<bool> CanManageMinistryAsync(string userId, int ministryId, CancellationToken ct = default);
 
     /// <summary>
     /// True if the user can manage a specific team. They are authorized if
-    /// they are an Admin/Coordinator of the parent organization, the
+    /// they are an Admin of the parent organization, the
     /// coordinator of the team's ministry, the coordinator of its parent
-    /// ministry, or the team's own <c>CoachPersonUserId</c>.
+    /// ministry, or the team's own <c>CoachPersonUserId</c>. Per-entity
+    /// coordinator assignments cover Ministry-Directors-of-this-ministry
+    /// without needing org-wide Admin.
     /// </summary>
     Task<bool> CanManageTeamAsync(string userId, int teamId, CancellationToken ct = default);
 
     /// <summary>
     /// True if the user can manage a specific service slot. They are
-    /// authorized if they are an Admin/Coordinator of the parent
+    /// authorized if they are an Admin of the parent
     /// organization, the coordinator of the slot's ministry, the
     /// coordinator of the slot's parent ministry (transitive), or the
     /// slot's own <c>CoordinatorPersonUserId</c>. Distinct from
     /// <see cref="CanManageOrgAsync"/> because a "Welcome Desk" slot
     /// can be coordinated by Sara even when Sara has no org-wide role;
     /// delegation happens at the slot tier, not the ministry tier.
+    /// Round-FR-5: Slot Coordinators are entity-scoped via
+    /// <c>ServiceSlot.CoordinatorPersonUserId</c>; the
+    /// <c>OrganizationRole.SlotCoordinator</c> membership label is
+    /// only a UI-visibility flag (drives the Dashboard's slot-tier
+    /// query path), not a write-gate.
     /// </summary>
     Task<bool> CanManageSlotAsync(string userId, int slotId, CancellationToken ct = default);
 
@@ -112,8 +157,15 @@ public class OrgAuthService : IOrgAuthService
 
     public async Task<bool> CanManageOrgAsync(string userId, int organizationId, CancellationToken ct = default)
     {
+        // Round-FR-5: Admin only. Ministry Directors and Slot
+        // Coordinators manage their assigned entities via
+        // Ministry.CoordinatorPersonUserId /
+        // ServiceSlot.CoordinatorPersonUserId, NOT via this org-wide
+        // gate. Tightening this prevents a Ministry Director from
+        // accidentally gaining org-create / org-edit / training-catalog
+        // / coordinator-assignment privileges they shouldn't have.
         var role = await GetRoleAsync(userId, organizationId, ct);
-        return role == OrganizationRole.Admin || role == OrganizationRole.Coordinator;
+        return role == OrganizationRole.Admin;
     }
 
     public async Task<bool> IsOrgAdminAsync(string userId, int organizationId, CancellationToken ct = default)
@@ -134,9 +186,60 @@ public class OrgAuthService : IOrgAuthService
     {
         if (string.IsNullOrEmpty(userId)) return false;
         await using var db = await _factory.CreateDbContextAsync(ct);
+        // Round-FR-5: widened to include MinistryDirector and
+        // SlotCoordinator so a per-ministry / per-slot manager sees
+        // their dashboard nav link even when they're not Admin or a
+        // generic org Admin/Coordinator. Admin stays in the OR for
+        // backwards compatibility with the pre-rename semantics.
         return await db.OrganizationMemberships
             .AnyAsync(m => m.PersonUserId == userId
-                && (m.Role == OrganizationRole.Admin || m.Role == OrganizationRole.Coordinator), ct);
+                && (m.Role == OrganizationRole.Admin
+                    || m.Role == OrganizationRole.MinistryDirector
+                    || m.Role == OrganizationRole.SlotCoordinator), ct);
+    }
+
+    public async Task<bool> IsMinistryDirectorAsync(string userId, int organizationId, CancellationToken ct = default)
+    {
+        var role = await GetRoleAsync(userId, organizationId, ct);
+        return role == OrganizationRole.MinistryDirector;
+    }
+
+    public async Task<bool> IsSlotCoordinatorAsync(string userId, int organizationId, CancellationToken ct = default)
+    {
+        var role = await GetRoleAsync(userId, organizationId, ct);
+        return role == OrganizationRole.SlotCoordinator;
+    }
+
+    public async Task<bool> IsAnyMinistryDirectorAsync(string userId, CancellationToken ct = default)
+    {
+        if (string.IsNullOrEmpty(userId)) return false;
+        await using var db = await _factory.CreateDbContextAsync(ct);
+        return await db.OrganizationMemberships
+            .AnyAsync(m => m.PersonUserId == userId && m.Role == OrganizationRole.MinistryDirector, ct);
+    }
+
+    public async Task<bool> IsAnySlotCoordinatorAsync(string userId, CancellationToken ct = default)
+    {
+        if (string.IsNullOrEmpty(userId)) return false;
+        await using var db = await _factory.CreateDbContextAsync(ct);
+        return await db.OrganizationMemberships
+            .AnyAsync(m => m.PersonUserId == userId && m.Role == OrganizationRole.SlotCoordinator, ct);
+    }
+
+    public async Task<bool> IsAnyTrainingManagerAsync(string userId, CancellationToken ct = default)
+    {
+        // Round-FR-5: Admin or MinistryDirector of any org = can
+        // manage the training catalog for that org. Slot Coordinators
+        // deliberately NOT included — they manage slots, not training.
+        // Matches per-spec decision in PLAN.md FR-5 §"Authorization
+        // changes" + the per-org counterpart used by the
+        // Training/Manage page gate.
+        if (string.IsNullOrEmpty(userId)) return false;
+        await using var db = await _factory.CreateDbContextAsync(ct);
+        return await db.OrganizationMemberships
+            .AnyAsync(m => m.PersonUserId == userId
+                && (m.Role == OrganizationRole.Admin
+                    || m.Role == OrganizationRole.MinistryDirector), ct);
     }
 
     public async Task<bool> CanManageMinistryAsync(string userId, int ministryId, CancellationToken ct = default)

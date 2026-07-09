@@ -45,7 +45,7 @@ public class OrgAuthServiceTests : SqliteTestBase
         // surfaces are visible to anyone with Admin OR Coordinator).
         var org = TestData.Org(Factory);
         var coordinator = TestData.Person(Factory);
-        TestData.Membership(Factory, coordinator.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coordinator.UserId, org.Id, OrganizationRole.MinistryDirector);
 
         Assert.True(await NewSvc().IsAnyOrgManagerAsync(coordinator.UserId));
     }
@@ -101,7 +101,7 @@ public class OrgAuthServiceTests : SqliteTestBase
         var orgA = TestData.Org(Factory, "Org A");
         var orgB = TestData.Org(Factory, "Org B");
         var user = TestData.Person(Factory);
-        TestData.Membership(Factory, user.UserId, orgA.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, user.UserId, orgA.Id, OrganizationRole.MinistryDirector);
         TestData.Membership(Factory, user.UserId, orgB.Id, OrganizationRole.Volunteer);
 
         Assert.True(await NewSvc().IsAnyOrgManagerAsync(user.UserId));
@@ -116,7 +116,7 @@ public class OrgAuthServiceTests : SqliteTestBase
         // have them.
         var org = TestData.Org(Factory);
         var coordinator = TestData.Person(Factory);
-        TestData.Membership(Factory, coordinator.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coordinator.UserId, org.Id, OrganizationRole.MinistryDirector);
 
         Assert.False(await NewSvc().IsAnyOrgAdminAsync(coordinator.UserId));
     }
@@ -131,7 +131,7 @@ public class OrgAuthServiceTests : SqliteTestBase
         // for perfectly valid manager callers.
         var org = TestData.Org(Factory);
         var coordinator = TestData.Person(Factory);
-        TestData.Membership(Factory, coordinator.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coordinator.UserId, org.Id, OrganizationRole.MinistryDirector);
 
         await using var db = await Factory.CreateDbContextAsync();
         // Sanity: confirm there is no Admin row for this user (only one
@@ -191,16 +191,21 @@ public class OrgAuthServiceTests : SqliteTestBase
     }
 
     [Fact]
-    public async Task CanManageSlotAsync_OrgCoordinator_True()
+    public async Task CanManageSlotAsync_MinistryDirectorOfThisOrg_False()
     {
-        // Same chain but for the Coordinator (not Admin) org role.
+        // Round-FR-5: a Ministry Director at the org level (no entity-level
+        // delegation set on the slot or its ministry) cannot manage the
+        // slot. The spec narrowed CanManageOrgAsync to Admin-only, so the
+        // org-tier role is only a UI-visibility flag now — actual slot
+        // management requires either Admin || slot.CoordinatorPersonUserId
+        // || ministry.CoordinatorPersonUserId (covered by the other tests).
         var org = TestData.Org(Factory);
         var min = TestData.Ministry(Factory, org.Id);
         var slot = TestData.Slot(Factory, min.Id);
         var coordinator = TestData.Person(Factory);
-        TestData.Membership(Factory, coordinator.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coordinator.UserId, org.Id, OrganizationRole.MinistryDirector);
 
-        Assert.True(await NewSvc().CanManageSlotAsync(coordinator.UserId, slot.Id));
+        Assert.False(await NewSvc().CanManageSlotAsync(coordinator.UserId, slot.Id));
     }
 
     [Fact]
@@ -311,18 +316,20 @@ public class OrgAuthServiceTests : SqliteTestBase
     }
 
     [Fact]
-    public async Task CanManageOrgAsync_CoordinatorOfThisOrg_True()
+    public async Task CanManageOrgAsync_MinistryDirectorOfThisOrg_False()
     {
-        // Coordinator role is intentionally considered a manager at the
-        // per-org level (the user requirement was that the manager
-        // surfaces are visible to anyone with Admin OR Coordinator). This
-        // is the test that locks down the Organizations/Detail.razor
-        // Org-training-tab gate for a Coordinator caller.
+        // Round-FR-5: CanManageOrgAsync narrowed to Admin-only. A
+        // Ministry Director at the org level is no longer a per-org
+        // manager — the role only drives UI visibility (dashboard
+        // + training-catalog nav links) and the entity-level
+        // CoordinatorPersonUserId FK drives actual ministry/slot
+        // management. This test pins the new deny path: a Ministry
+        // Director with no Admin role must NOT pass an org-wide gate.
         var org = TestData.Org(Factory);
         var coordinator = TestData.Person(Factory);
-        TestData.Membership(Factory, coordinator.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coordinator.UserId, org.Id, OrganizationRole.MinistryDirector);
 
-        Assert.True(await NewSvc().CanManageOrgAsync(coordinator.UserId, org.Id));
+        Assert.False(await NewSvc().CanManageOrgAsync(coordinator.UserId, org.Id));
     }
 
     [Fact]

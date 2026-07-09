@@ -33,14 +33,26 @@
 
         <AuthorizeView>
             <Authorized>
-                @* Manager-only links — Admin or Coordinator of any org. Visible
-                   once the user has at least one such role; fetched once per
-                   render via OrgAuthService.IsAnyOrgManagerAsync. Defensive
-                   default is "hide": if the call fails (e.g. transient DB
-                   error), the user sees only the always-visible links below
-                   rather than manage-only affordances they may not have
-                   permission for. *@
-                @if (_isManager)
+                @* Round-FR-5: link visibility is driven by three role-aware
+                   flags (each one a pre-computed bit in @code), per the
+                   spec table in PLAN.md → Round-FR-5. The links break
+                   down into three tiers:
+
+                     • _isAdmin            → Organizations / Volunteers / Leagues
+                                              (the "manage the whole org" surfaces)
+                     • _isTrainingManager  → In-person training catalog
+                                              (admin + ministry directors only;
+                                              slot coordinators don't manage training)
+                     • _isTrainingManager
+                       || _isSlotCoordinator → Dashboard
+                       (all visible management tiers + slot coordinators see
+                        only their dashboard, never the org-wide nav)
+
+                   _isSystemAdmin widens ALL flags so a fresh sysadmin with
+                   no per-org Admin/Coordinator role still sees the same nav
+                   as a per-org admin — they go through every page in
+                   visibility-only mode anyway. *@
+                @if (_isAdmin)
                 {
                     <div class="nav-item px-3">
                         <NavLink class="nav-link" href="Organizations">
@@ -57,20 +69,20 @@
                             <span class="bi bi-trophy-nav-menu" aria-hidden="true"></span> Leagues
                         </NavLink>
                     </div>
+                }
+                @if (_isTrainingManager || _isSlotCoordinator)
+                {
                     <div class="nav-item px-3">
                         <NavLink class="nav-link" href="Dashboard">
                             <span class="bi bi-speedometer2-nav-menu" aria-hidden="true"></span> Dashboard
                         </NavLink>
                     </div>
-                    @* In-person training (manager discoverability). Links to
-                       /Training/Manage where the per-org sessions list lives;
-                       non-managers keep the existing volunteer-facing
-                       "Training" link below for /Training (their own
-                       My Training page). The two-tier "Training / In-person
-                       training" pattern matches how "Organizations" sits
-                       next to "Dashboard" + "Vol" already — both manager
-                       and volunteer surfaces reachable from one nav, the
-                       managed one gated by _isManager. *@
+                }
+                @if (_isTrainingManager)
+                {
+                    @* In-person training discoverability. Slot Coordinators
+                       deliberately do NOT see this link — they manage slots,
+                       not the training catalog (per the spec's IsAnyTrainingManagerAsync). *@
                     <div class="nav-item px-3">
                         <NavLink class="nav-link" href="Training/Manage">
                             <span class="bi bi-mortarboard-nav-menu" aria-hidden="true"></span> In-person training
@@ -140,27 +152,32 @@
 @inject ILoggerFactory LoggerFactory
 @implements IDisposable
 @code {
-    // Cached "user is Admin or Coordinator of any org OR is a SystemAdmin"
-    // flag. AuthorizeView's <Authorized> already guaranteed an authenticated
-    // user, so the lookup is just the membership + identity-role check.
-    // Default false until OnInitializedAsync finishes — that way the
-    // unauthorized user never sees a flicker of manage-only links while the
-    // auth-state await runs.
+    // Round-FR-5: three role-aware flags driven by the spec table.
     //
-    // Round-AW: the SystemAdmin OR widens the manager-only nav link set.
-    // This is a strictly-UI widening — per-org WRITE gates elsewhere still
-    // require IsOrgAdminAsync on that specific org. SystemAdmin sees
-    // manager-style nav links (Organizations / Volunteers / Leagues /
-    // Dashboard) so they can navigate the global view that the role
-    // grants them, but the click-through pages still enforce tier scoping
-    // (see /People/Index.razor + People/Detail.razor + OrganizationService
-    // for the read/write orthogonality pin).
-    private bool _isManager;
-    // Round-BC SystemAdmin nav-link gate. Distinct from _isManager so
-    // the SystemAdmin link can render even for a SysAdmin who isn't a
-    // per-org Admin/Coordinator. The IsSystemAdminAsync call is already
-    // cached at the OrgAuthService layer so the second flag adds one
-    // indexed join per nav refresh at most.
+    //   _isAdmin            → Admin of any org OR SystemAdmin.
+    //                         Drives Organizations / Volunteers / Leagues
+    //                         nav links.
+    //   _isTrainingManager  → Admin || MinistryDirector || SystemAdmin.
+    //                         Drives the In-person training catalog link
+    //                         (slot coordinators are explicitly NOT training
+    //                         managers — they manage slots, not training).
+    //   _isSlotCoordinator  → IsAnySlotCoordinatorAsync. The membership-role
+    //                         label (not entity-level delegation) drives
+    //                         Dashboard visibility for slot coordinators.
+    //                         Specific slot management goes through
+    //                         ServiceSlot.CoordinatorPersonUserId per the
+    //                         spec's "key design principle".
+    //   _isSystemAdmin      → ASP.NET Core Identity "SystemAdmin" role.
+    //                         Stays orthogonal to the other three flags so
+    //                         the SystemAdmin nav link can render even for a
+    //                         SysAdmin who isn't a per-org Admin/Coordinator.
+    //
+    // All four default false until OnInitializedAsync finishes — that way
+    // the unauthorized user never sees a flicker of manage-only links while
+    // the auth-state await runs.
+    private bool _isAdmin;
+    private bool _isTrainingManager;
+    private bool _isSlotCoordinator;
     private bool _isSystemAdmin;
     // Toolbar logger: created in OnInitialized so we don't allocate on
     // every auth-state tick. Logging takes the place of a silent catch so
@@ -170,22 +187,13 @@
 
     protected override async Task OnInitializedAsync()
     {
-        // Component-scoped logger; using a fixed category name keeps the
-        // log entries searchable across deployments.
         _log = LoggerFactory.CreateLogger("ServantSync.Components.NavMenu");
-        // Subscribe FIRST, then run the first refresh. No
-        // AuthenticationStateChanged event will fire synchronously between
-        // these two lines (Blazor lifecycle is single-threaded), so the
-        // order is just style — a defense-in-depth "subscribe before
-        // await" pattern.
         Auth.AuthenticationStateChanged += OnAuthStateChanged;
         await RefreshManagerFlagAsync();
     }
 
     private async void OnAuthStateChanged(Task<AuthenticationState> task)
     {
-        // The event handler is async void by contract; wrap the actual
-        // work so the unhandled exception can't crash the circuit.
         try
         {
             await RefreshManagerFlagAsync();
@@ -193,11 +201,7 @@
         }
         catch (Exception ex)
         {
-            // Logged, not swallowed: a transient DB hiccup should not
-            // tear down the user's session, but a real bug in
-            // RefreshManagerFlagAsync needs to be visible when triaging.
-            // The next auth-state event will retry the lookup.
-            _log.LogWarning(ex, "NavMenu: ignored error refreshing manager flag; will retry on next state change.");
+            _log.LogWarning(ex, "NavMenu: ignored error refreshing manager flags; will retry on next state change.");
         }
     }
 
@@ -205,30 +209,29 @@
     {
         var state = await Auth.GetAuthenticationStateAsync();
         var userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-        // IsNullOrWhiteSpace (not IsNullOrEmpty) matches the convention used
-        // elsewhere in this codebase — Register.razor's Token check for
-        // example — so an anonymous user with an empty claim still gets
-        // cleanly classified as "no manager" instead of a stale view.
         if (string.IsNullOrWhiteSpace(userId))
         {
-            _isManager = false;
+            _isAdmin = _isTrainingManager = _isSlotCoordinator = _isSystemAdmin = false;
             return;
         }
-        // Round-AW: SystemAdmin widens to true here. The short-circuit OR
-        // means an OrgAuth lookup is skipped when SystemAdmin is true,
-        // keeping the nav-flag refresh cheap on the common sysadmin-only
-        // session shape.
-        _isManager = await OrgAuth.IsAnyOrgManagerAsync(userId)
-            || await OrgAuth.IsSystemAdminAsync(userId);
         _isSystemAdmin = await OrgAuth.IsSystemAdminAsync(userId);
+        // _isAdmin widens to OR SystemAdmin: a fresh SysAdmin with no
+        // per-org Admin role still sees Organizations / Volunteers /
+        // Leagues so they can navigate to the pages the SystemAdmin
+        // visibility-only contract grants them.
+        _isAdmin = await OrgAuth.IsAnyOrgAdminAsync(userId) || _isSystemAdmin;
+        // _isTrainingManager: Admin or MinistryDirector of any org,
+        // OR SystemAdmin. Slot Coordinators deliberately do NOT count
+        // (per IsAnyTrainingManagerAsync).
+        _isTrainingManager = await OrgAuth.IsAnyTrainingManagerAsync(userId) || _isSystemAdmin;
+        // _isSlotCoordinator: membership-role label only (per spec key
+        // design principle — actual slot-level management goes via
+        // ServiceSlot.CoordinatorPersonUserId, not this OrgRole label).
+        _isSlotCoordinator = await OrgAuth.IsAnySlotCoordinatorAsync(userId);
     }
 
     public void Dispose()
     {
-        // Unsubscribe so the handler doesn't outlive the component
-        // (matters for the InteractiveServer circuit — the layout lives
-        // across many navigations within one circuit and would otherwise
-        // pin a stale closure indefinitely).
         Auth.AuthenticationStateChanged -= OnAuthStateChanged;
     }
 }

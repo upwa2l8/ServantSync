@@ -26,7 +26,12 @@ seed / tests; 🟡 designed-for or partially built; ❌ not started.
    - `Organization` contains many `Ministry`s; `Ministry` contains many
      `ServiceSlot`s.
    - Each `Person` has one or more `OrganizationMembership`s, each with
-     a `Role` (Volunteer / Coordinator / Admin).
+     a `Role` (Volunteer / MinistryDirector / Admin / SlotCoordinator)
+     — Round-FR-5 split the old `Coordinator` into two distinct tiers
+     (Ministry Director at the ministry level + Slot Coordinator at
+     the slot level) so ministry directors and per-slot coordinators
+     have exactly the access they need, scoped to the
+     `CoordinatorPersonUserId` field on the entity they're delegated to.
    - Files: `Models/Organization.cs`, `Models/Ministry.cs`,
      `Models/ServiceSlot.cs`, `Models/OrganizationMembership.cs`,
      `Models/Person.cs`, `Models/Enums.cs`.
@@ -176,9 +181,17 @@ chronological order:
 - **Browser-timezone story** — `UserTimeZoneProvider` +
   `wwwroot/js/timezone.js`. IANA zone detection on first load,
   cookie-backed, used by all time-of-day displays. ✅
-- **RBAC (admin / coordinator)** — `Services/OrgAuthService.cs`
+- **RBAC (admin / ministry director / slot coordinator)** — `Services/OrgAuthService.cs`
   on top of the custom `OrganizationRole` enum. Replaces Identity
-  roles for org-level access control. ✅
+  roles for org-level access control. Round-FR-5 split the legacy
+  `Coordinator` tier into `MinistryDirector` (org- or ministry-scoped
+  management via `Ministry.CoordinatorPersonUserId`) and
+  `SlotCoordinator` (slot-scoped management via
+  `ServiceSlot.CoordinatorPersonUserId`), with five new
+  IOrgAuthService methods (`IsMinistryDirectorAsync`,
+  `IsSlotCoordinatorAsync`, `IsAnyMinistryDirectorAsync`,
+  `IsAnySlotCoordinatorAsync`, `IsAnyTrainingManagerAsync`) and
+  tightened `CanManageOrgAsync` (Admin-only). ✅
 - **Sample seeder** — `Data/DatabaseSeeder.cs`. Idempotent on the
   `Organizations` table; creates 4 users, 1 org, 2 ministries, 3
   service slots, 1 training content, 2 training completions, 6

@@ -75,7 +75,7 @@ public class MemberManagementServiceTests : SqliteTestBase
         var org = TestData.Org(Factory);
         var coordinator = TestData.Person(Factory);
         var target = TestData.Person(Factory);
-        TestData.Membership(Factory, coordinator.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coordinator.UserId, org.Id, OrganizationRole.MinistryDirector);
 
         var result = await NewSvc().AddAsync(
             callerUserId: coordinator.UserId,
@@ -144,7 +144,7 @@ public class MemberManagementServiceTests : SqliteTestBase
             callerUserId: admin.UserId,
             organizationId: org.Id,
             personUserId: existing.UserId,
-            role: OrganizationRole.Coordinator);
+            role: OrganizationRole.MinistryDirector);
 
         Assert.Equal(MemberAddResult.AlreadyExists, result);
 
@@ -217,14 +217,14 @@ public class MemberManagementServiceTests : SqliteTestBase
             callerUserId: admin.UserId,
             organizationId: org.Id,
             personUserId: target.UserId,
-            newRole: OrganizationRole.Coordinator);
+            newRole: OrganizationRole.MinistryDirector);
 
         Assert.Equal(MemberMutationResult.Updated, result);
 
         await using var db = await Factory.CreateDbContextAsync();
         var row = await db.OrganizationMemberships.SingleAsync(m =>
             m.OrganizationId == org.Id && m.PersonUserId == target.UserId);
-        Assert.Equal(OrganizationRole.Coordinator, row.Role);
+        Assert.Equal(OrganizationRole.MinistryDirector, row.Role);
     }
 
     [Fact]
@@ -234,7 +234,7 @@ public class MemberManagementServiceTests : SqliteTestBase
         var admin = TestData.Person(Factory);
         var target = TestData.Person(Factory);
         TestData.Membership(Factory, admin.UserId, org.Id, OrganizationRole.Admin);
-        TestData.Membership(Factory, target.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, target.UserId, org.Id, OrganizationRole.MinistryDirector);
 
         var result = await NewSvc().UpdateRoleAsync(
             callerUserId: admin.UserId,
@@ -256,14 +256,14 @@ public class MemberManagementServiceTests : SqliteTestBase
         var org = TestData.Org(Factory);
         var coordinator = TestData.Person(Factory);
         var target = TestData.Person(Factory);
-        TestData.Membership(Factory, coordinator.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coordinator.UserId, org.Id, OrganizationRole.MinistryDirector);
         TestData.Membership(Factory, target.UserId, org.Id, OrganizationRole.Volunteer);
 
         var result = await NewSvc().UpdateRoleAsync(
             callerUserId: coordinator.UserId,
             organizationId: org.Id,
             personUserId: target.UserId,
-            newRole: OrganizationRole.Coordinator);
+            newRole: OrganizationRole.MinistryDirector);
 
         Assert.Equal(MemberMutationResult.PermissionDenied, result);
 
@@ -304,7 +304,7 @@ public class MemberManagementServiceTests : SqliteTestBase
             callerUserId: admin.UserId,
             organizationId: org.Id,
             personUserId: admin.UserId,
-            newRole: OrganizationRole.Coordinator);
+            newRole: OrganizationRole.MinistryDirector);
 
         Assert.Equal(MemberMutationResult.SelfDemotionRefused, result);
 
@@ -349,7 +349,7 @@ public class MemberManagementServiceTests : SqliteTestBase
             callerUserId: adminA.UserId,
             organizationId: org.Id,
             personUserId: adminB.UserId,
-            newRole: OrganizationRole.Coordinator);
+            newRole: OrganizationRole.MinistryDirector);
 
         Assert.Equal(MemberMutationResult.Updated, result);
 
@@ -359,7 +359,7 @@ public class MemberManagementServiceTests : SqliteTestBase
         var adminBRow = await db.OrganizationMemberships.SingleAsync(m =>
             m.OrganizationId == org.Id && m.PersonUserId == adminB.UserId);
         Assert.Equal(OrganizationRole.Admin, adminARow.Role); // unchanged
-        Assert.Equal(OrganizationRole.Coordinator, adminBRow.Role); // demoted
+        Assert.Equal(OrganizationRole.MinistryDirector, adminBRow.Role); // demoted
     }
 
     [Fact]
@@ -389,13 +389,13 @@ public class MemberManagementServiceTests : SqliteTestBase
         var admin = TestData.Person(Factory);
         var target = TestData.Person(Factory);
         TestData.Membership(Factory, admin.UserId, org.Id, OrganizationRole.Admin);
-        TestData.Membership(Factory, target.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, target.UserId, org.Id, OrganizationRole.MinistryDirector);
 
         var result = await NewSvc().UpdateRoleAsync(
             callerUserId: admin.UserId,
             organizationId: org.Id,
             personUserId: target.UserId,
-            newRole: OrganizationRole.Coordinator);
+            newRole: OrganizationRole.MinistryDirector);
 
         Assert.Equal(MemberMutationResult.Updated, result);
     }
@@ -411,7 +411,7 @@ public class MemberManagementServiceTests : SqliteTestBase
             callerUserId: "",
             organizationId: org.Id,
             personUserId: target.UserId,
-            newRole: OrganizationRole.Coordinator);
+            newRole: OrganizationRole.MinistryDirector);
 
         Assert.Equal(MemberMutationResult.PermissionDenied, result);
     }
@@ -427,7 +427,7 @@ public class MemberManagementServiceTests : SqliteTestBase
             callerUserId: admin.UserId,
             organizationId: org.Id,
             personUserId: "",
-            newRole: OrganizationRole.Coordinator);
+            newRole: OrganizationRole.MinistryDirector);
 
         Assert.Equal(MemberMutationResult.PermissionDenied, result);
     }
@@ -517,7 +517,7 @@ public class MemberManagementServiceTests : SqliteTestBase
         var admin = TestData.Person(Factory);
         var coordinator = TestData.Person(Factory);
         TestData.Membership(Factory, admin.UserId, org.Id, OrganizationRole.Admin);
-        TestData.Membership(Factory, coordinator.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coordinator.UserId, org.Id, OrganizationRole.MinistryDirector);
 
         var result = await NewSvc().RemoveAsync(
             callerUserId: admin.UserId,
@@ -533,7 +533,7 @@ public class MemberManagementServiceTests : SqliteTestBase
         var org = TestData.Org(Factory);
         var coordinator = TestData.Person(Factory);
         var target = TestData.Person(Factory);
-        TestData.Membership(Factory, coordinator.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coordinator.UserId, org.Id, OrganizationRole.MinistryDirector);
         TestData.Membership(Factory, target.UserId, org.Id, OrganizationRole.Volunteer);
 
         var result = await NewSvc().RemoveAsync(

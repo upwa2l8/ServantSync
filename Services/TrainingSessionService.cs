@@ -746,6 +746,9 @@ public class TrainingSessionService : ITrainingSessionService
             .Where(m => m.PersonUserId == userId && m.OrganizationId == orgId)
             .Select(m => (OrganizationRole?)m.Role)
             .FirstOrDefaultAsync(ct);
-        return role == OrganizationRole.Admin || role == OrganizationRole.Coordinator;
+        // Round-FR-5: Admin OR MinistryDirector. Slot Coordinators
+        // intentionally NOT included — training is an org- or
+        // ministry-scoped concern, not a slot concern.
+        return role == OrganizationRole.Admin || role == OrganizationRole.MinistryDirector;
     }
 }

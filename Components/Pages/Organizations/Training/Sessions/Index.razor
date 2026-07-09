@@ -124,7 +124,7 @@ else
             _loading = false;
             return;
         }
-        _canManage = await OrgAuth.CanManageOrgAsync(userId, OrgId);
+        _canManage = await OrgAuth.IsOrgAdminAsync(userId, OrgId) || await OrgAuth.IsMinistryDirectorAsync(userId, OrgId);
         _upcoming = await SessionService.ListUpcomingAsync(OrgId);
         // 1-year lookback for the Past tab covers the realistic
         // window coordinators care about (longer backlogs land in

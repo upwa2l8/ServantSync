@@ -492,7 +492,11 @@ public class TrainingService : ITrainingService
             .Where(m => m.PersonUserId == markerUserId && m.OrganizationId == content.OrganizationId)
             .Select(m => (OrganizationRole?)m.Role)
             .FirstOrDefaultAsync(ct);
-        if (callerRole != OrganizationRole.Admin && callerRole != OrganizationRole.Coordinator)
+        // Round-FR-5: Admin OR MinistryDirector of the content's
+        // org. Slot Coordinators deliberately NOT included — manual
+        // completion marks are a training-management concern, not a
+        // slot concern.
+        if (callerRole != OrganizationRole.Admin && callerRole != OrganizationRole.MinistryDirector)
             return TrainingCompletionResult.ManualMarkPermissionDenied;
 
         // The volunteer being marked must be a member of the content's

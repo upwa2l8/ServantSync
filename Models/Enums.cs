@@ -7,8 +7,20 @@ namespace ServantSync.Models;
 public enum OrganizationRole
 {
     Volunteer = 0,
-    Coordinator = 1,
+    /// <summary>Round-FR-5: previously named Coordinator; the underlying
+    /// int value (1) is preserved so existing database rows are
+    /// unaffected. UI/visibility controls and "this person manages this
+    /// ministry" delegations now live here; actual scoping of data is
+    /// driven by <c>Ministry.CoordinatorPersonUserId</c> /
+    /// <c>ServiceSlot.CoordinatorPersonUserId</c>, not by this enum.</summary>
+    MinistryDirector = 1,
     Admin = 2,
+    /// <summary>Round-FR-5: NEW role. Manages a specific subset of
+    /// <c>ServiceSlot</c>s (the ones whose
+    /// <c>CoordinatorPersonUserId</c> matches their UserId). Sits under
+    /// MinistryDirector in the visibility hierarchy; cannot manage the
+    /// whole org. Purely additive (int value 3).</summary>
+    SlotCoordinator = 3,
 }
 
 /// <summary>

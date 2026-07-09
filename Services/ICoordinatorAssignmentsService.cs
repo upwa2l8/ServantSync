@@ -162,7 +162,7 @@ public class CoordinatorAssignmentsService : ICoordinatorAssignmentsService
             .FirstOrDefaultAsync(s => s.Id == slotId, ct);
         if (slot is null) return CoordinatorMutationResult.NotFound;
 
-        if (!await _orgAuth.CanManageOrgAsync(callerUserId, slot.Ministry.OrganizationId, ct))
+        if (!await _orgAuth.CanManageMinistryAsync(callerUserId, slot.MinistryId, ct))
             return CoordinatorMutationResult.PermissionDenied;
 
         // When a UserId is provided, the coordinator MUST live in the

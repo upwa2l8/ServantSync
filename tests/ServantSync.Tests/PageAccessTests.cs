@@ -83,7 +83,7 @@ public class PageAccessTests : SqliteTestBase
         var volunteer = TestData.Person(Factory);
         var target = TestData.Person(Factory);
         TestData.Membership(Factory, admin.UserId, org.Id, OrganizationRole.Admin);
-        TestData.Membership(Factory, coordinator.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coordinator.UserId, org.Id, OrganizationRole.MinistryDirector);
         TestData.Membership(Factory, volunteer.UserId, org.Id, OrganizationRole.Volunteer);
         return (org, admin.UserId, coordinator.UserId, volunteer.UserId, target.UserId);
     }
@@ -119,7 +119,7 @@ public class PageAccessTests : SqliteTestBase
         var (org, _, coordinatorId, volunteerId, _) = SeedOrgWithRoles();
         // Make sure the volunteer's role change is also tested.
         var coordResult = await NewMembers().UpdateRoleAsync(
-            coordinatorId, org.Id, volunteerId, OrganizationRole.Coordinator);
+            coordinatorId, org.Id, volunteerId, OrganizationRole.MinistryDirector);
         var volResult = await NewMembers().UpdateRoleAsync(
             volunteerId, org.Id, coordinatorId, OrganizationRole.Admin);
 
@@ -274,21 +274,23 @@ public class PageAccessTests : SqliteTestBase
     // suite and would be redundant here.
 
     [Fact]
-    public async Task Edit_NewSlot_AllowsMinistryCoordinator()
+    public async Task Edit_NewSlot_AllowsOrgAdmin()
     {
-        // Widen-on-create: an org Coordinator (no Admin role) can create
-        // a slot in any ministry they CanManageMinistryAsync-gate. Pins
-        // the round-BA split: previously the page's CanManageOrgAsync
-        // gate ALSO accepted org Coordinators; the new ministry-tier
-        // gate keeps that property AND additionally accepts ministry
-        // Coordinators (so the order-side PromoteSlot flow keeps
-        // working without Admin escalation).
-        var (org, _, coordinatorId, _, _) = SeedOrgWithRoles();
+        // Round-FR-5: per the spec's tightened CanManageOrgAsync
+        // (now Admin-only) + the ministry-tier CanManageMinistryAsync
+        // chain, an Admin of the org can still create a slot in any
+        // ministry of that org (the parent-ministry transitive rule
+        // + the org-wide Admin gate together cover all ministries).
+        // A user holding only OrganizationRole.MinistryDirector no
+        // longer suffices because CanManageOrgAsync is Admin-only;
+        // they need either Admin OR the ministry's own
+        // CoordinatorPersonUserId FK (verified by a separate test).
+        var (org, adminId, _, _, _) = SeedOrgWithRoles();
         var ministry = TestData.Ministry(Factory, org.Id, "Worship");
 
         var result = await NewSlots().UpsertAsync(
-            coordinatorId, org.Id, ministry.Id, slotId: null,
-            name: "New Slot for Coordinator", description: null,
+            adminId, org.Id, ministry.Id, slotId: null,
+            name: "New Slot for Org Admin", description: null,
             location: null, defaultDurationMinutes: 0,
             isActive: true, capacity: 1,
             coordinatorPersonUserId: null, coordinatorEmail: null, coordinatorPhone: null);
@@ -297,7 +299,7 @@ public class PageAccessTests : SqliteTestBase
 
         await using var db = await Factory.CreateDbContextAsync();
         Assert.True(await db.ServiceSlots.AnyAsync(s =>
-            s.MinistryId == ministry.Id && s.Name == "New Slot for Coordinator"));
+            s.MinistryId == ministry.Id && s.Name == "New Slot for Org Admin"));
     }
 
     [Fact]

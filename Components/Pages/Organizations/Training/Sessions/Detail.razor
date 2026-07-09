@@ -420,7 +420,7 @@ else
             _loading = false;
             return;
         }
-        _canManage = await OrgAuth.CanManageOrgAsync(_userId, OrgId);
+        _canManage = await OrgAuth.IsOrgAdminAsync(_userId, OrgId) || await OrgAuth.IsMinistryDirectorAsync(_userId, OrgId);
         await Reload();
         _loading = false;
     }

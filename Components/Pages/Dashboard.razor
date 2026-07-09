@@ -11,7 +11,7 @@
     </ol>
 </nav>
 
-<h1>Coordinator dashboard</h1>
+<h1>@_title</h1>
 <p class="text-muted">@_windowDescription</p>
 
 @if (_loading)
@@ -148,6 +148,12 @@ else
     // SysAdmin cannot use this page to mutate an arbitrary org's
     // schedule; visibility only.
     private bool _isSystemAdmin;
+    // Round-FR-5: tier-detection flags drive the picker scope, the
+    // assignment-row OR filter, and the dashboard title copy.
+    private bool _isAnyOrgAdmin;
+    private bool _isAnyMinistryDirector;
+    private bool _isAnySlotCoordinator;
+    private string _title = "Coordinator dashboard";
     private DateTime _fromUtc = DateTime.UtcNow;
     private DateTime _toUtc = DateTime.UtcNow.AddDays(14);
     private DateTime _anchorDate = new(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1);
@@ -231,17 +237,50 @@ else
             // call is already cached so we don't pay a fresh role-id
             // resolve on each page load.
             _isSystemAdmin = await OrgAuth.IsSystemAdminAsync(userId);
+            // Round-FR-5: detect the user's visible-tier role.
+            // SystemAdmin takes top priority (visibility-only — the
+            // tier else-branch assumes SysAdmin for the all-orgs view).
+            // Admin tier uses IsAnyOrgAdminAsync. MinistryDirector tier
+            // uses IsAnyMinistryDirectorAsync. SlotCoordinator tier uses
+            // IsAnySlotCoordinatorAsync. The picker and query below
+            // honor the same roles — the title just picks the right copy.
+            _isAnyOrgAdmin = await OrgAuth.IsAnyOrgAdminAsync(userId);
+            _isAnyMinistryDirector = await OrgAuth.IsAnyMinistryDirectorAsync(userId);
+            _isAnySlotCoordinator = await OrgAuth.IsAnySlotCoordinatorAsync(userId);
+            // Title is per-role per the spec — upper-most tier wins so a
+            // user who is Admin in Org A and MinistryDirector in Org B
+            // sees "Organization dashboard" (clearest UX for the widest
+            // tier).
+            _title = _isSystemAdmin ? "System viewer dashboard"
+                : _isAnyOrgAdmin ? "Organization dashboard"
+                : _isAnyMinistryDirector ? "Ministry director dashboard"
+                : _isAnySlotCoordinator ? "Slot coordinator dashboard"
+                : "Dashboard";
 
+            // Round-FR-5: the picker shows every org the user has ANY
+            // qualifying access to (Admin / MinistryDirector /
+            // SlotCoordinator membership OR entity-level delegation via
+            // Ministry.CoordinatorPersonUserId /
+            // ServiceSlot.CoordinatorPersonUserId). The assignment-row
+            // OR filter below is the trust boundary that scopes the
+            // DATA, so an entity-only delegation (e.g. CoordinatorPersonUserId
+            // on a slot with no Admin/MD/SC role membership) still
+            // shows their row here with that org in the picker.
             _manageableOrgs = _isSystemAdmin
                 ? await db.Organizations
                     .OrderBy(o => o.Name)
                     .Select(o => new OrgMini { Id = o.Id, Name = o.Name })
                     .ToListAsync()
-                : await db.OrganizationMemberships
-                    .Where(m => m.PersonUserId == userId
-                        && (m.Role == OrganizationRole.Admin || m.Role == OrganizationRole.Coordinator))
-                    .Select(m => new OrgMini { Id = m.OrganizationId, Name = m.Organization.Name })
+                : await db.Organizations
+                    .Where(o =>
+                        o.Memberships.Any(m => m.PersonUserId == userId
+                            && (m.Role == OrganizationRole.Admin
+                                || m.Role == OrganizationRole.MinistryDirector
+                                || m.Role == OrganizationRole.SlotCoordinator))
+                        || o.Ministries.Any(m => m.CoordinatorPersonUserId == userId)
+                        || o.Ministries.Any(m => m.ServiceSlots.Any(s => s.CoordinatorPersonUserId == userId)))
                     .OrderBy(o => o.Name)
+                    .Select(o => new OrgMini { Id = o.Id, Name = o.Name })
                     .ToListAsync();
 
             var orgIds = _manageableOrgs.Select(o => o.Id).ToList();
@@ -265,8 +304,19 @@ else
                 return;
             }
 
+            // Round-FR-5: per-row OR filter scopes each assignment to
+            // (Admin in slot's org) OR (the user IS this ministry's
+            // CoordinatorPersonUserId) OR (the user IS this slot's
+            // CoordinatorPersonUserId). Combined with the picker above,
+            // a user with overlapping roles across multiple orgs sees
+            // the union of their qualifying assignments, not a tier-
+            // migrated view that leaks across org boundaries.
             var raw = await db.Assignments
-                .Where(a => scoped.Contains(a.ServiceSlot.Ministry.OrganizationId)
+                .Where(a => (a.ServiceSlot.Ministry.Organization.Memberships.Any(m =>
+                            m.PersonUserId == userId && m.Role == OrganizationRole.Admin)
+                        || a.ServiceSlot.Ministry.CoordinatorPersonUserId == userId
+                        || a.ServiceSlot.CoordinatorPersonUserId == userId)
+                    && scoped.Contains(a.ServiceSlot.Ministry.OrganizationId)
                     && a.StartUtc >= _fromUtc
                     && a.StartUtc < _toUtc
                     && a.Status != AssignmentStatus.Cancelled

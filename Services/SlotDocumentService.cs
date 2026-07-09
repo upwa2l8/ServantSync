@@ -148,9 +148,9 @@ public class SlotDocumentService : ISlotDocumentService
         // otherwise the original uploader can manage their own upload, but
         // only while they're still a member of the org.
         var isUploader = doc.UploadedByUserId == userId;
-        var isOrgAdminOrCoordinator = callerRole is OrganizationRole.Admin or OrganizationRole.Coordinator;
+        var isOrgAdminOrMinistryDirector = callerRole is OrganizationRole.Admin or OrganizationRole.MinistryDirector;
         var isMinistryCoordinator = await CanManageSlotAsync(doc.ServiceSlotId, userId, ct);
-        var isCoordinator = isOrgAdminOrCoordinator || isMinistryCoordinator;
+        var isCoordinator = isOrgAdminOrMinistryDirector || isMinistryCoordinator;
         var isMember = callerRole is not null;
         var canReplace = isCoordinator || (isUploader && isMember);
         if (!canReplace)
@@ -268,9 +268,9 @@ public class SlotDocumentService : ISlotDocumentService
         // Org-level Admin/Coordinator can always delete; otherwise a member
         // who uploaded the doc can still manage their own upload, BUT only
         // while they're still a member (removed users lose delete rights).
-        var isOrgAdminOrCoordinator = callerRole is OrganizationRole.Admin or OrganizationRole.Coordinator;
+        var isOrgAdminOrMinistryDirector = callerRole is OrganizationRole.Admin or OrganizationRole.MinistryDirector;
         var isMinistryCoordinator = await CanManageSlotAsync(doc.ServiceSlotId, userId, ct);
-        var isCoordinator = isOrgAdminOrCoordinator || isMinistryCoordinator;
+        var isCoordinator = isOrgAdminOrMinistryDirector || isMinistryCoordinator;
         var isMember = callerRole is not null;
         var canDelete = isCoordinator || (isUploader && isMember);
         if (!canDelete)

@@ -415,7 +415,7 @@ public class TrainingServiceTests : SqliteTestBase
         var org = TestData.Org(Factory, "Org A");
         var content = TestData.TrainingContent(Factory, org.Id, "Coord Onboarding");
         var coord = TestData.Person(Factory, "Chris", "Coord");
-        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.MinistryDirector);
 
         // Round M engagement gate.
         var svc = NewService();
@@ -582,7 +582,7 @@ public class TrainingServiceTests : SqliteTestBase
         // is Admin-only; Coordinator should not see the union.
         var coord = TestData.Person(Factory, "Chris", "Coord");
         var org = TestData.Org(Factory, "Org A");
-        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.MinistryDirector);
         TestData.TrainingContent(Factory, org.Id, "Org A training");
 
         var result = await NewService().ListManageableTrainingAsync(coord.UserId);
@@ -622,7 +622,7 @@ public class TrainingServiceTests : SqliteTestBase
         var content = TestData.TrainingContent(Factory, org.Id, "Safe Spaces");
         var coord = TestData.Person(Factory, "Chris", "Coord");
         var volunteer = TestData.Person(Factory, "Vicky", "Volunteer");
-        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.MinistryDirector);
         TestData.Membership(Factory, volunteer.UserId, org.Id, OrganizationRole.Volunteer);
 
         var result = await NewService().MarkSingleCompleteAsync(
@@ -641,7 +641,7 @@ public class TrainingServiceTests : SqliteTestBase
         var content = TestData.TrainingContent(Factory, org.Id, "Safe Spaces");
         var coord = TestData.Person(Factory, "Chris", "Coord");
         var volunteer = TestData.Person(Factory, "Vicky", "Volunteer");
-        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.MinistryDirector);
         TestData.Membership(Factory, volunteer.UserId, org.Id, OrganizationRole.Volunteer);
 
         var result = await NewService().MarkSingleCompleteAsync(
@@ -711,7 +711,7 @@ public class TrainingServiceTests : SqliteTestBase
         var contentA = TestData.TrainingContent(Factory, orgA.Id, "Safe Spaces");
         var coordA = TestData.Person(Factory, "Chris", "Coord");
         var stranger = TestData.Person(Factory, "Stranger", "McNobody");
-        TestData.Membership(Factory, coordA.UserId, orgA.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coordA.UserId, orgA.Id, OrganizationRole.MinistryDirector);
         // Intentionally NO Membership for stranger.
 
         var result = await NewService().MarkSingleCompleteAsync(
@@ -730,7 +730,7 @@ public class TrainingServiceTests : SqliteTestBase
         var content = TestData.TrainingContent(Factory, org.Id, "Safe Spaces");
         var coord = TestData.Person(Factory, "Chris", "Coord");
         var volunteer = TestData.Person(Factory, "Vicky", "Volunteer");
-        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.MinistryDirector);
         TestData.Membership(Factory, volunteer.UserId, org.Id, OrganizationRole.Volunteer);
 
         var result = await NewService().MarkSingleCompleteAsync(
@@ -782,7 +782,7 @@ public class TrainingServiceTests : SqliteTestBase
         var content = TestData.TrainingContent(Factory, org.Id, "Safe Spaces");
         var coord = TestData.Person(Factory, "Chris", "Coord");
         var volunteer = TestData.Person(Factory, "Vicky", "Volunteer");
-        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.MinistryDirector);
         TestData.Membership(Factory, volunteer.UserId, org.Id, OrganizationRole.Volunteer);
         // Seed an existing completion that would normally be user-online.
         TestData.Completion(Factory, volunteer.UserId, content.Id, DateTime.UtcNow);
@@ -815,7 +815,7 @@ public class TrainingServiceTests : SqliteTestBase
         TestData.Requirement(Factory, content.Id, orgId: org.Id, cadence: TrainingCadence.Yearly);
         var coord = TestData.Person(Factory, "Chris", "Coord");
         var volunteer = TestData.Person(Factory, "Vicky", "Volunteer");
-        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.MinistryDirector);
         TestData.Membership(Factory, volunteer.UserId, org.Id, OrganizationRole.Volunteer);
 
         var result = await NewService().MarkSingleCompleteAsync(
@@ -845,7 +845,7 @@ public class TrainingServiceTests : SqliteTestBase
         TestData.Requirement(Factory, content.Id, orgId: org.Id, cadence: TrainingCadence.OneTime);
         var coord = TestData.Person(Factory, "Chris", "Coord");
         var volunteer = TestData.Person(Factory, "Vicky", "Volunteer");
-        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.MinistryDirector);
         TestData.Membership(Factory, volunteer.UserId, org.Id, OrganizationRole.Volunteer);
 
         var result = await NewService().MarkSingleCompleteAsync(
@@ -871,7 +871,7 @@ public class TrainingServiceTests : SqliteTestBase
         var content = TestData.TrainingContent(Factory, org.Id, "Safe Spaces");
         var coord = TestData.Person(Factory, "Chris", "Coord");
         var volunteer = TestData.Person(Factory, "Vicky", "Volunteer");
-        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.MinistryDirector);
         TestData.Membership(Factory, volunteer.UserId, org.Id, OrganizationRole.Volunteer);
         // NO SyncActivityAsync call.
 

@@ -120,7 +120,7 @@ public class MinistryInterestServiceTests : SqliteTestBase
         var org = TestData.Org(Factory);
         var ministry = TestData.Ministry(Factory, org.Id);
         var coordinator = TestData.Person(Factory);
-        TestData.Membership(Factory, coordinator.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coordinator.UserId, org.Id, OrganizationRole.MinistryDirector);
 
         var result = await NewService().JoinAsync(coordinator.UserId, coordinator.UserId, ministry.Id);
 
@@ -174,7 +174,7 @@ public class MinistryInterestServiceTests : SqliteTestBase
         var ministryA = TestData.Ministry(Factory, orgA.Id);
         var callerCoordinator = TestData.Person(Factory, "CallerCoord", "OfA");
         var targetVolunteer = TestData.Person(Factory, "TargetVol", "Elsewhere");
-        TestData.Membership(Factory, callerCoordinator.UserId, orgA.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, callerCoordinator.UserId, orgA.Id, OrganizationRole.MinistryDirector);
 
         var result = await NewService().JoinAsync(
             callerCoordinator.UserId, targetVolunteer.UserId, ministryA.Id);

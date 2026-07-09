@@ -401,7 +401,7 @@ exercised in a single sitting without further setup. Suggested order:
 |----------------------------|---------------|----------------------------------------------------------|
 | Multi-org / multi-ministry | ✅ built      | `Models/Organization.cs`, `Models/Ministry.cs`           |
 | Multi-volunteer sign-up    | ✅ built      | `Components/Account/Pages/Register.razor`                |
-| Coordinator + admin RBAC   | ✅ built      | `Services/OrgAuthService.cs` (custom enum, not Identity) |
+| RBAC (admin / MD / SC)    | ✅ built      | `Services/OrgAuthService.cs` custom `OrganizationRole` enum (`Round-FR-5`: MinistryDirector + SlotCoordinator) |
 | Service-slot CRUD          | ✅ built      | `Components/Pages/ServiceSlots/`                         |
 | Recurring schedule         | ✅ built      | `AssignmentService.ScheduleSeriesAsync`                  |
 | Person-conflict detection  | ✅ built      | `AssignmentService.ValidateAsync`                        |

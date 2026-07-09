@@ -54,7 +54,7 @@ public class OrganizationMinistryServiceTests : SqliteTestBase
         // gate; the new gate is IsOrgAdminAsync. Locks in the strictness.
         var org = TestData.Org(Factory);
         var coordinator = TestData.Person(Factory);
-        TestData.Membership(Factory, coordinator.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coordinator.UserId, org.Id, OrganizationRole.MinistryDirector);
 
         var result = await NewSvc().UpsertAsync(
             callerUserId: coordinator.UserId,

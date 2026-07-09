@@ -55,7 +55,7 @@ public class ArenaServiceTests : SqliteTestBase
         // CanManageOrgAsync would fail this test.
         var org = TestData.Org(Factory);
         var coordinator = TestData.Person(Factory);
-        TestData.Membership(Factory, coordinator.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coordinator.UserId, org.Id, OrganizationRole.MinistryDirector);
 
         var result = await NewSvc().CreateAsync(
             callerUserId: coordinator.UserId,

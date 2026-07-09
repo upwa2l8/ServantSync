@@ -128,12 +128,12 @@ public class DatabaseSeeder
 
         db.OrganizationMemberships.AddRange(
             new OrganizationMembership { OrganizationId = org.Id, PersonUserId = adminUser.Id,       Role = OrganizationRole.Admin },
-            new OrganizationMembership { OrganizationId = org.Id, PersonUserId = coordinatorUser.Id, Role = OrganizationRole.Coordinator },
+            new OrganizationMembership { OrganizationId = org.Id, PersonUserId = coordinatorUser.Id, Role = OrganizationRole.MinistryDirector },
             new OrganizationMembership { OrganizationId = org.Id, PersonUserId = volunteerUser.Id,   Role = OrganizationRole.Volunteer },
             new OrganizationMembership { OrganizationId = org.Id, PersonUserId = volunteer2User.Id,  Role = OrganizationRole.Volunteer },
             new OrganizationMembership { OrganizationId = org.Id, PersonUserId = leagueAdminUser.Id, Role = OrganizationRole.Admin },
-            new OrganizationMembership { OrganizationId = org.Id, PersonUserId = coach1User.Id,      Role = OrganizationRole.Coordinator },
-            new OrganizationMembership { OrganizationId = org.Id, PersonUserId = coach2User.Id,      Role = OrganizationRole.Coordinator },
+            new OrganizationMembership { OrganizationId = org.Id, PersonUserId = coach1User.Id,      Role = OrganizationRole.MinistryDirector },
+            new OrganizationMembership { OrganizationId = org.Id, PersonUserId = coach2User.Id,      Role = OrganizationRole.MinistryDirector },
             new OrganizationMembership { OrganizationId = org.Id, PersonUserId = ref1User.Id,        Role = OrganizationRole.Volunteer },
             new OrganizationMembership { OrganizationId = org.Id, PersonUserId = ref2User.Id,        Role = OrganizationRole.Volunteer },
             new OrganizationMembership { OrganizationId = org.Id, PersonUserId = devotionUser.Id,    Role = OrganizationRole.Volunteer },

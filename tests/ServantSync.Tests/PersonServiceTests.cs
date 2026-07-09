@@ -56,7 +56,7 @@ public class PersonServiceTests : SqliteTestBase
     private (string CoordUserId, Person Coord) SeedCoordinator(int orgId, string firstName = "Chris", string lastName = "Coord")
     {
         var coord = TestData.Person(Factory, firstName, lastName);
-        TestData.Membership(Factory, coord.UserId, orgId, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, coord.UserId, orgId, OrganizationRole.MinistryDirector);
         return (coord.UserId, coord);
     }
 
@@ -205,6 +205,27 @@ public class PersonServiceTests : SqliteTestBase
             => Task.FromResult(false);
 
         public Task<bool> IsParentOfAnyPlayerOnTeamAsync(string? userId, int teamId, CancellationToken ct = default)
+            => Task.FromResult(false);
+
+        // Round-FR-5: the five new interface members introduced when
+        // Coordinator split into MinistryDirector + SlotCoordinator.
+        // PersonServiceTests doesn't exercise these gates — return
+        // false so a future service method that accidentally calls one
+        // (the same defensive pattern as the other stubs above) fails
+        // the underlying assertion loudly rather than crashing here.
+        public Task<bool> IsMinistryDirectorAsync(string? userId, int organizationId, CancellationToken ct = default)
+            => Task.FromResult(false);
+
+        public Task<bool> IsSlotCoordinatorAsync(string? userId, int organizationId, CancellationToken ct = default)
+            => Task.FromResult(false);
+
+        public Task<bool> IsAnyMinistryDirectorAsync(string? userId, CancellationToken ct = default)
+            => Task.FromResult(false);
+
+        public Task<bool> IsAnySlotCoordinatorAsync(string? userId, CancellationToken ct = default)
+            => Task.FromResult(false);
+
+        public Task<bool> IsAnyTrainingManagerAsync(string? userId, CancellationToken ct = default)
             => Task.FromResult(false);
     }
 

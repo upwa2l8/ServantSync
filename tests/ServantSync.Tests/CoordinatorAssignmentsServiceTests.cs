@@ -145,16 +145,51 @@ public class CoordinatorAssignmentsServiceTests : SqliteTestBase
     }
 
     [Fact]
-    public async Task AssignAsync_OrgCoordinator_Allowed()
+    public async Task AssignAsync_OrgAdmin_Allowed()
     {
-        // Per the existing RBAC matrix, Coordinator role can
-        // also delegate slot coordinators (matches the rest of
-        // the org surface).
+        // Round-FR-5: ICoordinatorAssignmentsService now gates on
+        // CanManageMinistryAsync(Slot.MinistryId) — Admin-only at the
+        // org tier, since CanManageOrgAsync is now Admin-only per
+        // spec. A user holding only OrganizationRole.MinistryDirector
+        // (the renamed Coordinator) no longer passes at the org tier;
+        // they need Admin OR the ministry's own
+        // CoordinatorPersonUserId (the latter path is pinned in
+        // AssignAsync_MinistryCoordinator_Allowed below).
         var org = TestData.Org(Factory);
         var min = TestData.Ministry(Factory, org.Id);
         var slot = TestData.Slot(Factory, min.Id);
         var caller = TestData.Person(Factory);
-        TestData.Membership(Factory, caller.UserId, org.Id, OrganizationRole.Coordinator);
+        TestData.Membership(Factory, caller.UserId, org.Id, OrganizationRole.Admin);
+        var coord = TestData.Person(Factory);
+        TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Volunteer);
+
+        var result = await NewSvc().AssignAsync(
+            slot.Id, coord.UserId, null, null, caller.UserId);
+
+        Assert.Equal(CoordinatorMutationResult.Updated, result);
+    }
+
+    [Fact]
+    public async Task AssignAsync_MinistryCoordinator_Allowed()
+    {
+        // Round-FR-5: ministry-CoordinatorPersonUserId path
+        // (entity-level delegation, NOT membership-role). Caller is
+        // THE ministry coordinator (Person FK on the Ministry row)
+        // without holding Admin role, and the gate still lets them
+        // delegate slot coordinators under their own ministry via
+        // CanManageMinistryAsync's first
+        // `ministry.CoordinatorPersonUserId == userId` short-circuit.
+        var org = TestData.Org(Factory);
+        var min = TestData.Ministry(Factory, org.Id);
+        var slot = TestData.Slot(Factory, min.Id);
+        var caller = TestData.Person(Factory);
+        TestData.Membership(Factory, caller.UserId, org.Id, OrganizationRole.Volunteer);
+        await using (var db = await Factory.CreateDbContextAsync())
+        {
+            var m = await db.Ministries.FindAsync(min.Id);
+            m!.CoordinatorPersonUserId = caller.UserId;
+            await db.SaveChangesAsync();
+        }
         var coord = TestData.Person(Factory);
         TestData.Membership(Factory, coord.UserId, org.Id, OrganizationRole.Volunteer);
 
