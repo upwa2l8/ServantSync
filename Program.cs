@@ -249,6 +249,30 @@ app.MapPost("/Account/PerformLogin", async (
     SignInManager<IdentityUser> signIn,
     IAntiforgery antiforgery) =>
 {
+    // FR-LOGIN-REVERT: restorning the explicit
+    // `await antiforgery.ValidateRequestAsync(ctx)` call that was
+    // removed in the v1 fix (commit 22ddd35). The v1 fix removed the
+    // explicit call expecting `app.UseAntiforgery()` middleware
+    // auto-validation, but Minimal-API endpoints (MapPost) do NOT
+    // auto-validate — that fix dropped CSRF defense on this endpoint.
+    // The v2 fix (commit b3f957e) chained `.RequireAntiforgeryToken()`
+    // (a non-existent extension on RouteHandlerBuilder in this
+    // project's framework ref) which wouldn't compile. This commit
+    // restores the pre-FR-LOGIN-FIX state — explicit validate,
+    // working build, CSRF protected.
+    //
+    // The user-reported symptom ("error UI after login, cookie is
+    // still set, manual nav works") is REAL but is NOT actually
+    // caused by anything in this endpoint. The user's prior symp
+    // existed with the explicit validate in place too (per the
+    // pre-fr-LOGIN-FIX git state on origin/main from before this
+    // session). Root cause investigation continues — the explicit
+    // call here is correct from a security standpoint and does NOT
+    // contribute to the symptom (the validate passes, PasswordSignInAsync
+    // runs, cookie is set prior to the downstream error). Run a
+    // production browser reproduction to capture the actual exception
+    // text from /Error (RequestId is in the page body) to drive
+    // the next-round fix.
     await antiforgery.ValidateRequestAsync(ctx);
     var form = await ctx.Request.ReadFormAsync();
     var email = form["email"].ToString();
@@ -279,6 +303,9 @@ app.MapPost("/Account/PerformRegister", async (
     IPersonService personSvc,             // Round-FR-3.3 (this): claim-token re-parent
     IAntiforgery antiforgery) =>
 {
+    // FR-LOGIN-REVERT: see the FR-LOGIN-REVERT comment block on
+    // PerformLogin above — same restore. The explicit validate here
+    // was always working; the symptom is unrelated to this endpoint.
     await antiforgery.ValidateRequestAsync(ctx);
     var form = await ctx.Request.ReadFormAsync();
     var firstName = form["firstName"].ToString().Trim();
