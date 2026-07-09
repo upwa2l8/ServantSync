@@ -152,6 +152,26 @@ else if (_codeWasProvided)
 
     protected override async Task OnInitializedAsync()
     {
+        // Round-FR-LOGIN-FIX-A (this): clear any stale antiforgery cookies
+        // before the existing org-resolution work below. Same root cause
+        // as on Login.razor -- a stale cookie's ClaimUid mismatches the
+        // current HttpContext.User on the post to PerformRegister, so the
+        // explicit antiforgery validator throws and the user sees the
+        // generic /Error page. Delete-by-prefix keeps us agnostic to the
+        // non-deterministic cookie-name hash suffix. Static-SSR's
+        // OnInitializedAsync runs exactly once per HTTP request, so this
+        // fires once per page load and is safe before the existing
+        // downstream resolution logic. See Login.razor for the full
+        // WHY-comment block + the captured prod stack trace.
+        const string afPrefix = ".AspNetCore.Antiforgery.";
+        foreach (var key in HttpContext.Request.Cookies.Keys)
+        {
+            if (key.StartsWith(afPrefix, StringComparison.Ordinal))
+            {
+                HttpContext.Response.Cookies.Delete(key);
+            }
+        }
+
         // Resolve the org-banner state up front (which code
         // applies) so the form can render correctly. The actual
         // org-join decision happens in /Account/PerformRegister.

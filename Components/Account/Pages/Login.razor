@@ -77,8 +77,72 @@
     <a href="Account/ForgotPassword">Forgot your password?</a>
 </p>
 
+@* Round-FR-LOGIN-FIX-A (this): clear any stale antiforgery cookie before
+   GetAndStoreTokens mints a fresh anonymous-bound token. The throw site
+   we caught in prod (user's verbatim log dump on 2026-07-09) was:
+
+     Microsoft.AspNetCore.Antiforgery.AntiforgeryValidationException:
+       The provided antiforgery token was meant for a different
+       claims-based user than the current user.
+       at Microsoft.AspNetCore.Antiforgery.DefaultAntiforgery.ValidateTokens(...)
+       at Microsoft.AspNetCore.Antiforgery.DefaultAntiforgery.ValidateRequestAsync(...)
+       at Program.<Main>$>b__0_7>d.MoveNext()   -- the PerformLogin lambda
+
+   ASP.NET 9 Identity binds each antiforgery cookie's internal ClaimUid
+   to the current HttpContext.User on first mint. If the browser hits
+   /Account/Login GET carrying a cookie minted against a different (or
+   anonymous-then-authenticated-then-anonymous) identity -- which
+   happens persistently across F1-tier ACA cold-starts / cookie-domain
+   quirks / a previous sign-out that didn't clear the antiforgery cookie
+   -- then POSTs with that stale token, the validator throws instead of
+   exposing a CSRF hole. The user-facing symptom is "the login has an
+   error ... yet you can still navigate." The "still navigate" part is
+   the user's PRIOR auth cookie surviving the throw (the throw fires
+   BEFORE SignInManager.PasswordSignInAsync, so no new cookie is
+   written; the existing cookie just keeps working for static-SSR
+   nav links that don't POST).
+
+   The fix: at the top of the page's OnInitialized, iterate the request's
+   cookies and delete every one whose key starts with the framework's
+   antiforgery cookie-name prefix. The next render's
+   @Antiforgery.GetAndStoreTokens(...) call will mint a fresh anonymous
+   token tied to the *current* HttpContext.User on the same Response.
+   See the matching ChangeLog entry on Register.razor for the parallel
+   coverage. Scope: this fix is intentionally limited to Login.razor +
+   Register.razor -- the four InteractiveServer Account pages
+   (ForgotPassword / ResetPassword / ChangePassword / Manage) submit via
+   Blazor's SignalR circuit, not via MapPost endpoints, so they bypass
+   the Perform*ValidateRequest pipeline entirely. Touching
+   Response.Cookies inside an InteractiveServer component during a
+   connected circuit would also crash, so we deliberately don't apply
+   this to them. *@
+
 @code {
     [SupplyParameterFromQuery] public string? ReturnUrl { get; set; }
     [SupplyParameterFromQuery(Name = "error")] public string? Error { get; set; }
     [CascadingParameter] private HttpContext HttpContext { get; set; } = default!;
+
+    // Round-FR-LOGIN-FIX-A (this): delete every antiforgery cookie the
+    // request carries. We iterate by prefix because the actual cookie
+    // name has a hash suffix (.AspNetCore.Antiforgery.<hash>) that depends
+    // on appPath + authScheme. The prefix is the framework default
+    // (AntiforgeryOptions default, equivalent to
+    // AntiForgeryDefaults.CookieNamePrefix). Static-SSR pages execute
+    // OnInitialized exactly once per HTTP request -- not per interactive
+    // re-render -- so this fires once per page load. Safe to delete
+    // before the same render's @Antiforgery.GetAndStoreTokens(...) call
+    // re-mints an anonymous-bound token (the Delete queues an expired
+    // Set-Cookie header; GetAndStoreTokens queues a fresh one; the
+    // browser processes them in order).
+    protected override void OnInitialized()
+    {
+        const string prefix = ".AspNetCore.Antiforgery.";
+        foreach (var key in HttpContext.Request.Cookies.Keys)
+        {
+            if (key.StartsWith(prefix, StringComparison.Ordinal))
+            {
+                HttpContext.Response.Cookies.Delete(key);
+            }
+        }
+    }
 }
