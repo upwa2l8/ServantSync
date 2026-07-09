@@ -36,13 +36,45 @@ else
            403-on-submit UX. *@
         @if (_canManage)
         {
-            <div>
+            <div class="d-flex gap-2">
                 <a class="btn btn-outline-secondary"
                    href="@($"Organizations/{OrgId}/Ministries/{MinId}/Roles/{Id}/Edit")">Edit slot</a>
                 <a class="btn btn-primary"
                    href="@($"Organizations/{OrgId}/Ministries/{MinId}/Roles/{Id}/Schedule")">Schedule one</a>
                 <a class="btn btn-secondary"
                    href="@($"Organizations/{OrgId}/Ministries/{MinId}/Roles/{Id}/Series")">Schedule series</a>
+            </div>
+        }
+        @* Round-FR-7: per-volunteer Subscribe toggle. Anyone in the parent
+           org sees this — it's the explicit opt-in surface for the
+           slot-level filter on /Open. Out-of-org visitors (who hit the
+           404 fallback above) don't see this row at all. The toggle
+           mirrors the Ministries/Detail.razor "Join this ministry"
+           affordance: single click → flicker-free flip via the
+           optimistic local update; error reverts. *@
+        @if (_isInOrg)
+        {
+            <div class="mt-2">
+                <button class="btn @(_subscribed ? "btn-outline-success" : "btn-primary")"
+                        type="button"
+                        disabled="@_busySubscribe"
+                        @onclick="ToggleSubscriptionAsync"
+                        title="@(_subscribed ? "Stop including this slot's shifts in the My slots filter on /Open" : "Add this slot's shifts to the My slots filter on /Open")">
+                    @if (_subscribed)
+                    {
+                        <span class="bi bi-check-circle-fill me-1" aria-hidden="true"></span>
+                        @(_busySubscribe ? "Updating…" : $"Subscribed (since {_subscribedUtc:MMM d, yyyy})")
+                    }
+                    else
+                    {
+                        <span class="bi bi-bookmark-plus me-1" aria-hidden="true"></span>
+                        @(_busySubscribe ? "Updating…" : "Subscribe to this slot")
+                    }
+                </button>
+                @if (_subscribeError is not null)
+                {
+                    <span class="text-danger small ms-2" role="alert">@_subscribeError</span>
+                }
             </div>
         }
     </div>
@@ -282,6 +314,7 @@ else
 @inject IDbContextFactory<ApplicationDbContext> DbFactory
 @inject ISlotDocumentService SlotDocs
 @inject IOrgAuthService OrgAuth
+@inject ISlotInterestService Slots
 @inject AuthenticationStateProvider Auth
 @code {
     [Parameter] public int OrgId { get; set; }
@@ -300,6 +333,16 @@ else
     private int? _deleteTargetId;
     private string? _deleteTargetTitle;
     private int _totalDocCount => _docGroups?.Sum(g => g.Documents.Count) ?? 0;
+    // Round-FR-7: per-slot subscription state. Computed in
+    // OnInitializedAsync via ISlotInterestService.ListSubscribedAsync; the
+    // header Subscribe toggle flips it inline via the ToggleSubscriptionAsync
+    // handler. The picker is gated on _isInOrg so out-of-org visitors don't
+    // see it (they're funneled to a 404/empty state in the page header above).
+    private bool _isInOrg;
+    private bool _subscribed;
+    private DateTime? _subscribedUtc;
+    private bool _busySubscribe;
+    private string? _subscribeError;
 
     protected override async Task OnInitializedAsync()
     {
@@ -312,6 +355,23 @@ else
         var state = await Auth.GetAuthenticationStateAsync();
         var userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
         _canManage = !string.IsNullOrEmpty(userId) && await SlotDocs.CanManageSlotAsync(Id, userId);
+
+        if (!string.IsNullOrEmpty(userId) && _slot is not null)
+        {
+            // In-org check is the local mirror of the SlotInterest gate:
+            // a volunteer can't subscribe to a slot whose parent ministry
+            // is in an org they don't belong to. The service layer's gate
+            // is authoritative; this is purely UX (hide the toggle).
+            _isInOrg = await db.OrganizationMemberships
+                .AnyAsync(m => m.OrganizationId == OrgId && m.PersonUserId == userId);
+            if (_isInOrg)
+            {
+                var subs = await Slots.ListSubscribedAsync(userId);
+                var sub = subs.FirstOrDefault(s => s.ServiceSlotId == Id);
+                _subscribed = sub is not null;
+                _subscribedUtc = sub?.SubscribedUtc;
+            }
+        }
         await ReloadDocumentsAsync();
     }
 
@@ -473,5 +533,67 @@ else
         public string Title { get; set; } = "";
         public string? Description { get; set; }
         public string? Category { get; set; }
+    }
+
+    /// <summary>
+    /// Round-FR-7: enable / disable the user's slot-level subscription
+    /// from this page (mirrors the per-row pill on
+    /// <c>Ministries/Detail.razor</c> and the per-card toggle on
+    /// <c>Open.razor</c>). Single-flight via the
+    /// <c>_busySubscribe</c> flag so rapid double-clicks are a no-op.
+    /// Optimistic flip of <c>_subscribed</c> + revert on error. Uses
+    /// <c>state.User.FindFirst</c> (not a cached <c>_userId</c> field)
+    /// to match the existing handlers in this file — the field would
+    /// be one optimization away from a working state.
+    /// </summary>
+    private async Task ToggleSubscriptionAsync()
+    {
+        var state = await Auth.GetAuthenticationStateAsync();
+        var userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userId) || !_isInOrg) return;
+
+        _busySubscribe = true;
+        _subscribeError = null;
+        try
+        {
+            var wasSubscribed = _subscribed;
+            if (wasSubscribed)
+            {
+                _subscribed = false;
+                var result = await Slots.UnsubscribeAsync(userId, userId, Id);
+                if (result == SlotInterestLeaveResult.PermissionDenied)
+                {
+                    _subscribed = true;
+                    _subscribeError = "You can only stop subscribing to slots in organizations you belong to.";
+                }
+                else if (result == SlotInterestLeaveResult.SlotNotFound)
+                {
+                    _subscribed = true;
+                    _subscribeError = "This slot no longer exists.";
+                }
+            }
+            else
+            {
+                _subscribed = true;
+                _subscribedUtc = DateTime.UtcNow;
+                var result = await Slots.SubscribeAsync(userId, userId, Id, SlotInterestSource.Explicit);
+                if (result == SlotInterestJoinResult.PermissionDenied)
+                {
+                    _subscribed = false;
+                    _subscribedUtc = null;
+                    _subscribeError = "You can only subscribe to slots in organizations you belong to.";
+                }
+                else if (result == SlotInterestJoinResult.SlotNotFound)
+                {
+                    _subscribed = false;
+                    _subscribedUtc = null;
+                    _subscribeError = "This slot no longer exists.";
+                }
+            }
+        }
+        finally
+        {
+            _busySubscribe = false;
+        }
     }
 }

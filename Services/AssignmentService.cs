@@ -243,6 +243,7 @@ public class AssignmentService : IAssignmentService
         DateTime fromUtc,
         DateTime toUtc,
         IReadOnlyCollection<int>? ministryIdsFilter = null,
+        IReadOnlyCollection<int>? slotIdsFilter = null,
         CancellationToken ct = default)
     {
         await using var db = await _factory.CreateDbContextAsync(ct);
@@ -256,10 +257,24 @@ public class AssignmentService : IAssignmentService
 
         if (myOrgIds.Count == 0) return new();
 
-        // Active filter: only meaningful when the caller actually supplied a
-        // non-empty whitelist. Null OR empty falls back to "all my orgs",
-        // matching the user's "show all" toggle behavior on /Open.
-        var hasFilter = ministryIdsFilter is { Count: > 0 };
+        // Active filters: each is only meaningful when the caller actually
+        // supplied a non-empty whitelist. Null OR empty disables that leg
+        // of the predicate; when BOTH are non-empty EF LINQ composes them
+        // with AND (intersection). The outer "only from my orgs" constraint
+        // (step 1) is independent of these filters — cross-org ministry ids
+        // or slot ids in the filters cannot escape the sandbox because the
+        // org check fires first in the LINQ where clause.
+        //
+        // Round-FR-7: added slotIdsFilter so the /Open "My slots (N)"
+        // 3-way filter narrows to the volunteer's explicit slot-level
+        // subscriptions (separate from ministry-level MinistryInterest
+        // filtering). AutoFromAssignment-written subscriptions are visible
+        // without an explicit user click (the round-1 user-assumption
+        // that SlotInterest.SubscribedUtc == explicit Subscribe click is
+        // incorrect once the fan-out lands, but the filter is consistent
+        // regardless of how the row was created).
+        var hasMinistryFilter = ministryIdsFilter is { Count: > 0 };
+        var hasSlotFilter = slotIdsFilter is { Count: > 0 };
 
         // 2) Pull every active occurrence in the window whose slot lives in one of
         //    the user's orgs (and optionally in the supplied ministry-id whitelist).
@@ -274,7 +289,8 @@ public class AssignmentService : IAssignmentService
                 && myOrgIds.Contains(m.OrganizationId)
                 && o.StartUtc >= fromUtc
                 && o.StartUtc < toUtc
-                && (!hasFilter || ministryIdsFilter!.Contains(m.Id))
+                && (!hasMinistryFilter || ministryIdsFilter!.Contains(m.Id))
+                && (!hasSlotFilter || slotIdsFilter!.Contains(s.Id))
             orderby o.StartUtc
             select new
             {

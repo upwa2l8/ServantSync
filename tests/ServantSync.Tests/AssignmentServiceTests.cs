@@ -624,6 +624,82 @@ public class AssignmentServiceTests : SqliteTestBase
     }
 
     [Fact]
+    public async Task ListOpenSlotOccurrences_WithSlotFilter_NarrowsToMatchingSlotsOnlyRoundFR7()
+    {
+        // Round-FR-7: the 3-way /Open "My slots" filter tests with slot
+        // IDs instead of ministry IDs. The two-ministry fixture gives us
+        // slotA (in ministry A) and slotB (in ministry B); the slot filter
+        // should narrow the row count to exactly the matching slot's
+        // occurrence regardless of ministry membership.
+        var (_, _, _, user, _) = await BuildTwoMinistryFixtureAsync();
+        // Look up the slot IDs the helper created (slotA is in ministry A,
+        // slotB is in ministry B — the helper names them "A-Slot" and
+        // "B-Slot" via the inline ServiceSlot constructor it calls).
+        int slotAId, slotBId;
+        await using (var db = await Factory.CreateDbContextAsync())
+        {
+            slotAId = await db.ServiceSlots.Where(s => s.Name == "A-Slot").Select(s => s.Id).FirstAsync();
+            slotBId = await db.ServiceSlots.Where(s => s.Name == "B-Slot").Select(s => s.Id).FirstAsync();
+        }
+
+        var svc = NewService();
+
+        // No filter: both ministries' slots' occurrences appear (2 rows).
+        var unfiltered = await svc.ListOpenSlotOccurrencesAsync(user.UserId, Now, Now.AddDays(7));
+        Assert.Equal(2, unfiltered.Count);
+
+        // Slot filter narrows to slotA only — 1 row, slotA's slot.
+        var narrowed = await svc.ListOpenSlotOccurrencesAsync(
+            user.UserId, Now, Now.AddDays(7), slotIdsFilter: new[] { slotAId });
+        Assert.Single(narrowed);
+        Assert.Equal(slotAId, narrowed[0].ServiceSlotId);
+        Assert.Equal("A-Slot", narrowed[0].SlotName);
+    }
+
+    [Fact]
+    public async Task ListOpenSlotOccurrences_WithSlotFilter_NoMatches_ReturnsEmptyRoundFR7()
+    {
+        // Edge case: slot filter points at a slot that doesn't exist OR
+        // doesn't have an open occurrence. Service returns empty rather
+        // than crashing.
+        var (_, _, _, user, _) = await BuildTwoMinistryFixtureAsync();
+        var svc = NewService();
+
+        var empty1 = await svc.ListOpenSlotOccurrencesAsync(
+            user.UserId, Now, Now.AddDays(7), slotIdsFilter: new[] { 99999 });
+        Assert.Empty(empty1);
+
+        var empty2 = await svc.ListOpenSlotOccurrencesAsync(
+            user.UserId, Now, Now.AddDays(7), slotIdsFilter: Array.Empty<int>());
+        // Empty-collection sentinel = "no filter" per the existing
+        // ministryFilter convention, so the result is the unfiltered
+        // set (both slots' occurrences).
+        Assert.Equal(2, empty2.Count);
+    }
+
+    [Fact]
+    public async Task ListOpenSlotOccurrences_WithBothFilters_AppliesIntersectionRoundFR7()
+    {
+        // Dual filter: ministryA narrowed + slotInB in the slot filter.
+        // The intersection is empty (slotInB lives in ministryB, not
+        // ministryA) — service must return 0 rows. This pins the AND
+        // composition semantics: both filters non-empty → AND, not OR.
+        var (_, ministryA, _, user, _) = await BuildTwoMinistryFixtureAsync();
+        int slotBId;
+        await using (var db = await Factory.CreateDbContextAsync())
+        {
+            slotBId = await db.ServiceSlots.Where(s => s.Name == "B-Slot").Select(s => s.Id).FirstAsync();
+        }
+
+        var svc = NewService();
+        var rows = await svc.ListOpenSlotOccurrencesAsync(user.UserId, Now, Now.AddDays(7),
+            ministryIdsFilter: new[] { ministryA.Id },
+            slotIdsFilter: new[] { slotBId });
+
+        Assert.Empty(rows);
+    }
+
+    [Fact]
     public async Task ListOpenSlotOccurrences_FilterCrossOrg_ReturnsOnlyFromUserOrgs()
     {
         // Critical sandbox: the filter narrows by ministry-id AT THE

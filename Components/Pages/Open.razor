@@ -19,29 +19,36 @@
     the sign-up button so the coordinator can route you to the right content.
 </p>
 
-@* Filter pills + org picker: "My ministries" narrows to the user's
-   MinistryInterest rows (optionally scoped to the selected org);
-   "All ministries" shows every open shift in the selected
-   organization (or across all orgs when "All organizations" is
-   picked). For non-joined ministries, a "Join and sign up" button
-   lets the volunteer join the ministry and claim the shift in one
-   action. *@
+@* Round-FR-7: the 3-way pill-segment below combines three orthogonal
+   filters. The volunteer picks the narrowness: "All slots" (every open
+   shift across the user's orgs), "My ministries" (only shifts from
+   MinistryInterest rows), or "My slots" (only shifts from SlotInterest
+   rows). The first paint auto-selects based on which preference set the
+   user has populated; subsequent clicks override and persist for the
+   rest of the session (no cross-session persistence in round 1). The
+   org picker still scopes each option when set. *@
 @if (_userIdPresent && _hasMembership && !_loading)
 {
     <div class="d-flex justify-content-between align-items-center mb-3">
-        <div class="d-flex gap-2 align-items-center">
-            <div class="btn-group" role="group" aria-label="Filter open shifts by ministry set">
+        <div class="d-flex gap-2 align-items-center flex-wrap">
+            <div class="btn-group" role="group" aria-label="Filter open shifts by scope">
                 <button type="button"
-                        class="btn btn-sm @(_showOnlyJoined ? "btn-primary" : "btn-outline-primary")"
-                        @onclick="() => SetShowOnlyJoined(true)"
+                        class="btn btn-sm @(_filterMode == OpenSlotFilterMode.MySlots ? "btn-primary" : "btn-outline-primary")"
+                        @onclick="() => SetFilterMode(OpenSlotFilterMode.MySlots)"
+                        title="Show only open shifts for slots you have explicitly subscribed to">
+                    My slots (@_subscribedSlotIds.Count)
+                </button>
+                <button type="button"
+                        class="btn btn-sm @(_filterMode == OpenSlotFilterMode.MyMinistries ? "btn-primary" : "btn-outline-primary")"
+                        @onclick="() => SetFilterMode(OpenSlotFilterMode.MyMinistries)"
                         title="Show only open shifts from ministries you have joined">
                     My ministries (@_joinedMinistryIds.Count)
                 </button>
                 <button type="button"
-                        class="btn btn-sm @(_showOnlyJoined ? "btn-outline-primary" : "btn-primary")"
-                        @onclick="() => SetShowOnlyJoined(false)"
-                        title="Show every open shift across every ministry in the selected organization">
-                    All ministries
+                        class="btn btn-sm @(_filterMode == OpenSlotFilterMode.AllSlots ? "btn-primary" : "btn-outline-primary")"
+                        @onclick="() => SetFilterMode(OpenSlotFilterMode.AllSlots)"
+                        title="Show every open shift across every ministry in your organizations">
+                    All slots
                 </button>
             </div>
             <select class="form-select form-select-sm" style="width:auto" @bind="_selectedOrgId" @bind:after="OnOrgChanged">
@@ -52,9 +59,9 @@
                 }
             </select>
         </div>
-        @if (_joinedMinistryIds.Count > 0)
+        @if (_subscribedSlotIds.Count > 0 || _joinedMinistryIds.Count > 0)
         {
-            <a class="btn btn-sm btn-outline-secondary" href="@OrgLink">Manage my ministries</a>
+            <a class="btn btn-sm btn-outline-secondary" href="@OrgLink">Manage my subscriptions</a>
         }
     </div>
 }
@@ -77,13 +84,32 @@ else if (!_hasMembership)
         open slots from that org will show up here.
     </div>
 }
-else if (_showOnlyJoined && _joinedMinistryIds.Count == 0)
+else if (_filterMode == OpenSlotFilterMode.MySlots && _subscribedSlotIds.Count == 0)
+{
+    @* "My slots" filter applied + zero slot-level subscriptions → the
+       user has explicitly opted into slot-level filtering but has no
+       data to show. Distinct empty-state CTA so the user can either
+       widen the scope OR subscribe to a slot from another surface. *@
+    <WordmarkSplash Width="120" Loading="lazy" />
+    <div class="alert alert-info">
+        <h6 class="alert-heading mb-2">You haven't subscribed to any slots yet</h6>
+        <p class="mb-2">
+            Turn on slot-level filtering to see only shifts for slots you specifically want.
+            Visit a slot's detail page and tap <strong>Subscribe</strong>, or browse the ministry
+            page to subscribe to one or two slots at a time.
+        </p>
+        <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="() => SetFilterMode(OpenSlotFilterMode.AllSlots)">
+            Switch to All slots
+        </button>
+    </div>
+}
+else if (_filterMode == OpenSlotFilterMode.MyMinistries && _joinedMinistryIds.Count == 0)
 {
     @* Filter-induced empty-state (NOT data-empty): the user toggled
        the "My ministries" pill-segment and the joined set is empty,
        so the filter provably has nothing to show. Distinct from the
        data-empty branches above (no membership / no shifts queued) in
-       that the user has agency — switching to "All my orgs" or
+       that the user has agency — switching to "All slots" or
        following one ministry re-populates the page. The wordmark
        stays for brand consistency but the WHY here names the
        distinction so the next maintainer doesn't read
@@ -92,23 +118,20 @@ else if (_showOnlyJoined && _joinedMinistryIds.Count == 0)
     <div class="alert alert-info">
         <h6 class="alert-heading mb-2">You haven't joined any ministries yet</h6>
         <p class="mb-2">
-            You're filtering to your followed ministries, but you haven't followed any. Switch to <strong>All ministries</strong> to see everything, or pick a few ministries from your organizations.
+            You're filtering to your followed ministries, but you haven't followed any. Switch to <strong>All slots</strong> to see everything, or pick a few ministries from your organizations.
         </p>
         <a class="btn btn-primary btn-sm" href="/">Pick ministries to follow</a>
-        <button class="btn btn-outline-secondary btn-sm ms-2" type="button" @onclick="() => SetShowOnlyJoined(false)">
-            Switch to All ministries
+        <button class="btn btn-outline-secondary btn-sm ms-2" type="button" @onclick="() => SetFilterMode(OpenSlotFilterMode.AllSlots)">
+            Switch to All slots
         </button>
     </div>
 }
 else if (!_openShifts.Any())
 {
-    @* Wordmark above the no-shifts empty-state. Completes the
-       volunteer-facing brand rollout (vs the auth-surface splash
-       already on Login + Register at 180 px). See WordmarkSplash. *@
+    @* Wordmark above the no-shifts empty-state. *@
     <WordmarkSplash Width="120" Loading="lazy" />
     <div class="alert alert-info">
-        Nothing open @(_showOnlyJoined && _joinedMinistryIds.Count > 0 ? "in your followed ministries" : "right now").
-        Check back later, or ask a coordinator to queue a shift for a slot you care about.
+        Nothing open @EmptyMessageSuffix(). Check back later, or ask a coordinator to queue a shift for a slot you care about.
     </div>
 }
 else
@@ -163,6 +186,37 @@ else
                         }
                     </div>
                     <div class="card-footer bg-transparent border-0 pt-0">
+                        @* Per-card Subscribe/Unsubscribe toggle (Round-FR-7).
+                           The button label flips based on local
+                           _subscribedSlotIds membership. Click optimistically
+                           mutates the local cache; the service call below
+                           reconciles with the DB. On error the cache is undone
+                           so the UI stays in sync with the DB. *@
+                        <div class="d-flex justify-content-between align-items-center gap-2 mb-2">
+                            @if (_subscribedSlotIds.Contains(s.ServiceSlotId))
+                            {
+                                <button class="btn btn-sm btn-outline-success flex-grow-1"
+                                        disabled="@(_busySlotId == s.ServiceSlotId)"
+                                        @onclick="() => ToggleSlotSubscriptionAsync(s.ServiceSlotId, s.SlotName)"
+                                        title="Stop including this slot's shifts in the My slots filter">
+                                    <span class="bi bi-check-circle-fill me-1" aria-hidden="true"></span>
+                                    @(_busySlotId == s.ServiceSlotId ? "Updating…" : "Subscribed")
+                                </button>
+                            }
+                            else
+                            {
+                                <button class="btn btn-sm btn-outline-secondary flex-grow-1"
+                                        disabled="@(_busySlotId == s.ServiceSlotId || !_inAnyOrgForSlot.Contains(s.OrganizationId))"
+                                        @onclick="() => ToggleSlotSubscriptionAsync(s.ServiceSlotId, s.SlotName)"
+                                        title="@(_inAnyOrgForSlot.Contains(s.OrganizationId) ? "Add this slot's shifts to the My slots filter" : "You can only subscribe to slots in organizations you belong to")">
+                                    @(_busySlotId == s.ServiceSlotId ? "Updating…" : (IsSubFilterActive() ? "Subscribe to keep in My slots" : "Subscribe"))
+                                </button>
+                            }
+                            @if (_lastSlotError is not null && _lastSlotError.SlotId == s.ServiceSlotId)
+                            {
+                                <span class="text-danger small" role="alert">@_lastSlotError.Message</span>
+                            }
+                        </div>
                         @if (!_joinedMinistryIds.Contains(s.MinistryId))
                         {
                             <button class="btn btn-outline-primary w-100"
@@ -199,9 +253,18 @@ else
 @inject IDbContextFactory<ApplicationDbContext> DbFactory
 @inject IAssignmentService AssignmentService
 @inject IMinistryInterestService MinistryInterest
+@inject ISlotInterestService Slots
 @inject AuthenticationStateProvider Auth
 @inject UserTimeZoneProvider TzProvider
 @code {
+    // Round-FR-7: 3-way filter mode. Default on first paint is
+    // AllSlots; the first Reload after auth-resolved flips it to the
+    // most-populated preference set (slots first, then ministries) so
+    // a user with explicit slot subscriptions sees their shifts
+    // rather than the broader ministry-driven list. After that the
+    // filter is fully user-controlled.
+    private enum OpenSlotFilterMode { AllSlots, MyMinistries, MySlots }
+
     private bool _loading = true;
     private string? _userId;
     private bool _userIdPresent;
@@ -209,35 +272,62 @@ else
     private List<OpenSlotOccurrenceView> _openShifts = new();
     private int _busyId;
     private SignupResult? _lastResult;
-    // Filter state: true = narrow to MinistryInterest row set, false = wide.
-    // Default-on for safety: a user who just registered with a token has
-    // 0 joined ministries and would otherwise see every open shift in
-    // their organization; filtering to 0 yields the explicit empty-state
-    // CTA below instead.
-    private bool _showOnlyJoined = true;
+    private OpenSlotFilterMode _filterMode = OpenSlotFilterMode.AllSlots;
+    // True when the volunteer has interacted with the filter at least
+    // once during this session — separates "first paint auto-default"
+    // from "user-chosen mode" so subsequent Reloads (e.g., after
+    // sign-up) don't snap the filter back to a different default.
+    private bool _filterModeUserChosen;
+
     // Cached joined-ministry ids, populated alongside the open-shifts
     // query in Reload. Drives the empty-state CTA and the pill-segment
     // count badge.
     private HashSet<int> _joinedMinistryIds = new();
+    // Round-FR-7: cached slot-level subscription set. Driven by
+    // ISlotInterestService.ListSubscribedAsync(userId) in Reload. The
+    // per-card Subscribe toggle reads + writes this set optimistically;
+    // errors revert.
+    private HashSet<int> _subscribedSlotIds = new();
+    // Cross-org sandbox pre-check: a volunteer can only subscribe to
+    // a slot if they belong to the slot's parent org. We precompute
+    // this set in Reload so the per-card Subscribe button can disable
+    // itself cleanly without round-tripping the service for every
+    // card click.
+    private HashSet<int> _inAnyOrgForSlot = new();
+    // In-flight tracking for the per-card Subscribe button so only the
+    // clicked card's button shows the spinner.
+    private int _busySlotId;
+    // Surface Subscribe failures inline next to the card button rather
+    // than in a page-level alert (which would lose the row-anchor).
+    private SlotSubscribeError? _lastSlotError;
+    private record SlotSubscribeError(int SlotId, string Message);
+
     // Org picker: user's organization memberships (id + name) and the
     // currently selected org. 0 = "All organizations" (no org filter).
+    // Cached set of every org the user belongs to (independent of the
+    // picker) so the per-card Subscribe button can do a fast in-org
+    // membership lookup.
     // Public so EF Core can access the constructor during query projection.
     public record OrgItem(int Id, string Name);
     private List<OrgItem> _orgs = new();
     private int _selectedOrgId;
+    private HashSet<int> _myOrgIds = new();
     // Cached active ministry IDs for the currently selected org.
     // Populated in Reload when _selectedOrgId > 0; drives org-scoped
-    // filtering for both "My ministries" and "All ministries" modes.
+    // filtering for both "My ministries" and "All slots" modes.
     private HashSet<int> _orgMinistryIds = new();
 
     protected override async Task OnInitializedAsync() => await Reload();
 
-    private async Task SetShowOnlyJoined(bool value)
+    private async Task SetFilterMode(OpenSlotFilterMode mode)
     {
-        if (_showOnlyJoined == value) return;
-        _showOnlyJoined = value;
+        if (_filterMode == mode && _filterModeUserChosen) return;
+        _filterMode = mode;
+        _filterModeUserChosen = true;
         await Reload();
     }
+
+    private bool IsSubFilterActive() => _filterMode == OpenSlotFilterMode.MySlots;
 
     // Link target for "Manage my ministries" button. When a specific
     // org is selected, goes directly to that org's detail page
@@ -261,21 +351,20 @@ else
     private int _reloadVersion;
 
     /// <summary>
-    /// Re-query the open-shifts list (joined ministeries + filter pill).
-    /// Race-safe against rapid pill clicks / SignUp-triggered re-runs:
-    /// each invocation captures a <see cref="_reloadVersion"/> at entry,
-    /// reads every result into a LOCAL, and only commits to Blazor fields
-    /// after passing the FINAL version guard. A stale Reload that loses
-    /// the race simply abandons its locals without ever mutating
-    /// <c>_openShifts</c> / <c>_joinedMinistryIds</c> / <c>_hasMembership</c>.
-    ///
+    /// Re-query the open-shifts list (joined ministries + slot-level
+    /// subscriptions + filter pill). Race-safe against rapid pill clicks
+    /// / SignUp-triggered re-runs: each invocation captures a
+    /// <see cref="_reloadVersion"/> at entry, reads every result into a
+    /// LOCAL, and only commits to Blazor fields after passing the FINAL
+    /// version guard. A stale Reload that loses the race simply
+    /// abandons its locals without ever mutating the bound fields.
     /// <para>
     /// We deliberately don't pass a <see cref="CancellationToken"/> to the
     /// awaits: doing so risks an unhandled
     /// <see cref="OperationCanceledException"/> surfacing as a runtime
     /// error in Blazor's interactive-server circuit when one Reload
     /// cancels another. The version-token pattern achieves the same
-    /// outcome (discard stale results) without the OCE surface.
+    /// outcome without the OCE surface.
     /// </para>
     /// </summary>
     private async Task Reload()
@@ -301,7 +390,10 @@ else
                 _hasMembership = false;
                 _openShifts = new();
                 _joinedMinistryIds = new();
+                _subscribedSlotIds = new();
                 _orgs = new();
+                _myOrgIds = new();
+                _inAnyOrgForSlot = new();
                 _orgMinistryIds = new();
                 return;
             }
@@ -309,8 +401,16 @@ else
             await using var db = await DbFactory.CreateDbContextAsync();
             if (!iAmLatest()) return;
 
-            var hasMembership = await db.OrganizationMemberships
-                .AnyAsync(m => m.PersonUserId == userId);
+            // Track every org the user belongs to (cached locally so the
+            // per-card Subscribe button can disable itself for out-of-org
+            // slots without re-querying).
+            var myOrgIds = await db.OrganizationMemberships
+                .Where(m => m.PersonUserId == userId)
+                .Select(m => m.OrganizationId)
+                .ToListAsync();
+            if (!iAmLatest()) return;
+            var myOrgIdsSet = myOrgIds.ToHashSet();
+            var hasMembership = myOrgIdsSet.Count > 0;
 
             // Fetch org memberships with names for the org picker dropdown.
             // OrderBy comes before Select so EF Core can translate the
@@ -329,10 +429,16 @@ else
             var joined = await MinistryInterest.ListJoinedAsync(userId);
             if (!iAmLatest()) return;
 
+            // Round-FR-7: refresh slot-level subscription set so the per-card
+            // Subscribe button and the "My slots" filter pill each see the
+            // authoritative list.
+            var subs = await Slots.ListSubscribedAsync(userId);
+            if (!iAmLatest()) return;
+
             // If a specific org is selected, fetch its active ministry IDs
-            // so we can scope both "My ministries" and "All ministries" to
-            // that org. Otherwise (_selectedOrgId == 0), leave it empty and
-            // the service-scoped query will cover all user orgs.
+            // so we can scope all three filter modes to that org.
+            // Otherwise (_selectedOrgId == 0), leave it empty and the
+            // service-scoped query will cover all user orgs.
             HashSet<int> orgMinistryIds;
             if (_selectedOrgId > 0)
             {
@@ -352,42 +458,101 @@ else
             var fromUtc = DateTime.UtcNow;
             var toUtc = fromUtc.AddDays(90);
 
-            // Filter param: combines the ministry-scope toggle with the
-            // org picker. When an org is selected, both "My ministries"
-            // and "All ministries" are scoped to that org's active
-            // ministries. When "All organizations" is selected, the
-            // filter falls back to the pre-picker behaviour.
-            var showOnlyJoined = _showOnlyJoined;
+            // Filter assembly based on the 3-way filter mode.
+            //   AllSlots        → no ministry / slot narrowing (both null)
+            //   MyMinistries    → ministry narrowing only
+            //   MySlots         → slot narrowing only
+            // The selected org picker further narrows the ministry / slot
+            // sets when set.
             var joinedIds = joined.Select(i => i.MinistryId).ToHashSet();
-            IReadOnlyCollection<int>? filter;
-            if (_selectedOrgId > 0)
+            var subscribedIds = subs.Select(s => s.ServiceSlotId).ToHashSet();
+
+            IReadOnlyCollection<int>? ministryFilter = null;
+            IReadOnlyCollection<int>? slotFilter = null;
+
+            switch (_filterMode)
             {
-                if (showOnlyJoined && joinedIds.Count > 0)
+                case OpenSlotFilterMode.MyMinistries:
+                    if (joinedIds.Count > 0)
+                    {
+                        if (_selectedOrgId > 0)
+                        {
+                            ministryFilter = joinedIds.Where(id => orgMinistryIds.Contains(id)).ToHashSet();
+                        }
+                        else
+                        {
+                            ministryFilter = joinedIds;
+                        }
+                    }
+                    break;
+                case OpenSlotFilterMode.MySlots:
+                    if (subscribedIds.Count > 0)
+                    {
+                        if (_selectedOrgId > 0)
+                        {
+                            // Org-scoped slot filter: every slot in the
+                            // selected org + every slot whose ministry is
+                            // one of the org's ministries.
+                            var orgSlotIds = await db.ServiceSlots
+                                .Where(s => s.Ministry.OrganizationId == _selectedOrgId)
+                                .Select(s => s.Id)
+                                .ToListAsync();
+                            if (!iAmLatest()) return;
+                            slotFilter = orgSlotIds.Intersect(subscribedIds).ToHashSet();
+                        }
+                        else
+                        {
+                            slotFilter = subscribedIds;
+                        }
+                    }
+                    break;
+                case OpenSlotFilterMode.AllSlots:
+                default:
+                    // Both null = no narrowing.
+                    break;
+            }
+
+            // Sentinel: when the org has no entries for the active filter
+            // (e.g., selected an org with no joined ministries while in
+            // MyMinistries mode AND the user has no joined ministries in
+            // that org), force zero rows instead of falling back to
+            // "all my orgs" via the empty-filter short circuit the
+            // service applies.
+            if (_filterMode == OpenSlotFilterMode.MyMinistries
+                && ministryFilter is { Count: 0 })
+            {
+                ministryFilter = new HashSet<int> { -1 };
+            }
+            if (_filterMode == OpenSlotFilterMode.MySlots
+                && slotFilter is { Count: 0 })
+            {
+                slotFilter = new HashSet<int> { -1 };
+            }
+
+            var openShifts = await AssignmentService.ListOpenSlotOccurrencesAsync(userId, fromUtc, toUtc, ministryFilter, slotFilter);
+
+            if (!iAmLatest()) return;
+
+            // First-paint auto-default: on the very first load (before
+            // the user has clicked any pill) pick the most-populated
+            // preference set so the page lands on what they care about.
+            // MySlots wins over MyMinistries when both have rows so the
+            // narrower, more-explicit preference signals take priority.
+            if (!_filterModeUserChosen)
+            {
+                if (subscribedIds.Count > 0)
                 {
-                    // Joined ministries, scoped to the selected org.
-                    filter = joinedIds.Where(id => orgMinistryIds.Contains(id)).ToHashSet();
+                    _filterMode = OpenSlotFilterMode.MySlots;
+                }
+                else if (joinedIds.Count > 0)
+                {
+                    _filterMode = OpenSlotFilterMode.MyMinistries;
                 }
                 else
                 {
-                    // All active ministries in the selected org.
-                    filter = orgMinistryIds;
+                    _filterMode = OpenSlotFilterMode.AllSlots;
                 }
-                // When the org has no ministries (or the intersection is
-                // empty), the service treats an empty filter as "no filter"
-                // and shows ALL orgs' shifts. A sentinel with a non-existent
-                // ministry ID forces zero rows instead.
-                if (filter.Count == 0) filter = new HashSet<int> { -1 };
             }
-            else
-            {
-                // All organizations: current behaviour.
-                filter = (showOnlyJoined && joinedIds.Count > 0)
-                    ? joinedIds
-                    : null;
-            }
-            var openShifts = await AssignmentService.ListOpenSlotOccurrencesAsync(userId, fromUtc, toUtc, filter);
-
-            if (!iAmLatest()) return;
 
             // ---- Commit ---- every prior iAmLatest() check has passed,
             // so this Reload is the most recent run and its locals can
@@ -396,9 +561,12 @@ else
             _userIdPresent = true;
             _lastResult = null;
             _hasMembership = hasMembership;
+            _myOrgIds = myOrgIdsSet;
             _orgs = orgs;
             _orgMinistryIds = orgMinistryIds;
             _joinedMinistryIds = joinedIds;
+            _subscribedSlotIds = subscribedIds;
+            _inAnyOrgForSlot = myOrgIdsSet;
             _openShifts = openShifts.ToList();
         }
         finally
@@ -409,6 +577,26 @@ else
         }
     }
 
+    private string EmptyMessageSuffix()
+    {
+        if (_filterMode == OpenSlotFilterMode.MySlots && _subscribedSlotIds.Count > 0)
+            return " in slots you're subscribed to";
+        if (_filterMode == OpenSlotFilterMode.MyMinistries && _joinedMinistryIds.Count > 0)
+            return " in your followed ministries";
+        return "";
+    }
+
+    /// <summary>
+    /// Sign-up for a shift. After the assignment succeeds, fan out an
+    /// auto-subscribe to the underlying slot (Round-FR-7 spec Q1 YES
+    /// decision) so the volunteer's "My slots" filter automatically
+    /// captures this slot — the next visit to /Open preserves their
+    /// preference without requiring a second click. Silent on
+    /// AlreadySubscribed (idempotent); any other result is ignored so
+    /// the volunteer doesn't see a confusing toast about a non-blocking
+    /// preference write that the coordinator-side roster surfaces on
+    /// next page load anyway.
+    /// </summary>
     private async Task SignUp(OpenSlotOccurrenceView s)
     {
         if (string.IsNullOrEmpty(_userId)) return;
@@ -423,6 +611,15 @@ else
             {
                 _lastResult = new SignupResult(s.OccurrenceId, true,
                     $"You're signed up for {s.SlotName} on {s.StartUtc:ddd, MMM d h:mm tt}.");
+
+                // Round-FR-7 cross-service fan-out: auto-subscribe to the
+                // underlying slot with the AutoFromAssignment source so
+                // round-2 audit / data-quality tooling can distinguish
+                // coordinator-driven AssignAsync writes from volunteer-driven
+                // /Open sign-ups. Silent on AlreadySubscribed (idempotent
+                // double-click case).
+                await Slots.SubscribeAsync(_userId, _userId, s.ServiceSlotId, SlotInterestSource.AutoFromAssignment);
+
                 await Reload();
             }
             else
@@ -458,6 +655,10 @@ else
             {
                 _lastResult = new SignupResult(s.OccurrenceId, true,
                     $"You joined {s.MinistryName} and signed up for {s.SlotName} on {s.StartUtc:ddd, MMM d h:mm tt}.");
+
+                // Round-FR-7 cross-service fan-out mirrors SignUp's.
+                await Slots.SubscribeAsync(_userId, _userId, s.ServiceSlotId, SlotInterestSource.AutoFromAssignment);
+
                 await Reload();
             }
             else
@@ -470,6 +671,58 @@ else
         finally
         {
             _busyId = 0;
+        }
+    }
+
+    /// <summary>
+    /// Per-card Subscribe / Unsubscribe toggle handler. Optimistically
+    /// flips the local _subscribedSlotIds cache so the button label
+    /// updates instantly; on a server refusal (PermissionDenied etc.) we
+    /// revert and surface the error inline.
+    /// </summary>
+    private async Task ToggleSlotSubscriptionAsync(int slotId, string slotNameForError)
+    {
+        if (string.IsNullOrEmpty(_userId)) return;
+
+        var wasSubscribed = _subscribedSlotIds.Contains(slotId);
+        _busySlotId = slotId;
+        _lastSlotError = null;
+        try
+        {
+            if (wasSubscribed)
+            {
+                _subscribedSlotIds.Remove(slotId);  // optimistic flip
+                var result = await Slots.UnsubscribeAsync(_userId, _userId, slotId);
+                if (result == SlotInterestLeaveResult.PermissionDenied)
+                {
+                    _subscribedSlotIds.Add(slotId);  // revert
+                    _lastSlotError = new SlotSubscribeError(slotId, "You can only stop subscribing to slots in organizations you belong to.");
+                }
+                else if (result == SlotInterestLeaveResult.SlotNotFound)
+                {
+                    _subscribedSlotIds.Add(slotId);  // revert
+                    _lastSlotError = new SlotSubscribeError(slotId, "This slot no longer exists.");
+                }
+            }
+            else
+            {
+                _subscribedSlotIds.Add(slotId);  // optimistic flip
+                var result = await Slots.SubscribeAsync(_userId, _userId, slotId, SlotInterestSource.Explicit);
+                if (result == SlotInterestJoinResult.PermissionDenied)
+                {
+                    _subscribedSlotIds.Remove(slotId);  // revert
+                    _lastSlotError = new SlotSubscribeError(slotId, "You can only subscribe to slots in organizations you belong to.");
+                }
+                else if (result == SlotInterestJoinResult.SlotNotFound)
+                {
+                    _subscribedSlotIds.Remove(slotId);  // revert
+                    _lastSlotError = new SlotSubscribeError(slotId, "This slot no longer exists.");
+                }
+            }
+        }
+        finally
+        {
+            _busySlotId = 0;
         }
     }
 

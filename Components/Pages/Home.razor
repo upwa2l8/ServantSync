@@ -140,14 +140,68 @@
                                 }
                             </ul>
                         }
-                        @if (_lastMessage is not null)
+                    </div>
+                </div>
+
+                @* Round-FR-7: "Slots I'm subscribed to" panel. Mirror of
+                   the "My ministries" panel but at slot granularity so
+                   the volunteer sees the narrower preference they're
+                   signaling for /Open's "My slots" filter. Each row
+                   shows the slot name as a deep link to the slot's
+                   published-schedule page + the parent ministry for
+                   context + an Unsubscribe button that mirrors the
+                   LeaveMinistry pattern. Empty state explains how to
+                   subscribe (involves visiting a slot detail page) so
+                   the volunteer understands the discoverability path. *@
+                <div class="card mt-3">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <div>
+                            <h5 class="mb-0">Slots I'm subscribed to (@_mySubscribedSlots.Count)</h5>
+                            <div class="text-muted small">Slots you have explicitly opted into. Their open shifts will show up under the "My slots" filter on <a href="Open">Browse open slots</a>.</div>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        @if (_mySubscribedSlots.Count == 0)
                         {
-                            <div class="alert @(_lastIsError ? "alert-danger" : "alert-success") py-2 small mt-3 mb-0">
-                                @_lastMessage
-                            </div>
+                            <p class="text-muted mb-0 small">
+                                You haven't subscribed to any specific slots yet. Visit a slot's page (try one in the ministry list above) and tap <strong>Subscribe to this slot</strong> to narrow the Browse page to only that slot's shifts.
+                            </p>
+                        }
+                        else
+                        {
+                            <ul class="list-group list-group-flush">
+                                @foreach (var sub in _mySubscribedSlots)
+                                {
+                                    var slot = sub.ServiceSlot;
+                                    var ministry = slot.Ministry;
+                                    var orgId = ministry.OrganizationId;
+                                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                                        <div>
+                                            <a href="@($"Organizations/{orgId}/Ministries/{ministry.Id}/Roles/{slot.Id}")">
+                                                <strong>@slot.Name</strong>
+                                            </a>
+                                            <span class="text-muted small ms-2">
+                                                in @ministry.Name
+                                            </span>
+                                        </div>
+                                        <button class="btn btn-sm btn-outline-secondary" type="button"
+                                                @onclick="() => LeaveSlotFromHomeAsync(slot.Id, slot.Name)"
+                                                disabled="@(_busyLeaveSlotId == slot.Id)">
+                                            @(_busyLeaveSlotId == slot.Id ? "Leaving..." : "Unsubscribe")
+                                        </button>
+                                    </li>
+                                }
+                            </ul>
                         }
                     </div>
                 </div>
+
+                @if (_lastMessage is not null)
+                {
+                    <div class="alert @(_lastIsError ? "alert-danger" : "alert-success") py-2 small mt-3 mb-0">
+                        @_lastMessage
+                    </div>
+                }
             }
         </Authorized>
         <NotAuthorized>
@@ -163,6 +217,7 @@
 @inject AuthenticationStateProvider Auth
 @inject ITrainingService TrainingService
 @inject IMinistryInterestService MinistryInterest
+@inject ISlotInterestService Slots
 @inject IOrgAuthService OrgAuth
 @code {
     private int _ministryCount, _personCount, _myPending, _myUpcoming;
@@ -182,6 +237,12 @@
     // Tracks which Leave row is in-flight so the spinner only shows on
     // the row being acted on (other rows stay clickable).
     private int _busyLeaveId;
+    // Round-FR-7: parallel state for the "Slots I'm subscribed to" panel.
+    // ListSubscribedAsync eagerly-loads ServiceSlot.Ministry so the row
+    // render is one DB round-trip. Mutated in-memory on Unsubscribe click
+    // so the row disappears without a re-fetch.
+    private List<SlotInterest> _mySubscribedSlots = new();
+    private int _busyLeaveSlotId;
     private string? _lastMessage;
     private bool _lastIsError;
 
@@ -242,6 +303,13 @@
         // Ministry + Organization via the service so a single trip powers
         // the entire list rendering.
         _myMinistries = await MinistryInterest.ListJoinedAsync(userId);
+
+        // Round-FR-7: the "Slots I'm subscribed to" panel content.
+        // ListSubscribedAsync eagerly-loads ServiceSlot → Ministry in one
+        // trip so the row render is N+1-free. Slot.IncidentId is sorted
+        // by the service alphabetically by slot name.
+        _mySubscribedSlots = await Slots.ListSubscribedAsync(userId);
+
         _loaded = true;
     }
 
@@ -277,6 +345,47 @@
         finally
         {
             _busyLeaveId = 0;
+        }
+    }
+
+    /// <summary>
+    /// Round-FR-7: Unsubscribe a slot from the "Slots I'm subscribed to"
+    /// panel. Mirrors LeaveFromHomeAsync's structure — single in-memory
+    /// mutation on success so the row disappears without a re-fetch, plus
+    /// 4xx classification for the common server refusals.
+    /// </summary>
+    private async Task LeaveSlotFromHomeAsync(int slotId, string slotName)
+    {
+        var state = await Auth.GetAuthenticationStateAsync();
+        var userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userId)) return;
+
+        _busyLeaveSlotId = slotId;
+        _lastMessage = null;
+        try
+        {
+            var result = await Slots.UnsubscribeAsync(userId, userId, slotId);
+            switch (result)
+            {
+                case SlotInterestLeaveResult.Unsubscribed:
+                case SlotInterestLeaveResult.NotSubscribed:
+                    _mySubscribedSlots = _mySubscribedSlots.Where(s => s.ServiceSlotId != slotId).ToList();
+                    _lastIsError = false;
+                    _lastMessage = $"You stopped subscribing to {slotName}. Its shifts will no longer show up under \"My slots\" on the Browse page.";
+                    break;
+                case SlotInterestLeaveResult.PermissionDenied:
+                    _lastIsError = true;
+                    _lastMessage = "You can only stop subscribing to slots in organizations you belong to.";
+                    break;
+                case SlotInterestLeaveResult.SlotNotFound:
+                    _lastIsError = true;
+                    _lastMessage = "This slot no longer exists.";
+                    break;
+            }
+        }
+        finally
+        {
+            _busyLeaveSlotId = 0;
         }
     }
 

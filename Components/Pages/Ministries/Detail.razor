@@ -154,11 +154,42 @@ else
                     {
                         <div class="text-muted small">@s.Description</div>
                     }
-                    <div class="mt-2">
+                    <div class="mt-2 d-flex gap-2 flex-wrap align-items-center">
                         <a class="btn btn-sm btn-outline-primary"
                            href="@ScheduleHref(s.Id)">Schedule</a>
                         <a class="btn btn-sm btn-outline-secondary"
                            href="@($"Organizations/{OrgId}/Ministries/{Id}/Roles/{s.Id}/Edit")">Edit</a>
+                        @* Round-FR-7: per-slot Subscribe toggle. The
+                           pill flips between "Subscribe" and
+                           "Subscribed ✓" so the volunteer can pin
+                           the slot to their "My slots" filter on /Open
+                           without leaving the ministry page. In-org
+                           members only; out-of-org visitors are
+                           redirected to the Not Found panel above. *@
+                        @if (_isInOrg)
+                        {
+                            @if (_subscribedSlotIds.Contains(s.Id))
+                            {
+                                <button class="btn btn-sm btn-outline-success"
+                                        type="button"
+                                        disabled="@(_busySlotId == s.Id)"
+                                        @onclick="() => ToggleSlotSubscriptionAsync(s.Id, s.Name)"
+                                        title="Stop including this slot's shifts in the My slots filter on /Open">
+                                    <span class="bi bi-check-circle-fill me-1" aria-hidden="true"></span>
+                                    @(_busySlotId == s.Id ? "Updating…" : "Subscribed")
+                                </button>
+                            }
+                            else
+                            {
+                                <button class="btn btn-sm btn-outline-secondary"
+                                        type="button"
+                                        disabled="@(_busySlotId == s.Id)"
+                                        @onclick="() => ToggleSlotSubscriptionAsync(s.Id, s.Name)"
+                                        title="Add this slot's shifts to the My slots filter on /Open">
+                                    @(_busySlotId == s.Id ? "Updating…" : "Subscribe")
+                                </button>
+                            }
+                        }
                     </div>
                 </li>
             }
@@ -170,6 +201,7 @@ else
 @inject AuthenticationStateProvider Auth
 @inject IOrgAuthService OrgAuth
 @inject IMinistryInterestService MinistryInterest
+@inject ISlotInterestService Slots
 @code {
     [Parameter] public int OrgId { get; set; }
     [Parameter] public int Id { get; set; }
@@ -196,6 +228,12 @@ else
     // "interested" via MinistryInterestService.JoinAsync. Drives the
     // button label (Join vs Leave).
     private bool _isInterested;
+    // Round-FR-7: per-slot subscription cache. Built once in
+    // OnInitializedAsync via ISlotInterestService.ListSubscribedAsync.
+    // Drives the Subscribe/Subscribed pill per slot row. Optimistic
+    // local mutation in ToggleSlotSubscriptionAsync; Reload re-fetches.
+    private HashSet<int> _subscribedSlotIds = new();
+    private int _busySlotId;
     // True after OnInitializedAsync has completed so the renderer can
     // distinguish "still loading" from "loaded but no match" / "loaded
     // but cross-org access refused" without an indefinite spinner.
@@ -236,6 +274,17 @@ else
                 .AnyAsync(m => m.OrganizationId == OrgId && m.PersonUserId == _userId);
             _isInterested = _isInOrg && await db.MinistryInterests
                 .AnyAsync(i => i.PersonUserId == _userId && i.MinistryId == Id);
+
+            // Round-FR-7: precompute the slot-level subscription set so
+            // each row in the list can render its Subscribe/Subscribed
+            // pill without an N+1 chase.
+            if (_isInOrg)
+            {
+                var subs = await Slots.ListSubscribedAsync(_userId);
+                _subscribedSlotIds = subs.Where(s => s.ServiceSlot.MinistryId == Id)
+                                          .Select(s => s.ServiceSlotId)
+                                          .ToHashSet();
+            }
         }
 
         _hasLoaded = true;
@@ -314,6 +363,63 @@ else
         finally
         {
             _busyToggle = false;
+        }
+    }
+
+    /// <summary>
+    /// Per-slot Subscribe / Unsubscribe toggle (Round-FR-7). Optimistically
+    /// flips the local _subscribedSlotIds cache so the pill updates
+    /// instantly; the ISlotInterestService call below reconciles with the DB.
+    /// On a server refusal (PermissionDenied / SlotNotFound) we revert the
+    /// optimistic flip so the UI stays in sync with persisted state.
+    /// </summary>
+    private async Task ToggleSlotSubscriptionAsync(int slotId, string slotNameForError)
+    {
+        if (string.IsNullOrEmpty(_userId)) return;
+
+        var wasSubscribed = _subscribedSlotIds.Contains(slotId);
+        _busySlotId = slotId;
+        _lastMessage = null;
+        try
+        {
+            if (wasSubscribed)
+            {
+                _subscribedSlotIds.Remove(slotId);
+                var result = await Slots.UnsubscribeAsync(_userId, _userId, slotId);
+                if (result == SlotInterestLeaveResult.PermissionDenied)
+                {
+                    _subscribedSlotIds.Add(slotId);  // revert
+                    _lastIsError = true;
+                    _lastMessage = "You can only stop subscribing to slots in organizations you belong to.";
+                }
+                else if (result == SlotInterestLeaveResult.SlotNotFound)
+                {
+                    _subscribedSlotIds.Add(slotId);  // revert
+                    _lastIsError = true;
+                    _lastMessage = "This slot no longer exists.";
+                }
+            }
+            else
+            {
+                _subscribedSlotIds.Add(slotId);
+                var result = await Slots.SubscribeAsync(_userId, _userId, slotId, SlotInterestSource.Explicit);
+                if (result == SlotInterestJoinResult.PermissionDenied)
+                {
+                    _subscribedSlotIds.Remove(slotId);  // revert
+                    _lastIsError = true;
+                    _lastMessage = "You can only subscribe to slots in organizations you belong to.";
+                }
+                else if (result == SlotInterestJoinResult.SlotNotFound)
+                {
+                    _subscribedSlotIds.Remove(slotId);  // revert
+                    _lastIsError = true;
+                    _lastMessage = "This slot no longer exists.";
+                }
+            }
+        }
+        finally
+        {
+            _busySlotId = 0;
         }
     }
 }

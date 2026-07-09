@@ -110,13 +110,28 @@ public interface IAssignmentService
     /// Used by <c>Components/Pages/Open.razor</c> to narrow the default
     /// list down to the user's <c>MinistryInterest</c> rows. Null or empty
     /// returns every open occurrence across the volunteer's orgs (the
-    /// "show all my orgs" fallback when the user hasn't joined any).
+    /// "show all" fallback when the user hasn't joined any).
+    /// </param>
+    /// <param name="slotIdsFilter">
+    /// Round-FR-7: optional whitelist that AND-combines with
+    /// <paramref name="ministryIdsFilter"/>. When supplied and non-null,
+    /// only occurrences whose <c>ServiceSlotId</c> is in this collection
+    /// are returned. Used by <c>Components/Pages/Open.razor</c> for the
+    /// "My slots (N)" 3-way filter — the volunteer explicitly subscribed
+    /// to specific slots (via the slot-level toggle on
+    /// <c>ServiceSlots/Detail.razor</c> or the per-slot pill on
+    /// <c>Ministries/Detail.razor</c>) and the page narrows to those
+    /// slots' shifts exclusively. When BOTH filters are supplied, EF
+    /// composes them with AND (intersection) — a row that passes one but
+    /// not the other is filtered out. Null or empty for either
+    /// parameter disables that leg of the AND.
     /// </param>
     Task<List<OpenSlotOccurrenceView>> ListOpenSlotOccurrencesAsync(
         string personUserId,
         DateTime fromUtc,
         DateTime toUtc,
         IReadOnlyCollection<int>? ministryIdsFilter = null,
+        IReadOnlyCollection<int>? slotIdsFilter = null,
         CancellationToken ct = default);
 }
 
