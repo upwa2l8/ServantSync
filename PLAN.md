@@ -1568,4 +1568,157 @@ Edge cases specifically tested in the service-layer tests:
 - NO migrations (all schema already exists).
 - (Optional Tier-2 followup) `Services/TrainingDueSoonCache.cs` if the LINQ is too slow on a 1000-row grid.
 
+### Round-FR-7: per-slot volunteer interest — let volunteers "subscribe" to slots separately from joining a ministry, and filter `/Open` accordingly
+
+**User ask (verbatim).** "Currently users can 'join' a ministry. I'd like for them to also be able to 'volunteer' for a slot. Then on open slots we show only slots which are volunteered for and not all slots within a ministry. Someone might want to see referee slots for a game but have no interest in coaching."
+
+**Why now.** Today the `/Open` filter (per round-FR-patterns) sits at the **ministry** granularity: a volunteer who joined an AWANA ministry sees every AWANA slot's open shifts, regardless of whether they actually want to coach, lead songs, do refreshments, or work the welcome desk. Concretely, in a Springfield Youth Soccer League ministry with `Coach`, `AssistantCoach`, `GameDayReferee`, `Concessions`, and `DevotionLeader` slots, a parent who only wants to referee games still sees all five slot families' open shifts, and gets sexit-button fatigue on /Open. Splitting the existing two-tier interest model — Org membership + Ministry interest — into a clean three-tier model — Org membership + Ministry interest + **Slot interest** (NEW) — gives the volunteer a single subscription knob per slot, and gives the `/Open` page a single new filter that says "I only want to see shifts for slots I've signed up for".
+
+**Design-verdict provenance.** This spec is grounded on the thinker's verdict on the modeling question. Three options were weighed (new `SlotInterest` table vs reusing `AssignmentStatus.Tentative` vs piggy-backing on the existing `MinistryInterest` pattern) and the verdict picked the new table per the analysis below.
+
+**Modeling verdict (per the thinker's design pass).**
+
+Option (A) — new `SlotInterest` table — wins:
+- `Assignment` (`Models/Assignment.cs:17`) models a CONCRETE TIME-BOUND COMMITMENT (StartUtc + EndUtc + AssignmentStatus.Scheduled/Tentative/...). Repurposing `AssignmentStatus.Tentative` for "volunteer interest" conflates intent with scheduling and requires faking `StartUtc=EndUtc` (no real time yet) — wrong shape.
+- `MinistryInterest` is a per-(user, ministry) row in a separate service (`IMinistryInterestService`) that already exists. Slot interest is structurally identical (per-(user, slot)) so following that exact pattern is the obvious-shared-shape win.
+- Slot interest is logically distinct from BOTH membership and assignment. Two users can volunteer for the same slot. A user can volunteer for a slot they're already scheduled into (idempotent — re-declared interest is a no-op). A slot can have many interested volunteers and few scheduled ones (recruiting mode).
+- Composite-unique `(PersonUserId, ServiceSlotId)` enforces one row per (volunteer, slot) — toggling interest is a material no-op if the row exists.
+
+Decision NOT made (see decisions Q9): keep interest at the SLOT level (per-role, not per-occurrence). A future round could split this into slot-interest + occurrence-interest if a volunteer wants Saturday 9am coaching but not Tuesday 6pm coaching; outside round 1.
+
+**RBAC (per design-verdict decision Q5).**
+
+| Who | Can toggle interest for |
+|---|---|
+| The user themself | Their own interest in any Active slot in any ministry in any org they have a real (non-stub) `OrganizationMembership` in. |
+| Slot Coordinator (per Round-FR-5's `ServiceSlot.CoordinatorPersonUserId`) | Any volunteer's interest in their slot. The "I told my coord I'd referee but I'm not good with computers" case — common at small churches + youth leagues. |
+| Ministry Director (per FR-5) | Any volunteer's interest in any slot in their assigned ministries. |
+| Organization Admin | Any volunteer's interest in any slot in their org. |
+| System Admin | No direct toggle (out of scope per existing admin-tier discipline); can be added if a SystemAdmin surface surfaces it later. |
+| Stub Person (Round-FR-3) | Cannot toggle their own (stubs have no usable auth); a coordinator toggling on their behalf stamps `Source=SlotCoordinatorOnBehalf` (or higher tier) and rides through the FR-3 stub-claim re-parent. |
+
+The `Source` enum encodes which tier toggled the row — critical for the audit trail and for "who can undo this" UX (a self-declared interest can be un-toggled by the user; a coordinator-Stamped interest can be un-toggled by the same coordinator or higher).
+
+**Model additions (per the new-table verdict).**
+
+1. **`SlotInterest` (NEW).**
+   - `Id` (int, PK)
+   - `PersonUserId` (FK IdentityUser, required, cascade-delete matching OrganizationMembership + Assignment on Person delete)
+   - `ServiceSlotId` (FK, required, cascade-delete on slot delete — slot interests orphan with the slot)
+   - `CreatedUtc` (DateTime, default UtcNow) — when the row was created
+   - `Source` (`SlotInterestSource` enum, default `SelfDeclared`) — which tier toggled it
+   - `CreatedByPersonUserId` (FK IdentityUser, nullable) — when Source ≠ SelfDeclared, the actor who toggled on the user's behalf
+   - `[StringLength(500)] Notes` (nullable) — coordinator-provided reason for a delegated toggle (e.g. *"volunteered via phone call at the 5/14 league meeting"*)
+   - Composite-unique `(PersonUserId, ServiceSlotId)` enforces the no-duplicate-rows invariant
+   - Index on `(PersonUserId)` to support the `/Open` "My slots" filter query in O(matching-row-count)
+   - Index on `(ServiceSlotId)` to support the per-slot roster view on a coordinator page
+
+2. **`SlotInterestSource` (NEW enum in `Models/Enums.cs`).**
+   ```csharp
+   public enum SlotInterestSource { SelfDeclared = 0, SlotCoordinatorOnBehalf = 1, MinistryDirectorOnBehalf = 2, AdminOnBehalf = 3 }
+   ```
+   Doesn't change existing enum values; purely additive. No data migration for existing rows.
+
+**Library / service decisions.** Pure C# / EF. No new NuGet deps. Round-FR-7 specs a NEW `ISlotInterestService` mirroring `IMinistryInterestService` (same `PersonUserId → hashset<TId>` shape, same `JoinAsync` / `LeaveAsync` / `ListJoinedAsync` verb pattern per round-FR-patterns). Round-1 keeps `IAssignmentService` untouched; the filter-router change is in `Open.razor` on the client side (already supports a `filter` arg per round-pre-FR-7).
+
+**Route surface.**
+- NEW minimal-API endpoint `POST /ServiceSlots/{slotId:int}/Interest` — toggle interest ON. Body: empty `{ }`. Response: 200 with `{ Succeeded: bool, Reason?: "already-on" | "permission-denied" | "slot-not-found" | "slot-inactive" | "stub-cannot-self-declare" }`.
+- NEW minimal-API endpoint `DELETE /ServiceSlots/{slotId:int}/Interest` — toggle interest OFF. Same response shape; Reason values: `"already-off" | "permission-denied" | "slot-not-found"`.
+- The `/Open` page gains a query-param `?filter=slots|ministries|all` (default=`slots` per decision Q2 — the user explicitly wants the volunteered-for filter to be default-on).
+- No new top-level Razor page in round 1; the Slot Detail page (`/ServiceSlots/{Id}`) gains a single inline toggle button + the Ministry Detail page (`/Organizations/{orgId}/Ministries/{mId}`) gains an inline toggle per slot row.
+
+**`/Open` page change (per design-verdict decision Q2; mirrors Open.razor's existing `FilterState` pattern).**
+
+Replace the current two-segment pill (`My ministries` / `All ministries`) with a three-segment pill:
+- **`My slots` (default-on).** Open shifts from slots the user has volunteered for AND ministries the user has joined. Volunteer on a slot they haven't joined the ministry for? Yields "results from joined ministries" only — auto-restrict, no auto-join (per existing "Join and sign up" pattern in Open.razor's card footer).
+- **`My ministries`.** Open shifts from any slot in any joined ministry (current My-ministries behaviour).
+- **`All ministries`.** Open shifts across every ministry in the selected org (current All-ministries behaviour).
+
+The org picker stays. The 90-day forward window stays. The training-compliance check stays. The `Join and sign up` CTA on the card footer (the existing per-shift join flow when the user hasn't joined the ministry yet) stays.
+
+**`/ServiceSlots/Detail` page change.**
+
+Add a small Bootstrap toggle button to the slot detail header:
+- Current user has interest → green `btn-outline-success`, text "I'm volunteering for this slot — click to un-volunteer".
+- Current user does NOT have interest → blue `btn-outline-primary`, text "Volunteer for this slot".
+- Stub current user → button disabled with tooltip "claim this stub first to volunteer".
+- Coordinator-Affiliated current user → button shows a small spinner-mode "Declaring on behalf of …" (the Source enum drives the audit trail).
+
+**`/Organizations/{orgId}/Ministries/{mId}` page change.**
+
+Each slot row in the ministry's slot list gains a small inline toggle (same shape as the slot-detail button), so a volunteer browsing from the ministry landing can declare interest without drilling into the slot detail. State persisted to URL `?slot=42&vol=1` so the toggle is shareable.
+
+**`/MySchedule` page change: ZERO (per design-verdict decision Q3).**
+
+`/MySchedule` keeps its strict itinerary of actual time-bound commitments. A "volunteer interest" is NOT a calendar event — bleeding interest into the calendar would confuse volunteers about whether they're actually scheduled. The interest filter surfaces on `/Open` (where the user IS choosing shifts) — not on `/MySchedule`. Decision Q3 in the verdict.
+
+**Service additions: `ISlotInterestService`.**
+- `ToggleInterestAsync(slotId, personUserId, callerUserId)` — server-gated per the RBAC matrix above. Returns `SlotInterestResult { ToggledOn | ToggledOff | AlreadyOn | AlreadyOff | PermissionDenied | SlotNotFound | SlotInactive | StubCannotSelfDeclare }`. Idempotent: re-clicking flips; double-clicks at the same state no-op with `AlreadyOn`/`AlreadyOff` (so the UI can prompt-without-side-effect during optimistic-update rollback).
+- `ListInterestsAsync(personUserId)` — HashSet of slot IDs, mirrors `IMinistryInterestService.ListJoinedAsync`.
+- `ListInterestedPeopleAsync(slotId, callerUserId)` — for the Slot Coordinator's "who has volunteered?" roster (gated: only the slot's coordinator / ministry director / org admin can call).
+- Stub-claim cross-effect (per FR-3 coupling): `PersonService.ClaimStubAsync` now ALSO migrates `SlotInterest` rows from `oldStubId → newIdentityUserId` alongside the existing migration list. The multi-statement SQL `PRAGMA defer_foreign_keys = 1` recipe (already proven in FR-3.2) gains an additional `UPDATE SlotInterests SET PersonUserId = {newIdentityUserId} WHERE PersonUserId = {oldStubId}` line; the canonical `every Person.UserId FK` enumeration in the FR-3.2 inline comment grows by one bullet.
+
+**UI additions / overrides.**
+- `Components/Pages/ServiceSlots/Detail.razor`: gain `IHttpClientFactory` or direct `HttpClient` injection; the in-page button is `@onclick` to a POST/DELETE against the API. Toggle refreshes on success.
+- `Components/Pages/Organizations/Detail.razor` (Ministries tab): each ministry row surfaces a small count of slots within that ministry + a "Manage slot interests" link (org-admin/coord-gated) that opens the slot list. Round-1 keeps the existing ministry-detail drill-down; the inline toggle is on `/Ministries/{mId}` not on the org-detail `Ministries` tab (avoids clutter).
+- `Components/Pages/Ministries/Detail.razor`: gain inline toggle per slot row, same shape as slot-detail.
+
+**Stub-claim migration AMENDMENT.** `Services/PersonService.ClaimStubAsync`'s multi-statement SQL grows one UPDATE. The inline comment enumerating `every Person.UserId FK` includes `SlotInterests` (NEW). +1 audit case in `tests/ServantSync.Tests/PersonServiceTests.cs` covering the stub-claim-with-volunteer-interest scenario.
+
+**Tests.**
+- NEW `tests/ServantSync.Tests/SlotInterestServiceTests.cs` (~12 cases) covering:
+  - Toggle idempotency (`AlreadyOn` / `AlreadyOff` on repeat clicks)
+  - RBAC matrix: self, slot-coord, ministry director, org admin, foreign-actor, stub-self-declined
+  - Composite-unique invariant (no duplicate rows on race)
+  - Cascade-delete on Person delete (mirror `MinistryInterest` test)
+  - Cascade-delete on Slot delete
+  - Stub-claim migration: `$ SlotInterest row migrates from oldStubId to newIdentityUserId`
+- EXTENDED `tests/ServantSync.Tests/PageAccessTests.cs` (+3 entries): the new minimal-API endpoints gate tests.
+- EXTENDED `tests/ServantSync.Tests/PersonServiceTests.cs` (+1 entry): stub-claim retains `SlotInterest` rows.
+- No bUnit coverage added (consistent with codebase pattern; service-layer is the security-critical path).
+- `tests/ServantSync.Tests/OpenRazorTests.cs` (NEW) — ~5 cases proving the three-state filter routing. The tests stub the `IAssignmentService` to record which `filter` arg was passed and assert the right value per pill segment.
+
+**Migration.**
+NEW `dotnet ef migrations add AddSlotInterests` (auto-name). Purely additive: 1 `CreateTable` block for `SlotInterests` + 1 row-add for `SlotInterestSource` enum registration in the snapshot. No `DropColumn`, no data migration. Existing `MinistryInterest` rows untouched.
+
+**Edge cases + behavior.**
+- *Volunteer toggles interest on an inactive slot:* returns `SlotInactive`, page surfaces an inline alert. Coordinator can flip `ServiceSlot.IsActive=true` and the volunteer retries.
+- *Volunteer joins a ministry after declaring slot interest for a slot in that ministry (orphaned link):* the multi-statement `SlotInterest` row IS valid regardless of `MinistryInterest` state; the `/Open` My-slots filter is the cross-product of `SlotInterest ∩ joined-organization-slots`. A user with slot interest but no ministry interest won't see any shifts (the cross-product is empty); the /Open empty-state CTA changes accordingly (round 1: existing empty-state CTA, future round 2: a "you've volunteered for N slots in ministries you haven't joined — join them to see shifts" CTA).
+- *Slot is deleted while a volunteer has interest in it:* cascade-delete removes the `SlotInterest` row silently per EF Core's no-action-on-cascade-update configuration.
+- *Slot's ministry is re-named:* `SlotInterest.ServiceSlotId` doesn't change; the UI re-resolves the ministry name on each Reload. No additional migration.
+- *Volunteer toggles interest on a `SlotCoordinatorOnBehalf` source that they themselves previously toggled OFF:* the row exists with Source=SlotCoordinatorOnBehalf. Toggle-off by the volunteer themselves? Allowed per decision Q5 (a self-stamped toggle-off beats a still-valid `ToggledBy` audit). The audit trail (`CreatedBy`, `Source`) is preserved per round-1 policy; round-2 could grow a history table if multi-audit conflicts arise.
+- *Volunteer's profile says they have a training-completion with `IsValid(now)=false` for the slot's `TrainingRequirements`:* interest toggle is STILL allowed (different from assignment-sign-up which is gated). The intent is independent of the scheduling gate; round-2 could surface a warning badge on the toggle button ("FYI: training is overdue — signing up will fail until training is current"). Round-1 ships the warning badge as disabled-when-incomplete (the simpler pattern).
+- *Slot has `Capacity=10`, 10 already-scheduled, 0 with interest:* a fresh volunteer's toggle-on succeeds; their shift SIGNUP later fails per the existing capacity gate. Interest is decoupled.
+- *Volunteer toggles interest twice fast (race):* the `SlotInterestService` uses a SERIALIZABLE transaction or an upsert-pattern that handles the unique-violation gracefully. Round-1 spec: catch `DbUpdateException` wrapping a unique-constraint violation, return `AlreadyOn`. Round-2 could add ETag-style optimistic concurrency.
+- *Email-notify on slot-occurrence publish to all interested volunteers:* OUT OF SCOPE for round 1 (decision Q9). Round-2 candidate.
+- *Per-occurrence interest ("only Sept 14 9am"):* OUT OF SCOPE for round 1 (decision Q9). Round-2 candidate.
+
+**Decisions (resolved during spec authoring session).**
+1. **Modeling:** **NEW table `SlotInterest`.** Thinking-verdict rejected `Assignment.Tentative` reuse (wrong shape) and `MinistryInterest` piggyback (`MinistryInterest` is ministry-scoped service; slot is one level deeper — slot interest has its own cardinality).
+2. **`/Open` filter UX:** **Three-segment pill, "My slots" default-on.** This is the user's explicit ask: "show only slots which are volunteered for". Default-on is the right starting point; a volunteer can flip back to "My ministries" or "All ministries" for discovery mode.
+3. **`/MySchedule` change:** **NONE.** Keeping interest out of the calendar prevents "am I scheduled Saturday?" confusion. Calendar stays strict to actual assignments.
+4. **`/ServiceSlots/Detail` + `/Ministries/{mId}` UX:** **Both.** Inline toggle on the slot detail page; inline toggle on each slot row in the ministry's slot list. State stored in `SlotInterest` (server is canonical).
+5. **RBAC matrix:** **Self + Hierarchy Managers.** A coordinator pushing on behalf of a volunteer is a real-world pattern (the "I'm not great with computers" volunteer). Audit-trail via `Source` enum + `CreatedByPersonUserId`.
+6. **Auto-assignment on interest:** **NEVER.** Interest is intent; assignment is commitment. The two user actions remain distinct.
+7. **Migration impact:** **Zero-data migration.** Purely additive table. Existing MinistryInterest rows untouched.
+8. **Stub-claim interaction:** **`SlotInterest` rows migrate with Person.UserId.** Same multi-statement SQL pattern as FR-3. The canonical `every Person.UserId FK` enumeration grows one row. Plus-1 test case enforces.
+9. **Out of scope for round 1 (Tier-2 follow-up list):** email notifications on slot-occurrence publish to interested volunteers; per-occurrence interest vs per-slot interest; training-pre-req warning badge on toggle button; pin-the-interest-by-ministry-context (cross-volunteer / cross-org discovery).
+10. **Idempotency under rapid clicks:** **Server-side unique-constraint-violation catch returns `AlreadyOn`/`AlreadyOff` to the caller.** Page UI optimistically toggles, server tells the truth.
+
+**Files this round would touch (when implementation starts).**
+- NEW model: `Models/SlotInterest.cs`.
+- NEW enum: add `SlotInterestSource` to `Models/Enums.cs`.
+- MODIFIED `Models/Enums.cs`: append the new enum.
+- MODIFIED `Data/ApplicationDbContext.cs`: add `DbSet<SlotInterest>`, the composite-unique config, the indexes.
+- MODIFIED `Services/PersonService.cs`: extend `ClaimStubAsync`'s multi-statement SQL with one UPDATE on `SlotInterests`; grow the inline `every Person.UserId FK` enumeration by one bullet.
+- NEW service: `Services/ISlotInterestService.cs` + `Services/SlotInterestService.cs`.
+- MODIFIED `Program.cs`: register the new service in DI; add the two minimal-API endpoints (`/ServiceSlots/{slotId:int}/Interest` POST + DELETE); add antiforgery gates (round-AN pattern, mirrors the existing endpoints in this file).
+- MODIFIED `Components/Pages/Open.razor`: three-segment pill (replace the existing two-segment) + `filter=slots|ministries|all` query-param default `slots` + a `?_vol=1` success-toast when a toggle-on from /Open fired the API.
+- MODIFIED `Components/Pages/ServiceSlots/Detail.razor`: toggle button + audit-trail display ("you've been volunteered for this slot on 2026-08-12 by Sara Smith").
+- MODIFIED `Components/Pages/Ministries/Detail.razor`: inline toggle per slot row.
+- NEW migration: `Data/Migrations/<autogen>_AddSlotInterests.cs` + `.Designer.cs`.
+- NEW tests: `tests/ServantSync.Tests/SlotInterestServiceTests.cs` (~12 cases) + `tests/ServantSync.Tests/OpenRazorTests.cs` (~5 cases).
+- EXTENDED tests: `tests/ServantSync.Tests/PageAccessTests.cs` (+3) + `tests/ServantSync.Tests/PersonServiceTests.cs` (+1).
+- STATUS.md + PLAN.md ledger updates at round-ship time.
+
 
