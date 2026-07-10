@@ -10,8 +10,18 @@ using ServantSync.Services;
 var builder = WebApplication.CreateBuilder(args);
 
 // ---- Database ----
+// Round-ACA-1.17: hardcoded to UseSqlServer (Azure SQL Database; see
+// HANDOFF.md for the 17-round SQLite-on-SMB saga). The fallback here
+// matches the Development default in appsettings.Development.json
+// (local SQL Server, Windows auth, Application Name for SQL-side
+// diagnostics). If both appsettings.json AND appsettings.Development.json
+// are missing the section, the app boots against a local default
+// instance -- still more useful than the previous SQLite fallback
+// (which would have failed immediately with a confusing
+// 'network-related or instance-specific error' because UseSqlServer
+// can't parse a Data Source= path).
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
-    ?? "Data Source=servantsync.db";
+    ?? "Server=.;Database=ServantSync;Trusted_Connection=true;TrustServerCertificate=true;Application Name=ServantSync-Dev;Connection Timeout=30;";
 
 // Use the factory as the single source of truth for the DbContext configuration.
 // Don't ALSO call AddDbContext<T> with its own options-builder — that registers a

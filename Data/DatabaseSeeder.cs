@@ -60,6 +60,16 @@ public class DatabaseSeeder
         var concessionUser   = await EnsureUserAsync("concession@demo.local",   "Passw0rd!", ct);
         var parent1User      = await EnsureUserAsync("parent1@demo.local",      "Passw0rd!", ct);
         var parent2User      = await EnsureUserAsync("parent2@demo.local",      "Passw0rd!", ct);
+        // Round-FR-5 screenshot helper: a Slot Coordinator demo account so
+        // the user guide's "Slot Coordinator perspective" chapter can show
+        // the actual SC dashboard. The seeder assigns them only the
+        // OrganizationRole.SlotCoordinator membership label — they are
+        // intentionally NOT assigned as the CoordinatorPersonUserId on
+        // any ServiceSlot, so the "no slots assigned yet" empty state is
+        // also visible. Add a slot delegation via the Org Members tab or
+        // the /Organizations/{id}/Coordinators page to populate the
+        // dashboard for richer screenshots.
+        var slotCoordUser    = await EnsureUserAsync("slotcoordinator@demo.local", "Passw0rd!", ct);
 
         await using var db = await _factory.CreateDbContextAsync(ct);
 
@@ -107,6 +117,7 @@ public class DatabaseSeeder
             new Person { UserId = concessionUser.Id,  FirstName = "Sam",    LastName = "Concessions" },
             new Person { UserId = parent1User.Id,     FirstName = "Pat",    LastName = "Parent" },
             new Person { UserId = parent2User.Id,     FirstName = "Jordan", LastName = "Parent" },
+            new Person { UserId = slotCoordUser.Id,   FirstName = "Sam",    LastName = "Slot-Coordinator" },
         };
         db.People.AddRange(persons);
 
@@ -139,7 +150,14 @@ public class DatabaseSeeder
             new OrganizationMembership { OrganizationId = org.Id, PersonUserId = devotionUser.Id,    Role = OrganizationRole.Volunteer },
             new OrganizationMembership { OrganizationId = org.Id, PersonUserId = concessionUser.Id,  Role = OrganizationRole.Volunteer },
             new OrganizationMembership { OrganizationId = org.Id, PersonUserId = parent1User.Id,     Role = OrganizationRole.Volunteer },
-            new OrganizationMembership { OrganizationId = org.Id, PersonUserId = parent2User.Id,     Role = OrganizationRole.Volunteer });
+            new OrganizationMembership { OrganizationId = org.Id, PersonUserId = parent2User.Id,     Role = OrganizationRole.Volunteer },
+            // Round-FR-5: SlotCoordinator membership label only — no
+            // entity-level delegation on any ServiceSlot. The user guide's
+            // SC chapter will then walk through the "Manage coordinators"
+            // page to assign this user to one or more specific slots,
+            // matching the post-FR-5 spec's key design principle (membership
+            // label gates UI; entity assignment gates data scoping).
+            new OrganizationMembership { OrganizationId = org.Id, PersonUserId = slotCoordUser.Id,   Role = OrganizationRole.SlotCoordinator });
 
         // ---- Church ministries ----
         var worship = new Ministry
@@ -438,7 +456,7 @@ public class DatabaseSeeder
         });
 
         _log.LogInformation(
-            "DatabaseSeeder: complete. 13 users seeded (all Passw0rd!), 1 org, 5 ministries (3 sub-ministries of the soccer league), 3 service slots (church) + 7 service slots (soccer), 1 training content (Safe Spaces) + 1 training content (Concussion) + 3 requirements, 4 training completions, 6 church assignments (1 intentional overlap), 3 arenas, 4 teams, 16 players, 6 games (1 played, 1 intentional arena double-book on next Saturday at Field 1), 2 sample shared documents on the Sound Tech slot.");
+            "DatabaseSeeder: complete. 14 users seeded (all Passw0rd!), 1 org, 5 ministries (3 sub-ministries of the soccer league), 3 service slots (church) + 7 service slots (soccer), 1 training content (Safe Spaces) + 1 training content (Concussion) + 3 requirements, 4 training completions, 6 church assignments (1 intentional overlap), 3 arenas, 4 teams, 16 players, 6 games (1 played, 1 intentional arena double-book on next Saturday at Field 1), 2 sample shared documents on the Sound Tech slot.");
     }
 
     /// <summary>

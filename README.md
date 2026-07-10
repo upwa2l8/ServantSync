@@ -3,7 +3,8 @@
 ![ServantSync marketing lockup](wwwroot/img/servantsync-marketing.svg)
 
 A multi-organization volunteer-scheduling platform built on Blazor Server +
-ASP.NET Core Identity + EF Core / SQLite. Designed to serve churches first
+ASP.NET Core Identity + EF Core / Azure SQL Database (with a local SQL Server
+default for development). Designed to serve churches first
 and to be extensible to other scheduling use cases (sports leagues, on-call
 rotas, conference staffing) without a schema rewrite.
 
@@ -45,16 +46,17 @@ on-call rotas and conference staffing, not just church contexts.
 dotnet restore
 dotnet build
 
-# 2. Run the app (seeds the SQLite database on first launch)
+# 2. Run the app (seeds the database on first launch)
 dotnet run
 
 # 3. Open the URL the launch profile prints (default https://localhost:7012
 #    or http://localhost:5050) and sign in as one of the seeded users below.
 ```
 
-To **force a re-seed**, delete `servantsync.db` at the repo root and run
-again. The seeder is idempotent — it skips when the `Organizations` table
-has any rows.
+To **force a re-seed**, delete the local `ServantSync` database (or drop
+the `backups/servantsync.db` SQLite file under the deploy share on Azure)
+and run again. The seeder is idempotent — it skips when the `Organizations`
+table has any rows.
 
 To **run the unit tests**:
 
@@ -90,6 +92,7 @@ All passwords are `Passw0rd!`.
 | `concession@demo.local`     | Sam Concessions | **Volunteer**       | Concession stand on game days.                     |
 | `parent1@demo.local`        | Pat Parent      | **Volunteer**       | Primary contact for 8 of the 16 seeded players.    |
 | `parent2@demo.local`        | Jordan Parent   | **Volunteer**       | Primary contact for the other 8.                   |
+| `slotcoordinator@demo.local`| Sam Slot-Coordinator | **Slot Coordinator** | Demo Slot Coordinator; membership label only (no slots assigned out of the box). Use the org's "Manage coordinators" page to assign specific slots. |
 
 `SignIn.RequireConfirmedAccount` is `false` in `Program.cs`, so registering
 a new account via **Register** does not require email confirmation. Use
@@ -577,7 +580,7 @@ ServantSync/
 
 | Key                              | Default                | Notes                                                   |
 |----------------------------------|------------------------|---------------------------------------------------------|
-| `ConnectionStrings:DefaultConnection` | `Data Source=servantsync.db` | SQLite file path. Relative to the app's content root. |
+| `ConnectionStrings:DefaultConnection` | _(set in `appsettings.Development.json` for dev)_ | Local SQL Server connection string for development (`Server=.;Database=ServantSync;Trusted_Connection=true;TrustServerCertificate=true;...`). Production uses Azure SQL via the `ConnectionStrings__DefaultConnection` env var (see `appsettings.Production.sample.json` for the Azure SQL syntax). |
 | `Email:Smtp:Host`                | `""`                   | Empty = drop-to-log. Required for production sends.     |
 | `Email:Smtp:Port`                | `587`                  | Standard STARTTLS submission port.                      |
 | `Email:Smtp:User` / `Password`   | `""`                   | Leave User empty to skip `AUTH` on the SMTP session.    |
