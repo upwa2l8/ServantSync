@@ -65,12 +65,28 @@ The `.github/workflows/deploy.yml` workflow has a `paths:` filter so it only dep
 
 ---
 
+## What lives in `deploy/aca.servantsync.yaml`
+
+The YAML is the single source of truth for production runtime config. Edit it on the next push; the workflow's PATCH replaces all of these fields:
+
+- `image:` (the deploy action overrides this from `github.sha`)
+- `properties.template.containers[0].env:` — every production env var (DB connection, SMTP settings except password)
+- `properties.template.containers[0].env[].secretRef: smtp-password` — the SMTP password, NOT inline
+- `properties.template.containers[0].volumeMounts[]` — `/data` from the Azure Files share
+- `properties.template.scale.min/maxReplicas` — currently `0` / `1` to keep idle cost at $0
+- `properties.configuration.ingress.external: true` — the Container App FQDN (`properties.configuration.ingress.fqdn`) is **publicly routable on the open internet**. There is no per-org network isolation by default; rely on app-layer RBAC (`OrgAuthService`) to scope data. Switch to `external: false` + a VNet-internal ingress if you later need private networking.
+- **Health probes:** ACA's default liveness/readiness probes are intentionally **NOT customized** in the YAML. Blazor Server self-heals via `app.Run()`'s graceful shutdown handler + the SignalR circuit's automatic reconnection, so explicit probes would just add ~30s of YAML ceremony per deploy for no measurable benefit. Customize only if you observe false-positive restarts (`az containerapp revision list --name <ACA_NAME> --resource-group <RG>` shows a high `CrashLoop` rate).
+
+> **Don't set env vars directly on the Container App.** `azure/container-apps-deploy-action@v2`'s PATCH replaces the entire `containers[0]` array (not just the keys it sees in YAML). Any imperative env var set via Azure Portal that isn't listed in `deploy/aca.servantsync.yaml` will be silently dropped on the next deploy. The YAML is the only durable env-var surface.
+
+---
+
 ## The dev/prod split in detail
 
 ASP.NET Core reads `ASPNETCORE_ENVIRONMENT` at startup:
 
 ```csharp
-// Program.cs:96-106 -- actual code in the project
+// Program.cs:71-78 -- actual code in the project
 if (builder.Environment.IsDevelopment())
 {
     builder.Services.AddScoped<IEmailSender<IdentityUser>, LoggingEmailSender>();
@@ -86,7 +102,7 @@ else
 `MailKitEmailSender` reads the same `Email:Smtp:*` config keys but actually delivers via SMTP. The SMPT password comes from `<Smtp__Password>` env var (Container App secret via `secretRef: smtp-password`).
 
 ```csharp
-// Program.cs:178-181 -- actual code in the project
+// Program.cs:185-189 -- actual code in the project
 if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/Error", createScopeForErrors: true);
@@ -123,7 +139,7 @@ az containerapp show --name <ACA_NAME> --resource-group <RG> \
 az containerapp revision list --name <ACA_NAME> --resource-group <RG> -o table
 ```
 
-**Uptime monitoring.** Free UptimeRobot (5-min probes) on `/Account/Login` is the cheapest way. ACA Consumption plan with `minReplicas: 0` scales to zero when idle — external probes trigger a cold start. Cold start is ~3s on a warm image; setting `minReplicas: 1` eliminates cold starts but adds idle compute cost.
+**Uptime monitoring.** Free UptimeRobot (5-min probes) on `/Account/Login` is the cheapest way. ACA Consumption plan with `minReplicas: 0` scales to zero when idle — external probes trigger a cold start. Cold start is typically 3–15 seconds on a cold Azure node, sub-3s on a warm image. Setting `minReplicas: 1` eliminates cold starts but adds idle compute cost.
 
 ### Rolling back a bad deploy
 
@@ -286,7 +302,7 @@ Azure SQL server isn't reachable. Three layers to check:
 
 ### Cold starts feel slow
 
-ACA Consumption with `minReplicas: 0` pays ~3s on first request after ~5 min idle. Two mitigations: (a) `minReplicas: 1` in `deploy/aca.servantsync.yaml` — trades idle cost for instant-warm; (b) external uptime monitor (UptimeRobot free tier) probing `/Account/Login` every 5 min — keeps the single replica warm enough that the cold-start window stays small.
+ACA Consumption with `minReplicas: 0` pays ~3–15s on first request after ~5 min idle. Two mitigations: (a) `minReplicas: 1` in `deploy/aca.servantsync.yaml` — trades idle cost for instant-warm; (b) external uptime monitor (UptimeRobot free tier) probing `/Account/Login` every 5 min — keeps the single replica warm enough that the cold-start window stays small.
 
 ### Storage is full on the Azure Files share
 
