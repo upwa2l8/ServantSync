@@ -90,6 +90,7 @@ All passwords are `Passw0rd!`.
 | `concession@demo.local`     | Sam Concessions | **Volunteer**       | Concession stand on game days.                     |
 | `parent1@demo.local`        | Pat Parent      | **Volunteer**       | Primary contact for 8 of the 16 seeded players.    |
 | `parent2@demo.local`        | Jordan Parent   | **Volunteer**       | Primary contact for the other 8.                   |
+| `slotcoordinator@demo.local`| Sam Slot-Coordinator | **Slot Coordinator** | Demo Slot Coordinator; membership label only (no slots assigned out of the box). Use the org's "Manage coordinators" page to assign specific slots. |
 
 `SignIn.RequireConfirmedAccount` is `false` in `Program.cs`, so registering
 a new account via **Register** does not require email confirmation. Use
