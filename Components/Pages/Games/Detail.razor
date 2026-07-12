@@ -4,69 +4,63 @@
 
 <PageTitle>@(_game is null ? "Game" : $"{_game.HomeTeam.Name} vs {_game.AwayTeam.Name}")</PageTitle>
 
-<nav aria-label="breadcrumb" class="mb-2">
-    <ol class="breadcrumb mb-0">
-        <li class="breadcrumb-item"><a href="">Home</a></li>
-        <li class="breadcrumb-item"><a href="Leagues">Leagues</a></li>
-        @if (_game is not null)
-        {
-            <li class="breadcrumb-item"><a href="@($"Leagues/{_game.MinistryId}")">@(_game.Ministry?.Name ?? "League")</a></li>
-        }
-        <li class="breadcrumb-item active" aria-current="page">@(_game is null ? $"Game #{GameId}" : $"{_game.HomeTeam.Name} vs {_game.AwayTeam.Name}")</li>
-    </ol>
-</nav>
+<MudBreadcrumbs Items="@BreadcrumbItems" Class="mb-2" />
 
 @if (_game is null)
 {
-    <p><em>Loading…</em></p>
+    <MudText><em>Loading…</em></MudText>
 }
 else
 {
-    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-3 flex-wrap gap-2">
         <div>
-            <h1 class="mb-0">@_game.HomeTeam.Name vs @_game.AwayTeam.Name</h1>
-            <div class="text-muted">
-                <a href="@($"Leagues/{_game.MinistryId}")">@_game.Ministry?.Name</a>
+            <MudText Typo="Typo.h4">@_game.HomeTeam.Name vs @_game.AwayTeam.Name</MudText>
+            <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                <MudLink Href="@LinkBuilder.LeagueHref(_game.MinistryId)">@_game.Ministry?.Name</MudLink>
                 · @_game.Arena.Name
-            </div>
+            </MudText>
         </div>
-        <div class="d-flex gap-2 flex-wrap">
-            <a class="btn btn-outline-secondary" href="@($"Leagues/{_game.MinistryId}/Schedule")">Back to schedule</a>
+        <MudStack Row="true" Spacing="2" Wrap="Wrap.Wrap">
+            <MudButton Variant="Variant.Outlined" Color="Color.Default" Href="@LinkBuilder.LeagueScheduleHref(_game.MinistryId)">Back to schedule</MudButton>
             @if (_canManage)
             {
-                <a class="btn btn-outline-primary" href="@($"Games/{GameId}/Edit")">Edit</a>
+                <MudButton Variant="Variant.Outlined" Color="Color.Primary" Href="@LinkBuilder.GameEditHref(GameId)">Edit</MudButton>
             }
-        </div>
-    </div>
+        </MudStack>
+    </MudStack>
 
-    <div class="row g-3">
-        <div class="col-md-7">
-            <div class="card">
-                <div class="card-body">
-                    <div class="row text-center align-items-center">
-                        <div class="col">
-                            <a href="@($"Teams/{_game.HomeTeamId}")"><h3 class="mb-0">@_game.HomeTeam.Name</h3></a>
-                            <div class="text-muted small">home</div>
-                        </div>
-                        <div class="col-auto">
-                            <h2>
-                                <span class="badge bg-@AssignmentStatusUi.ColorFor(_game.Status)">
+    <MudGrid Spacing="3">
+        <MudItem xs="12" md="7">
+            <MudCard>
+                <MudCardContent>
+                    <MudGrid Justify="Justify.Center" AlignItems="AlignItems.Center">
+                        <MudItem xs="5">
+                            <MudStack AlignItems="AlignItems.Center" Spacing="0">
+                                <MudLink Href="@LinkBuilder.TeamHref(_game.HomeTeamId)" Typo="Typo.h5">@_game.HomeTeam.Name</MudLink>
+                                <MudText Typo="Typo.caption" Class="mud-text-secondary">home</MudText>
+                            </MudStack>
+                        </MudItem>
+                        <MudItem xs="2">
+                            <MudStack AlignItems="AlignItems.Center" Spacing="0">
+                                <MudChip T="string" Size="Size.Large" Color="@AssignmentStatusUi.MudColorFor(_game.Status)">
                                     @(_game.HomeScore?.ToString() ?? "—") : @(_game.AwayScore?.ToString() ?? "—")
-                                </span>
-                            </h2>
-                            <div class="text-muted small">@_game.Status</div>
-                        </div>
-                        <div class="col">
-                            <a href="@($"Teams/{_game.AwayTeamId})")"><h3 class="mb-0">@_game.AwayTeam.Name</h3></a>
-                            <div class="text-muted small">away</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
+                                </MudChip>
+                                <MudText Typo="Typo.caption" Class="mud-text-secondary">@_game.Status</MudText>
+                            </MudStack>
+                        </MudItem>
+                        <MudItem xs="5">
+                            <MudStack AlignItems="AlignItems.Center" Spacing="0">
+                                <MudLink Href="@LinkBuilder.TeamHref(_game.AwayTeamId)" Typo="Typo.h5">@_game.AwayTeam.Name</MudLink>
+                                <MudText Typo="Typo.caption" Class="mud-text-secondary">away</MudText>
+                            </MudStack>
+                        </MudItem>
+                    </MudGrid>
+                </MudCardContent>
+            </MudCard>
 
-            <div class="card mt-3">
-                <div class="card-header">When & where</div>
-                <div class="card-body">
+            <MudCard Class="mt-3">
+                <MudCardHeader>When & where</MudCardHeader>
+                <MudCardContent>
                     <div><strong>Start:</strong> <LocalTime Utc="@_game.StartUtc" Format="ddd, MMM d yyyy h:mm tt" /></div>
                     <div><strong>End:</strong> <LocalTime Utc="@_game.EndUtc" Format="h:mm tt" /></div>
                     <div><strong>Arena:</strong> @_game.Arena.Name @(_game.Arena.SurfaceType is null ? "" : $"({_game.Arena.SurfaceType})")</div>
@@ -78,14 +72,14 @@ else
                     {
                         <div class="mt-2"><strong>Notes:</strong> @_game.Notes</div>
                     }
-                </div>
-            </div>
+                </MudCardContent>
+            </MudCard>
 
             @if (_canManage)
             {
-                <div class="card mt-3">
-                    <div class="card-header">Record final score</div>
-                    <div class="card-body">
+                <MudCard Class="mt-3">
+                    <MudCardHeader>Record final score</MudCardHeader>
+                    <MudCardContent>
                         @* No FormName="…" on purpose: this EditForm is
                            mounted inside an @if(_canManage) branch of
                            an @rendermode InteractiveServer page. Blazor's
@@ -97,51 +91,51 @@ else
                            STATUS.md → Known quirks. Keep this comment if
                            you ever add a FormName back. *@
                         <EditForm Model="_scoreModel" OnValidSubmit="SaveScore">
-                            <div class="row g-2 align-items-end">
-                                <div class="col-md-4">
-                                    <label class="form-label">@_game.HomeTeam.Name (home)</label>
-                                    <InputNumber class="form-control" @bind-Value="_scoreModel.HomeScore" TValue="int" />
-                                </div>
-                                <div class="col-md-4">
-                                    <label class="form-label">@_game.AwayTeam.Name (away)</label>
-                                    <InputNumber class="form-control" @bind-Value="_scoreModel.AwayScore" TValue="int" />
-                                </div>
-                                <div class="col-md-4">
-                                    <button class="btn btn-success w-100" type="submit">Save final score</button>
-                                </div>
-                            </div>
+                            <MudGrid Spacing="2" AlignItems="AlignItems.End">
+                                <MudItem xs="12" md="4">
+                                    <MudNumericField T="int" @bind-Value="_scoreModel.HomeScore" Label="@($"{_game.HomeTeam.Name} (home)")" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                                </MudItem>
+                                <MudItem xs="12" md="4">
+                                    <MudNumericField T="int" @bind-Value="_scoreModel.AwayScore" Label="@($"{_game.AwayTeam.Name} (away)")" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                                </MudItem>
+                                <MudItem xs="12" md="4">
+                                    <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Success" FullWidth="true">Save final score</MudButton>
+                                </MudItem>
+                            </MudGrid>
                         </EditForm>
                         <StatusMessage Message="@_scoreMessage" IsError="@_scoreError" />
-                    </div>
-                </div>
+                    </MudCardContent>
+                </MudCard>
             }
-        </div>
+        </MudItem>
 
-        <div class="col-md-5">
-            <div class="card">
-                <div class="card-header">Game-day volunteers</div>
-                <div class="card-body">
-                    <p class="text-muted small">Volunteer shifts scheduled for this game's day. Each shift is a regular <c>Assignment</c> on a game-day slot (e.g. "Game-Day Referee").</p>
+        <MudItem xs="12" md="5">
+            <MudCard>
+                <MudCardHeader>Game-day volunteers</MudCardHeader>
+                <MudCardContent>
+                    <MudText Typo="Typo.body2" Class="mud-text-secondary">Volunteer shifts scheduled for this game's day. Each shift is a regular <c>Assignment</c> on a game-day slot (e.g. "Game-Day Referee").</MudText>
                     @if (!_shifts.Any())
                     {
-                        <div class="text-muted">None scheduled.</div>
+                        <MudText Typo="Typo.body2" Class="mud-text-secondary">None scheduled.</MudText>
                     }
                     else
                     {
-                        <ul class="list-group list-group-flush">
+                        <MudList T="ShiftRow" Dense="true">
                             @foreach (var s in _shifts)
                             {
-                                <li class="list-group-item d-flex justify-content-between">
-                                    <span><a href="@($"People/{s.PersonUserId}")">@s.PersonName</a> · @s.SlotName</span>
-                                    <span class="badge bg-@AssignmentStatusUi.ColorFor(s.Status)">@s.Status</span>
-                                </li>
+                                <MudListItem>
+                                    <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                                        <span><MudLink Href="@LinkBuilder.PersonHref(s.PersonUserId)">@s.PersonName</MudLink> · @s.SlotName</span>
+                                        <MudChip T="string" Size="Size.Small" Color="@AssignmentStatusUi.MudColorFor(s.Status)">@s.Status</MudChip>
+                                    </MudStack>
+                                </MudListItem>
                             }
-                        </ul>
+                        </MudList>
                     }
-                </div>
-            </div>
-        </div>
-    </div>
+                </MudCardContent>
+            </MudCard>
+        </MudItem>
+    </MudGrid>
 }
 
 @inject IDbContextFactory<ApplicationDbContext> DbFactory
@@ -157,6 +151,31 @@ else
     private string? _scoreMessage;
     private bool _scoreError;
     private List<ShiftRow> _shifts = new();
+
+    // Breadcrumb items for MudBreadcrumbs. The last item is the current
+    // page (no href, disabled). Built from the game data so it stays
+    // in sync with whatever game the volunteer is viewing.
+    private List<BreadcrumbItem> BreadcrumbItems
+    {
+        get
+        {
+            var items = new List<BreadcrumbItem>
+            {
+                new("Home", href: LinkBuilder.HomeHref()),
+                new("Leagues", href: LinkBuilder.LeaguesHref()),
+            };
+            if (_game is not null)
+            {
+                items.Add(new BreadcrumbItem(_game.Ministry?.Name ?? "League", href: LinkBuilder.LeagueHref(_game.MinistryId)));
+                items.Add(new BreadcrumbItem($"{_game.HomeTeam.Name} vs {_game.AwayTeam.Name}", href: null, disabled: true));
+            }
+            else
+            {
+                items.Add(new BreadcrumbItem($"Game #{GameId}", href: null, disabled: true));
+            }
+            return items;
+        }
+    }
 
     protected override async Task OnInitializedAsync()
     {

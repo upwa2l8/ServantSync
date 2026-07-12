@@ -2,28 +2,30 @@
    shifts. Used on /Leagues/{id}/Schedule so a coordinator can see at
    a glance which games are happening and who's working each one. *@
 
-<div class="card">
-    <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
-        <strong>@_title</strong>
-        <div class="d-flex align-items-center gap-2 flex-wrap">
-            <span class="text-muted small">@_filtered.Count event@(_filtered.Count == 1 ? "" : "s") in view</span>
-            @if (Arenas.Any())
-            {
-                <label class="form-label small mb-0 text-muted">Filter by arena</label>
-                <select class="form-select form-select-sm" style="width: auto" @bind="_arenaFilter">
-                    <option value="all">All arenas</option>
-                    @foreach (var a in Arenas)
-                    {
-                        <option value="@a.Id">@a.Name</option>
-                    }
-                </select>
-            }
-        </div>
-    </div>
-    <div class="card-body">
+<MudCard>
+    <MudCardHeader>
+        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap" Spacing="2">
+            <MudText Typo="Typo.subtitle1"><strong>@_title</strong></MudText>
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Wrap="Wrap.Wrap">
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">@_filtered.Count event@(_filtered.Count == 1 ? "" : "s") in view</MudText>
+                @if (Arenas.Any())
+                {
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary">Filter by arena</MudText>
+                    <MudSelect T="string" @bind-Value="_arenaFilter" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Style="width: auto">
+                        <MudSelectItem T="string" Value="@("all")">All arenas</MudSelectItem>
+                        @foreach (var a in Arenas)
+                        {
+                            <MudSelectItem T="string" Value="@a.Id.ToString()">@a.Name</MudSelectItem>
+                        }
+                    </MudSelect>
+                }
+            </MudStack>
+        </MudStack>
+    </MudCardHeader>
+    <MudCardContent>
         @if (!_filtered.Any())
         {
-            <div class="alert alert-info mb-0">No events in this window.</div>
+            <MudAlert Severity="Severity.Info" Class="mb-0">No events in this window.</MudAlert>
         }
         else
         {
@@ -33,36 +35,37 @@
             @foreach (var day in _filtered.GroupBy(e => TzProvider.ToLocal(e.StartUtc).Date).OrderBy(g => g.Key))
             {
                 <div class="mb-3">
-                    <h6 class="text-muted">@day.Key.ToString("ddd, MMM d, yyyy")</h6>
-                    <ul class="list-group">
+                    <MudText Typo="Typo.subtitle1" Class="mud-text-secondary">@day.Key.ToString("ddd, MMM d, yyyy")</MudText>
+                    <MudList T="CalendarEvent">
                         @foreach (var ev in day.OrderBy(e => e.StartUtc))
                         {
-                            <li class="list-group-item d-flex justify-content-between align-items-center">
-                                <div>
-                                    <span class="badge bg-@ev.StatusColor me-2"><LocalTime Utc="@ev.StartUtc" Format="HH:mm" />–<LocalTime Utc="@ev.EndUtc" Format="HH:mm" /></span>
-                                    <a href="@ev.Href" class="text-decoration-none">@ev.Title</a>
-                                    @if (!string.IsNullOrEmpty(ev.Subtitle))
-                                    {
-                                        <span class="text-muted ms-2">· @ev.Subtitle</span>
-                                    }
-                                    @if (!string.IsNullOrEmpty(ev.Location))
-                                    {
-                                        <span class="text-muted ms-2">@ev.Location</span>
-                                    }
-                                </div>
-                                <span class="badge bg-light text-dark">@ev.Status</span>
-                            </li>
+                            <MudListItem>
+                                <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                                    <div>
+                                        <MudChip T="string" Size="Size.Small" Class="me-2"><LocalTime Utc="@ev.StartUtc" Format="HH:mm" />–<LocalTime Utc="@ev.EndUtc" Format="HH:mm" /></MudChip>
+                                        <a href="@ev.Href" class="text-decoration-none">@ev.Title</a>
+                                        @if (!string.IsNullOrEmpty(ev.Subtitle))
+                                        {
+                                            <MudText Typo="Typo.caption" Inline="true" Class="mud-text-secondary ms-2">· @ev.Subtitle</MudText>
+                                        }
+                                        @if (!string.IsNullOrEmpty(ev.Location))
+                                        {
+                                            <MudText Typo="Typo.caption" Inline="true" Class="mud-text-secondary ms-2">@ev.Location</MudText>
+                                        }
+                                    </div>
+                                    <MudChip T="string" Size="Size.Small" Color="Color.Default">@ev.Status</MudChip>
+                                </MudStack>
+                            </MudListItem>
                         }
-                    </ul>
+                    </MudList>
                 </div>
             }
         }
-    </div>
-</div>
+    </MudCardContent>
+</MudCard>
 
 @implements IDisposable
 @inject UserTimeZoneProvider TzProvider
-
 @code {
     [Parameter, EditorRequired] public List<CalendarEvent> Events { get; set; } = new();
     [Parameter] public DateTime FromUtc { get; set; } = DateTime.UtcNow.Date;

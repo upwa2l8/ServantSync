@@ -4,15 +4,10 @@
 
 <PageTitle>Organizations</PageTitle>
 
-<nav aria-label="breadcrumb" class="mb-2">
-    <ol class="breadcrumb mb-0">
-        <li class="breadcrumb-item"><a href="">Home</a></li>
-        <li class="breadcrumb-item active" aria-current="page">Organizations</li>
-    </ol>
-</nav>
+<MudBreadcrumbs Items="_crumbs" Class="mb-2 px-0" />
 
-<div class="d-flex justify-content-between align-items-center mb-3">
-    <h1>Organizations</h1>
+<MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-3">
+    <MudText Typo="Typo.h4">Organizations</MudText>
     @* Round-AZ: the "+ New organization" affordance widens to either
        OrgAdmin (existing) OR SystemAdmin. The OR matches the actual
        capability of OrganizationService.CreateOrgAsync — the service
@@ -23,73 +18,69 @@
        existing org keeps the bootstrap-tenant creation capability. *@
     @if (_isAnyAdmin || _isSystemAdmin)
     {
-        <a class="btn btn-primary" href="Organizations/New">+ New organization</a>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                   Href="Organizations/New" StartIcon="@Icons.Material.Outlined.Add">
+            New organization
+        </MudButton>
     }
-</div>
+</MudStack>
 
 @if (_orgs is null)
 {
-    <p><em>Loading...</em></p>
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
 }
 else if (!_orgs.Any())
 {
-    @* Empty-state copy. Each branch's prose lives inside an HTML tag so the
-       Razor parser stays in markup mode; bare prose inside an @if-else block
-       goes back into C# mode and gets tokenized as code (a real bug we hit
-       on the first pass). Round-AZ: a SystemAdmin sees the "no orgs yet"
-       bootstrap copy because they ARE the authoritative bootstrap-Admin
-       identity role and can use the +New affordance to spin up the first
-       tenant. A non-SysAdmin signed-in user keeps the "ask an admin" copy
-       - they cannot bootstrap a tenant themselves.
-       (Round-BD: the [Authorize] attribute on this page (present since
-       the initial commit) guarantees a non-empty _userId before
-       OnInitializedAsync runs, so the prior "empty-userId or SystemAdmin"
-       predicate collapsed to just the SystemAdmin branch; the empty-
-       userId half of the OR was unreachable.) *@
-    <div class="alert alert-info">
-        @if (_isSystemAdmin)
-        {
-            <p class="mb-0">No organizations yet - create the first one.</p>
-        }
-        else
-        {
-            <p class="mb-0">
-                You are not yet a member of any organization. Ask an admin for an invite,
-                or use the
-                <a href="Account/Register">Register</a>
-                link from your organization to join.
-            </p>
-        }
-    </div>
+    @* Round-AZ: a SystemAdmin sees the "no orgs yet" bootstrap copy
+       because they ARE the authoritative bootstrap-Admin identity role
+       and can use the +New affordance to spin up the first tenant. A
+       non-SysAdmin signed-in user keeps the "ask an admin" copy. *@
+    <MudPaper Outlined="true" Class="pa-4">
+        <MudStack Spacing="2">
+            @if (_isSystemAdmin)
+            {
+                <MudText>No organizations yet — create the first one.</MudText>
+            }
+            else
+            {
+                <MudText>
+                    You are not yet a member of any organization. Ask an admin for an invite,
+                    or use the <MudLink Href="Account/Register">Register</MudLink> link from
+                    your organization to join.
+                </MudText>
+            }
+        </MudStack>
+    </MudPaper>
 }
 else
 {
-    <div class="table-responsive">
-        <table class="table table-striped">
-            <thead>
-                <tr><th>Name</th><th>Ministries</th><th>Members</th><th></th></tr>
-            </thead>
-            <tbody>
-                @foreach (var o in _orgs)
-                {
-                    <tr>
-                        <td><a href="@($"Organizations/{o.Id}")">@o.Name</a></td>
-                        <td>@o.MinistryCount</td>
-                        <td>@o.MemberCount</td>
-                        <td class="text-end">
-                            @* Per-row Edit button: Admin-only (single source of truth
-                               via OrgAuth per-org). Server-side gate on Organizations/Edit
-                               also enforces this; hiding here avoids 403-on-submit UX. *@
-                            @if (o.CanEdit)
-                            {
-                                <a class="btn btn-sm btn-outline-secondary" href="@($"Organizations/{o.Id}/Edit")">Edit</a>
-                            }
-                        </td>
-                    </tr>
-                }
-            </tbody>
-        </table>
-    </div>
+    <MudPaper Outlined="true">
+        <MudTable Items="_orgs" Hover="true" Striped="true" Dense="false" Elevation="0">
+            <HeaderContent>
+                <MudTh>Name</MudTh>
+                <MudTh>Ministries</MudTh>
+                <MudTh>Members</MudTh>
+                <MudTh Style="text-align:right">Actions</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="Name">
+                    <MudLink Href="@LinkBuilder.OrganizationHref(context.Id)">@context.Name</MudLink>
+                </MudTd>
+                <MudTd DataLabel="Ministries">@context.MinistryCount</MudTd>
+                <MudTd DataLabel="Members">@context.MemberCount</MudTd>
+                <MudTd DataLabel="Actions" Style="text-align:right">
+                    @* Per-row Edit button: Admin-only. *@
+                    @if (context.CanEdit)
+                    {
+                        <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small"
+                                   Href="@LinkBuilder.OrganizationEditHref(context.Id)">
+                            Edit
+                        </MudButton>
+                    }
+                </MudTd>
+            </RowTemplate>
+        </MudTable>
+    </MudPaper>
 }
 
 @inject IDbContextFactory<ApplicationDbContext> DbFactory
@@ -98,41 +89,27 @@ else
 @inject NavigationManager Nav
 @code {
     private List<OrgRow>? _orgs;
-    // The signed-in user's id. Empty string (never null) for safe null-checks.
     private string _userId = "";
-    // True iff the user is Admin of at least one org (drives the "+ New"
-    // affordance OR-branch + the per-row Edit columns for orgs they
-    // Admin).
     private bool _isAnyAdmin;
-    // Round-AZ ASP.NET Core Identity role flag. Drives the query-branch
-    // below (SystemAdmin sees every org) and widens the "+ New
-    // organization" affordance so a fresh-SysAdmin-with-no-orgs can
-    // bootstrap the first tenant via the Organizations/New page. The
-    // per-row CanEdit column is NOT widened here — strictly per-org
-    // Admin only — so SysAdmin without per-org Admin is view-only.
     private bool _isSystemAdmin;
+    // Per-page breadcrumb trail. Same shape as the rest of the migrated
+    // pages — `MudBreadcrumbs` is the MudBlazor equivalent of the old
+    // <ol class="breadcrumb"> block.
+    private List<BreadcrumbItem> _crumbs = new()
+    {
+        new BreadcrumbItem("Home", href: ""),
+        new BreadcrumbItem("Organizations", href: null, disabled: true),
+    };
 
     protected override async Task OnInitializedAsync()
     {
         var state = await Auth.GetAuthenticationStateAsync();
         _userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
-        // Round-AZ: track SystemAdmin separately so the query can branch
-        // below without conflating the two privilege tiers. _isSystemAdmin
-        // is the identity-role check (AspNetUserRoles) and is independent
-        // of _isAnyAdmin (OrganizationRole.Admin of any org).
         _isAnyAdmin = await OrgAuth.IsAnyOrgAdminAsync(_userId);
         _isSystemAdmin = await OrgAuth.IsSystemAdminAsync(_userId);
 
         await using var db = await DbFactory.CreateDbContextAsync();
 
-        // Per-org Admins / non-admin members: list ONLY orgs the user has a
-        // membership in. This is the strict-isolation model - a volunteer
-        // in Org A doesn't see Org B's existence. Admins of multiple orgs
-        // see all of their orgs. Round-AZ widens this for SystemAdmin only.
-        // SystemAdmin can SEE every org in the system; CanEdit per row is
-        // still driven by the actual OrganizationRole.Admin membership so a
-        // SystemAdmin who isn't Admin of an org can VIEW it but not edit
-        // it (consistent with the strict-visibility-only contract).
         var myOrgIds = _isSystemAdmin
             ? new List<int>()
             : await db.OrganizationMemberships
@@ -140,12 +117,6 @@ else
                 .Select(m => m.OrganizationId)
                 .ToListAsync();
 
-        // Per-row CanEdit is the same OrgAuth per-org check that the
-        // existing /Organizations/{Id}/Edit page enforces. Lookup fires
-        // unconditionally because it doubles as the SysAdmin-scope sign-
-        // off: SystemAdmin who is ALSO OrganizationRole.Admin of an org
-        // gets a true; pure-Identity-role SystemAdmin gets all-false,
-        // locking them out of edit affordances for non-Admin rows.
         var adminOrgIds = (await db.OrganizationMemberships
             .Where(m => m.PersonUserId == _userId
                 && m.Role == OrganizationRole.Admin)
@@ -153,21 +124,12 @@ else
             .ToListAsync())
             .ToHashSet();
 
-        // Single-org non-admin volunteer: skip the org listing and go
-        // straight to the org detail page (Ministries tab). The listing
-        // page is only useful for SystemAdmins, multi-org members, or
-        // org admins who may need the Edit button.
         if (!_isSystemAdmin && myOrgIds.Count == 1 && !adminOrgIds.Contains(myOrgIds[0]))
         {
             Nav.NavigateTo($"Organizations/{myOrgIds[0]}");
             return;
         }
 
-        // Query branches: SystemAdmin skips the myOrgIds constraint
-        // entirely and pulls every Organization in the DB. The
-        // EVERY-org query is naturally cheap (one SELECT + aggregate
-        // counts) and avoids the need for a separate SystemAdmin-only
-        // service method.
         _orgs = await db.Organizations
             .Where(o => _isSystemAdmin || myOrgIds.Contains(o.Id))
             .OrderBy(o => o.Name)
@@ -188,8 +150,6 @@ else
         public string Name { get; set; } = "";
         public int MinistryCount { get; set; }
         public int MemberCount { get; set; }
-        // Client-side flag set after the admin-org-id lookup; drives the
-        // per-row Edit button visibility.
         public bool CanEdit { get; set; }
     }
 }

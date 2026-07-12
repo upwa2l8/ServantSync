@@ -4,23 +4,18 @@
 
 <PageTitle>My schedule</PageTitle>
 
-<nav aria-label="breadcrumb" class="mb-2">
-    <ol class="breadcrumb mb-0">
-        <li class="breadcrumb-item"><a href="">Home</a></li>
-        <li class="breadcrumb-item active" aria-current="page">My schedule</li>
-    </ol>
-</nav>
+<MudBreadcrumbs Items="_crumbs" Class="mb-2 px-0" />
 
-<h1>My schedule</h1>
+<MudText Typo="Typo.h4" Class="mb-3">My schedule</MudText>
 
 @if (_loading)
 {
-    <p><em>Loading…</em></p>
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
 }
 else
 {
     @* ---- Subscribe (.ics) link — works in Google / Apple / Outlook calendar ---- *@
-    <div class="d-flex justify-content-end align-items-center mb-2 gap-2">
+    <MudStack Row="true" Justify="Justify.FlexEnd" AlignItems="AlignItems.Center" Class="mb-2" Spacing="2">
         @* "All" → 90-day substitution (see SubscribeUrl below). The user
            picked "All" for the on-page view; the feed collapses to 90d
            because external calendar clients can't ingest unbounded feeds.
@@ -28,53 +23,57 @@ else
            between the on-page window and the subscribed feed window. *@
         @if (_toUtc == DateTime.MaxValue || (_toUtc - _fromUtc).TotalDays > 360)
         {
-            <span class="badge text-bg-warning"
-                  title="External calendar clients can't ingest unbounded feeds, so the subscribed feed is limited to 90 days; the on-page view above is unbounded.">
+            <MudChip T="string" Size="Size.Small" Color="Color.Warning"
+                     title="External calendar clients can't ingest unbounded feeds, so the subscribed feed is limited to 90 days; the on-page view above is unbounded.">
                 Feed: last 90 days
-            </span>
+            </MudChip>
         }
-        <a class="btn btn-sm btn-outline-secondary"
-           href="@SubscribeUrl" target="_blank"
-           title="@SubscribeTooltip">
-            \ud83d\udcc5 Subscribe (.ics)
-        </a>
-    </div>
+        <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small"
+                   Href="@SubscribeUrl" Target="_blank"
+                   title="@SubscribeTooltip"
+                   StartIcon="@Icons.Material.Outlined.CalendarMonth">
+            Subscribe (.ics)
+        </MudButton>
+    </MudStack>
 
     @* ---- Scope + window + view controls ---- *@
-    <div class="row g-2 mb-3">
-        <div class="col-md-4">
-            <label class="form-label small text-muted">Scope</label>
-            <div class="d-flex gap-2">
-                <span class="badge bg-primary">My assignments</span>
-                <a class="btn btn-sm btn-outline-primary" href="Open">
+    <MudGrid Spacing="2" Class="mb-3 align-end">
+        <MudItem xs="12" md="4">
+            <MudText Typo="Typo.caption" Class="mud-text-secondary mb-1">Scope</MudText>
+            <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+                <MudChip T="string" Size="Size.Small" Color="Color.Primary">My assignments</MudChip>
+                <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small"
+                           Href="Open" StartIcon="@Icons.Material.Outlined.Search">
                     Browse open slots
-                </a>
-            </div>
-        </div>
-        <div class="col-md-5">
+                </MudButton>
+            </MudStack>
+        </MudItem>
+        <MudItem xs="12" md="5">
             <DateRangeChips InitialMode="DateRangeChips.RangeMode.Next30"
                             FromUtc="_fromUtc" ToUtc="_toUtc"
                             OnRangeChanged="OnRangeChanged" />
-        </div>
-        <div class="col-md-3">
-            <label class="form-label small text-muted">View</label>
-            <div class="btn-group btn-group-sm d-block" role="group" aria-label="View">
-                <button type="button" class="btn @(_view == ViewMode.List ? "btn-primary" : "btn-outline-primary")"
-                        @onclick="() => _view = ViewMode.List">List</button>
-                <button type="button" class="btn @(_view == ViewMode.Calendar ? "btn-primary" : "btn-outline-primary")"
-                        @onclick="() => _view = ViewMode.Calendar">Calendar</button>
-            </div>
-        </div>
-    </div>
+        </MudItem>
+        <MudItem xs="12" md="3">
+            <MudText Typo="Typo.caption" Class="mud-text-secondary mb-1">View</MudText>
+            <MudButtonGroup Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small">
+                <MudButton Variant="@(_view == ViewMode.List ? Variant.Filled : Variant.Outlined)"
+                           Color="Color.Primary"
+                           OnClick="() => _view = ViewMode.List"
+                           StartIcon="@Icons.Material.Outlined.ViewList">List</MudButton>
+                <MudButton Variant="@(_view == ViewMode.Calendar ? Variant.Filled : Variant.Outlined)"
+                           Color="Color.Primary"
+                           OnClick="() => _view = ViewMode.Calendar"
+                           StartIcon="@Icons.Material.Outlined.CalendarMonth">Calendar</MudButton>
+            </MudButtonGroup>
+        </MudItem>
+    </MudGrid>
 
     @if (_view == ViewMode.Calendar)
     {
         @if (!_calendarEvents.Any())
         {
-            @* Wordmark above the calendar-view empty-state. Mirror
-               of the list-view splash below. See WordmarkSplash. *@
             <WordmarkSplash Width="120" Loading="lazy" />
-            <div class="alert alert-info">Nothing on the schedule in this window.</div>
+            <MudAlert Severity="Severity.Info" Class="mt-2">Nothing on the schedule in this window.</MudAlert>
         }
         else
         {
@@ -84,182 +83,164 @@ else
     }
     else
     {
-        <h4 class="mt-2">Upcoming assignments</h4>
+        <MudText Typo="Typo.h6" Class="mt-2">Upcoming assignments</MudText>
         @if (!_assignments.Any())
         {
-            @* Wordmark above the list-view no-assignments empty-state.
-               See WordmarkSplash. *@
             <WordmarkSplash Width="120" Loading="lazy" />
-            <div class="alert alert-info">
-                Nothing on the schedule. Find a <a href="@OrgLink">ministry</a> to volunteer with.
-            </div>
+            <MudAlert Severity="Severity.Info" Class="mt-2">
+                Nothing on the schedule. Find a <MudLink Href="@OrgLink">ministry</MudLink> to volunteer with.
+            </MudAlert>
         }
         else
         {
-            <table class="table">
-                <thead><tr>                            <th>When</th><th>Where</th><th>Slot</th><th>Status</th></tr></thead>
-                <tbody>
-                    @foreach (var a in _assignments)
-                    {
-                        <tr>                                        <td><LocalTime Utc="@a.StartUtc" /> – <LocalTime Utc="@a.EndUtc" /></td>
-                            <td>@(a.ServiceSlot.Location ?? a.ServiceSlot.Ministry.Name)</td>
-                            <td>@a.ServiceSlot.Ministry.Name · @a.ServiceSlot.Name</td>
-                            <td>
-                                <span class="badge bg-@AssignmentStatusUi.ColorFor(a.Status)">@a.Status</span>
-                            </td>
-                        </tr>
-                    }
-                </tbody>
-            </table>
+            <MudPaper Outlined="true" Class="mt-2">
+                <MudTable Items="_assignments" Hover="true" Striped="true" Dense="true" Elevation="0">
+                    <HeaderContent>
+                        <MudTh>When</MudTh>
+                        <MudTh>Where</MudTh>
+                        <MudTh>Slot</MudTh>
+                        <MudTh>Status</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="When">
+                            <LocalTime Utc="@context.StartUtc" /> – <LocalTime Utc="@context.EndUtc" />
+                        </MudTd>
+                        <MudTd DataLabel="Where">@(context.ServiceSlot.Location ?? context.ServiceSlot.Ministry.Name)</MudTd>
+                        <MudTd DataLabel="Slot">@context.ServiceSlot.Ministry.Name · @context.ServiceSlot.Name</MudTd>
+                        <MudTd DataLabel="Status">
+                            <MudChip T="string" Size="Size.Small" Color="@AssignmentStatusUi.MudColorFor(context.Status)">
+                                @context.Status
+                            </MudChip>
+                        </MudTd>
+                    </RowTemplate>
+                </MudTable>
+            </MudPaper>
         }
 
         @* Round-FR-2.3 polish-3 follow-up (ii): a separate "Upcoming
            training" section surfaces the volunteer's own in-person
-           training sessions in the visible window. A second table
-           (vs merging with the assignment table) keeps the row
-           model typed to its native shape — Assignment vs
-           TrainingSession have different columns / link targets /
-           status colors. The "training" badge prefix matches the
-           calendar pill so the user sees a consistent visual across
-           list + calendar views. *@
+           training sessions in the visible window. *@
         @if (_myTrainingSessions.Any())
         {
-            <h4 class="mt-4">Upcoming training</h4>
-            <table class="table">
-                <thead>
-                    <tr>
-                        <th>When</th>
-                        <th>Where</th>
-                        <th>Session</th>
-                        <th>Status</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach (var s in _myTrainingSessions)
-                    {
-                        <tr>
-                            <td><LocalTime Utc="@s.StartUtc" /> – <LocalTime Utc="@s.EndUtc" /></td>
-                            <td>@s.Location</td>
-                            <td>
-                                <a href="@($"Organizations/{s.OrganizationId}/Training/Sessions/{s.Id}")">@s.Title</a>
-                                @if (s.TrainingContent is not null)
-                                {
-                                    <div class="text-muted small">Linked: @s.TrainingContent.Title</div>
-                                }
-                            </td>
-                            <td>
-                                <span class="badge bg-info">@s.Status</span>
-                            </td>
-                        </tr>
-                    }
-                </tbody>
-            </table>
+            <MudText Typo="Typo.h6" Class="mt-4">Upcoming training</MudText>
+            <MudPaper Outlined="true" Class="mt-2">
+                <MudTable Items="_myTrainingSessions" Hover="true" Dense="true" Elevation="0">
+                    <HeaderContent>
+                        <MudTh>When</MudTh>
+                        <MudTh>Where</MudTh>
+                        <MudTh>Session</MudTh>
+                        <MudTh>Status</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="When">
+                            <LocalTime Utc="@context.StartUtc" /> – <LocalTime Utc="@context.EndUtc" />
+                        </MudTd>
+                        <MudTd DataLabel="Where">@context.Location</MudTd>
+                        <MudTd DataLabel="Session">
+                            <MudLink Href="@LinkBuilder.TrainingSessionHref(context.OrganizationId, context.Id)">@context.Title</MudLink>
+                            @if (context.TrainingContent is not null)
+                            {
+                                <MudText Typo="Typo.caption" Class="mud-text-secondary">Linked: @context.TrainingContent.Title</MudText>
+                            }
+                        </MudTd>
+                        <MudTd DataLabel="Status">
+                            <MudChip T="string" Size="Size.Small" Color="Color.Info">@context.Status</MudChip>
+                        </MudTd>
+                    </RowTemplate>
+                </MudTable>
+            </MudPaper>
         }
     }
 
-    @* Round-discoverability: "Available in-person training sessions".
-       Volunteer self-service discoverability for upcoming sessions
-       they can sign up for, scoped to their orgs. Built on top of
-       ITrainingSessionService.ListAvailableForUserAsync which
-       pre-filters Scheduled/in-window/cross-org-isolated/not-already-
-       signed-up. Sign-up routes through the existing SignUpAsync
-       service (the same path /Sessions/{Id} uses); success reloads
-       the section via Reload(). The "Full" badge mirrors Sessions/Index.
-       Sits outside the list-vs-calendar @if/else so a volunteer can
-       find sign-up opportunities regardless of their current view
-       ("I'm skimming the calendar and want to sign up for something"
-       + "I'm reading the list and want to sign up for something" both
-       work). Positioned between "Upcoming training" (commitments)
-       and "Outstanding training" (online requirements) on the list
-       side; on the calendar view it appears below the calendar
-       widget as the "discoverability follow-up" surface. *@
-    <h4 class="mt-4">Available in-person training sessions</h4>
+    @* Round-discoverability: "Available in-person training sessions". *@
+    <MudText Typo="Typo.h6" Class="mt-4">Available in-person training sessions</MudText>
     @if (!_availableSessions.Any())
     {
-        <p class="text-muted small mb-0">
-            Nothing scheduled across your organizations right now. A coordinator might add one to <a href="@OrgLink">the Organizations page</a> in their <em>Org training</em> tab.
-        </p>
+        <MudText Typo="Typo.body2" Class="mud-text-secondary">
+            Nothing scheduled across your organizations right now. A coordinator might add one to <MudLink Href="@OrgLink">the Organizations page</MudLink> in their <em>Org training</em> tab.
+        </MudText>
     }
     else
     {
-        <div class="row g-3">
+        <MudGrid Spacing="3" Class="mt-2">
             @foreach (var s in _availableSessions)
             {
-                <div class="col-md-6">
-                    <div class="card h-100">
-                        <div class="card-body">
-                            <div class="d-flex justify-content-between align-items-start mb-1">
-                                <h5 class="card-title mb-0">@s.Title</h5>
-                                @if (s.IsFull)
-                                {
-                                    <span class="badge bg-warning text-dark">Full</span>
-                                }
-                                else if (s.HasLinkedTraining)
-                                {
-                                    <span class="badge bg-info text-dark">Counts toward training</span>
-                                }
-                            </div>
-                            <div class="text-muted small mb-2">
-                                <a href="Organizations/@s.OrganizationId">@s.OrganizationName</a>
-                                @if (!string.IsNullOrEmpty(s.Location))
-                                {
-                                    <span> &middot; @s.Location</span>
-                                }
-                            </div>
-                            <p class="mb-2">
-                                <strong><LocalTime Utc="@s.StartUtc" Format="@("ddd, MMM d \u2022 h:mm tt")" /></strong>
-                                &ndash; <LocalTime Utc="@s.EndUtc" Format="h:mm tt" />
-                            </p>
-                            @if (s.MaxAttendees.HasValue)
+                <MudItem xs="12" md="6">
+                    <MudPaper Outlined="true" Class="pa-4 h-100 d-flex flex-column">
+                        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Start" Class="mb-2">
+                            <MudText Typo="Typo.h6" Class="mb-0">@s.Title</MudText>
+                            @if (s.IsFull)
                             {
-                                <div class="mb-2">
-                                    <span class="badge bg-secondary">@s.SignedUpCount / @s.MaxAttendees signed up</span>
-                                </div>
+                                <MudChip T="string" Size="Size.Small" Color="Color.Warning">Full</MudChip>
                             }
-                            @if (!string.IsNullOrEmpty(s.Description))
+                            else if (s.HasLinkedTraining)
                             {
-                                <p class="text-muted small mb-2">@s.Description</p>
+                                <MudChip T="string" Size="Size.Small" Color="Color.Info">Counts toward training</MudChip>
                             }
-                        </div>
-                        <div class="card-footer bg-transparent border-0 pt-0">
-                            <button class="btn btn-primary w-100"
-                                    disabled="@(_busySignUpSessionId == s.SessionId || s.IsFull)"
-                                    @onclick="() => SignUpAvailable(s)">
+                        </MudStack>
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary mb-2">
+                            <MudLink Href="@LinkBuilder.OrganizationHref(s.OrganizationId)">@s.OrganizationName</MudLink>
+                            @if (!string.IsNullOrEmpty(s.Location))
+                            {
+                                <span> · @s.Location</span>
+                            }
+                        </MudText>
+                        <MudText Class="mb-2">
+                            <strong><LocalTime Utc="@s.StartUtc" Format="@("ddd, MMM d \u2022 h:mm tt")" /></strong>
+                            – <LocalTime Utc="@s.EndUtc" Format="h:mm tt" />
+                        </MudText>
+                        @if (s.MaxAttendees.HasValue)
+                        {
+                            <MudChip T="string" Size="Size.Small" Color="Color.Default" Class="mb-2">
+                                @s.SignedUpCount / @s.MaxAttendees signed up
+                            </MudChip>
+                        }
+                        @if (!string.IsNullOrEmpty(s.Description))
+                        {
+                            <MudText Typo="Typo.body2" Class="mud-text-secondary mb-2">@s.Description</MudText>
+                        }
+                        <div class="mt-auto">
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true"
+                                       Disabled="@(_busySignUpSessionId == s.SessionId || s.IsFull)"
+                                       OnClick="@(() => SignUpAvailable(s))">
                                 @(_busySignUpSessionId == s.SessionId
                                     ? "Signing up…"
                                     : (s.IsFull ? "Full" : "Sign up"))
-                            </button>
+                            </MudButton>
                             @if (_availableMessage is not null && _availableMessage.SessionId == s.SessionId)
                             {
-                                <div class="alert @(_availableMessage.Succeeded ? "alert-success" : "alert-danger") py-2 small mt-2 mb-0">
+                                <MudAlert Severity="@(_availableMessage.Succeeded ? Severity.Success : Severity.Error)"
+                                          Dense="true" Class="mt-2 mb-0">
                                     @_availableMessage.Message
-                                </div>
+                                </MudAlert>
                             }
                         </div>
-                    </div>
-                </div>
+                    </MudPaper>
+                </MudItem>
             }
-        </div>
+        </MudGrid>
     }
 
-    <h4 class="mt-4">Outstanding training</h4>
+    <MudText Typo="Typo.h6" Class="mt-4">Outstanding training</MudText>
     @if (!_outstanding.Any())
     {
-        <div class="alert alert-success">All caught up.</div>
+        <MudAlert Severity="Severity.Success">All caught up.</MudAlert>
     }
     else
     {
-        <ul class="list-group">
-            @foreach (var r in _outstanding)
-            {
-                <li class="list-group-item d-flex justify-content-between">
-                    <span>
-                        <a href="@($"Training/{r.TrainingContentId}")">@r.Title</a>
-                        <span class="badge bg-secondary ms-2">@r.Scope</span>
-                    </span>
-                </li>
-            }
-        </ul>
+        <MudPaper Outlined="true" Class="mt-2">
+            <MudList T="OutstandingRow" Dense="true">
+                @foreach (var r in _outstanding)
+                {
+                    <MudListItem T="OutstandingRow" Icon="@Icons.Material.Outlined.School">
+                        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                            <MudLink Href="@LinkBuilder.TrainingHref(r.TrainingContentId)">@r.Title</MudLink>
+                            <MudChip T="string" Size="Size.Small" Color="Color.Default">@r.Scope</MudChip>
+                        </MudStack>
+                    </MudListItem>
+                }
+            </MudList>
+        </MudPaper>
     }
 }
 
@@ -281,49 +262,27 @@ else
 
     private List<Assignment> _assignments = new();
     private List<CalendarEvent> _calendarEvents = new();
-    // Round-FR-2.3 polish-3 follow-up (ii): the volunteer's own
-    // in-person training sessions in the visible window, rendered
-    // separately in the list view and merged into _calendarEvents
-    // with IsTraining=true for the calendar view. Sessions are
-    // surfaced alongside (not merged with) regular assignments so
-    // the table layouts can stay typed to their respective DTOs.
     private List<TrainingSession> _myTrainingSessions = new();
-    // Round-discoverability: TrainingSessions the volunteer can sign
-    // up for across all of their orgs in the window. Populated by
-    // ITrainingSessionService.ListAvailableForUserAsync. Surfaces a
-    // new card section between "Upcoming training" (their signups)
-    // and "Outstanding training" (online requirements).
     private List<AvailableTrainingSessionView> _availableSessions = new();
-    // Sign-up button busy-state. Tracks the in-progress session id
-    // so the right card shows "Signing up…" while the others stay
-    // interactive (parallel sign-up attempts across cards).
     private int _busySignUpSessionId;
-    // Per-signup inline alert. Cleared at the start of each SignUp;
-    // displayed only on the card whose SessionId matches. Pages
-    // Pre-empt server-side errors (NotFound, AlreadySignedUp race,
-    // SessionFull race) without a try/catch on the markup side.
     private SignupFeedback? _availableMessage;
     private List<OutstandingRow> _outstanding = new();
+    private List<BreadcrumbItem> _crumbs = new()
+    {
+        new BreadcrumbItem("Home", href: ""),
+        new BreadcrumbItem("My schedule", href: null, disabled: true),
+    };
 
     private string SubscribeUrl
     {
         get
         {
             var days = Math.Clamp((int)Math.Round((_toUtc - _fromUtc).TotalDays), 1, 365);
-            // "All" range (365d, DateTime.MaxValue, or anything > 360d) is
-            // collapsed to 90 days for the feed. The visible chip is
-            // unchanged so the on-page view passes through to the chip
-            // control. The substitution is announced to the user via the
-            // "Feed: last 90 days" badge above and the SubscribeTooltip.
             if (days >= 360) days = 90;
             return $"/MySchedule/ics?scope=mine&days={days}";
         }
     }
 
-    // Tooltip on the Subscribe button mirrors the badge so hover-only
-    // users (no tabs/keyboard) still see the substitution warning.
-    // Falls back to the default "Subscribe" tooltip when the feed
-    // window matches the on-page window.
     private string SubscribeTooltip
     {
         get
@@ -389,24 +348,10 @@ else
                 .AsNoTracking()
                 .ToListAsync();
 
-            // Round-FR-2.3 polish-3 follow-up (ii): fetch the user's
-            // own in-person training sessions in the same window so
-            // they show up on the calendar (with the "training" badge)
-            // and in a separate "Upcoming training" table on the list
-            // view. TrainingSessionService.ListMyScheduledSessionsAsync
-            // is a single LINQ join over TrainingSessionAttendees; the
-            // result is ordered by StartUtc ascending. Skipped when
-            // the user has no orgs at all — the service would return
-            // empty anyway, but skipping the call avoids a wasted
-            // round-trip on the no-orgs fast path.
             if (_myOrgIds.Count > 0)
             {
                 _myTrainingSessions = await TrainingSessionService.ListMyScheduledSessionsAsync(
                     _userId!, _fromUtc, _toUtc);
-                // Round-discoverability: same window, same org scope,
-                // but the INVERSE attendee rule — sessions where the
-                // user is NOT yet on the roster. The service does the
-                // join + filter; the page just renders the cards.
                 _availableSessions = await TrainingSessionService.ListAvailableForUserAsync(
                     _userId!, _fromUtc, _toUtc);
             }
@@ -416,13 +361,6 @@ else
                 _availableSessions = new();
             }
 
-            // Build the calendar view by unioning assignment events
-            // (IsTraining defaults to false on CalendarEvent) with
-            // training-session events (IsTraining=true, StatusColor=
-            // "info" so the pill stands out from regular shifts on
-            // the same day). The session links to its own
-            // /Organizations/{OrgId}/Training/Sessions/{Id} page, not
-            // a ServiceSlot route.
             var assignmentEvents = _assignments.Select(a => new CalendarEvent
             {
                 Id = a.Id,
@@ -444,11 +382,6 @@ else
                 Subtitle = s.TrainingContent?.Title,
                 Location = s.Location,
                 Status = s.Status.ToString(),
-                // "info" (Bootstrap cyan) so training events read as a
-                // distinct color from the regular shift pills (primary/
-                // success/warning/danger). Pairs with the "training"
-                // text badge on the pill — see AssignmentCalendar.razor
-                // round-FR-2.3b comment block.
                 StatusColor = "info",
                 Href = $"Organizations/{s.OrganizationId}/Training/Sessions/{s.Id}",
                 IsTraining = true,
@@ -457,13 +390,6 @@ else
                 .OrderBy(e => e.StartUtc)
                 .ToList();
 
-            // Outstanding training: across the user's orgs + every slot
-            // they currently hold a non-cancelled assignment on. The
-            // service-side aggregate replaces the previous per-org
-            // foreach loop so the rule lives in one place; the slot
-            // scoping kicks in automatically here (a volunteer's
-            // "outstanding" list expands the moment they're scheduled
-            // into a slot that has its own training requirement).
             var reqs = await TrainingService.FindMyOutstandingRequirementsAsync(_userId!);
             _outstanding = reqs.Select(r => new OutstandingRow
             {
@@ -485,18 +411,8 @@ else
         public string Scope { get; set; } = "";
     }
 
-    // Per-card inline feedback for the "Available" sign-up flow.
-    // Distinct from Open.razor's SignupResult record so the two
-    // sign-up surfaces can diverge a little without cross-coupling.
-    // SessionId matches the card so multiple parallel sign-up
-    // attempts only show the message on the right one.
     private record SignupFeedback(int SessionId, bool Succeeded, string Message);
 
-    // Volunteer sign-up handler for an "Available" card. Routes
-    // through the same ITrainingSessionService.SignUpAsync path that
-    // the /Sessions/{Id} page uses, plus a brief inline feedback
-    // message keyed by SessionId. Race-safe against rapid clicks:
-    // the button is disabled once a sign-up is in flight.
     private async Task SignUpAvailable(AvailableTrainingSessionView s)
     {
         if (string.IsNullOrEmpty(_userId)) return;

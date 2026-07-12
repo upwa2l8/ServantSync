@@ -5,99 +5,119 @@
 
 <PageTitle>@(_isNew ? "New player" : "Edit player")</PageTitle>
 
-<nav aria-label="breadcrumb" class="mb-2">
-    <ol class="breadcrumb mb-0">
-        <li class="breadcrumb-item"><a href="">Home</a></li>
-        <li class="breadcrumb-item"><a href="Leagues">Leagues</a></li>
-        <li class="breadcrumb-item"><a href="@($"Teams/{TeamId}")">@(_team?.Name ?? $"Team #{TeamId}")</a></li>
-        <li class="breadcrumb-item active" aria-current="page">@(_isNew ? "New player" : "Edit player")</li>
-    </ol>
-</nav>
+<MudBreadcrumbs Items="BreadcrumbItems" Class="mb-2 px-0" />
 
-<h1>@(_isNew ? "New player" : "Edit player")</h1>
+<MudText Typo="Typo.h4" Class="mb-2">@(_isNew ? "New player" : "Edit player")</MudText>
 <StatusMessage Message="@_message" IsError="@_isError" />
 
 @if (_team is null)
 {
-    <p><em>Loading…</em></p>
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
 }
 else
 {
-    <div class="text-muted mb-3">
-        On <a href="@($"Teams/{TeamId}")">@_team.Name</a> · <a href="@($"Leagues/{_team.MinistryId}")">@_team.Ministry?.Name</a>
-    </div>
+    <MudText Typo="Typo.body2" Class="mud-text-secondary mb-3">
+        On <MudLink Href="@LinkBuilder.TeamHref(TeamId)">@_team.Name</MudLink> · <MudLink Href="@LinkBuilder.LeagueHref(_team.MinistryId)">@_team.Ministry?.Name</MudLink>
+    </MudText>
 
     <EditForm Model="_model" OnValidSubmit="Save" FormName="player">
         <DataAnnotationsValidator />
         <ValidationSummary />
 
-        <div class="row g-2">
-            <div class="col-md-4">
-                <div class="form-floating mb-3">
-                    <InputText id="first" class="form-control" @bind-Value="_model.FirstName" />
-                    <label for="first">First name</label>
-                </div>
-            </div>
-            <div class="col-md-4">
-                <div class="form-floating mb-3">
-                    <InputText id="last" class="form-control" @bind-Value="_model.LastName" />
-                    <label for="last">Last name</label>
-                </div>
-            </div>
-            <div class="col-md-2">
-                <div class="form-floating mb-3">
-                    <InputNumber id="jersey" class="form-control" @bind-Value="_model.JerseyNumber" />
-                    <label for="jersey">Jersey #</label>
-                </div>
-            </div>
-            <div class="col-md-2">
-                <div class="form-floating mb-3">
-                    <InputText id="pos" class="form-control" @bind-Value="_model.Position" />
-                    <label for="pos">Position</label>
-                </div>
-            </div>
-        </div>
+        <MudGrid Spacing="2" Class="mb-2">
+            <MudItem xs="12" md="4">
+                <MudTextField T="string"
+                              Label="First name"
+                              @bind-Value="_model.FirstName"
+                              Variant="Variant.Outlined"
+                              Margin="Margin.Dense"
+                              Required="true"
+                              RequiredError="First name is required" />
+            </MudItem>
+            <MudItem xs="12" md="4">
+                <MudTextField T="string"
+                              Label="Last name"
+                              @bind-Value="_model.LastName"
+                              Variant="Variant.Outlined"
+                              Margin="Margin.Dense"
+                              Required="true"
+                              RequiredError="Last name is required" />
+            </MudItem>
+            <MudItem xs="6" md="2">
+                <MudNumericField T="int?"
+                                 Label="Jersey #"
+                                 @bind-Value="_model.JerseyNumber"
+                                 Variant="Variant.Outlined"
+                                 Margin="Margin.Dense" />
+            </MudItem>
+            <MudItem xs="6" md="2">
+                <MudTextField T="string"
+                              Label="Position"
+                              @bind-Value="_model.Position"
+                              Variant="Variant.Outlined"
+                              Margin="Margin.Dense" />
+            </MudItem>
+        </MudGrid>
 
-        <div class="form-floating mb-3">
-            <InputDate id="dob" class="form-control" @bind-Value="_model.DateOfBirth" />
-            <label for="dob">Date of birth</label>
-        </div>
+        <MudDatePicker Label="Date of birth"
+                       @bind-Date="_model.DateOfBirth"
+                       Variant="Variant.Outlined"
+                       Margin="Margin.Dense"
+                       Class="mb-3" />
 
-        <h6>Primary contact (parent/guardian)</h6>
-        <p class="text-muted small">Coaches use this to call a parent if a player gets hurt. Link to a Person in the system if one exists, or just type the contact info.</p>
+        <MudText Typo="Typo.h6" Class="mt-2">Primary contact (parent/guardian)</MudText>
+        <MudText Typo="Typo.caption" Class="mud-text-secondary mb-2">
+            Coaches use this to call a parent if a player gets hurt. Link to a Person in the system if one exists, or just type the contact info.
+        </MudText>
 
-        <div class="form-floating mb-3">
-            <select id="contact" class="form-select" @bind="_model.PrimaryContactPersonUserId">
-                <option value="">— none —</option>
-                @foreach (var p in _allPeople)
-                {
-                    <option value="@p.UserId">@p.DisplayName</option>
-                }
-            </select>
-            <label for="contact">Linked Person (login user)</label>
-        </div>
-        <div class="row g-2">
-            <div class="col-md-6">
-                <div class="form-floating mb-3">
-                    <InputText id="phone" class="form-control" @bind-Value="_model.PrimaryContactPhone" />
-                    <label for="phone">Phone</label>
-                </div>
-            </div>
-            <div class="col-md-6">
-                <div class="form-floating mb-3">
-                    <InputText id="email" class="form-control" @bind-Value="_model.PrimaryContactEmail" />
-                    <label for="email">Email</label>
-                </div>
-            </div>
-        </div>
+        <MudSelect T="string"
+                   @bind-Value="_model.PrimaryContactPersonUserId"
+                   Label="Linked Person (login user)"
+                   Variant="Variant.Outlined"
+                   Margin="Margin.Dense"
+                   Class="mb-3">
+            <MudSelectItem T="string" Value="@("")">— none —</MudSelectItem>
+            @foreach (var p in _allPeople)
+            {
+                <MudSelectItem T="string" Value="@p.UserId">@p.DisplayName</MudSelectItem>
+            }
+        </MudSelect>
 
-        <div class="form-floating mb-3">
-            <InputTextArea id="notes" class="form-control" style="height: 5rem" @bind-Value="_model.Notes" />
-            <label for="notes">Notes</label>
-        </div>
+        <MudGrid Spacing="2" Class="mb-2">
+            <MudItem xs="12" md="6">
+                <MudTextField T="string"
+                              Label="Phone"
+                              @bind-Value="_model.PrimaryContactPhone"
+                              Variant="Variant.Outlined"
+                              Margin="Margin.Dense" />
+            </MudItem>
+            <MudItem xs="12" md="6">
+                <MudTextField T="string"
+                              Label="Email"
+                              InputType="InputType.Email"
+                              @bind-Value="_model.PrimaryContactEmail"
+                              Variant="Variant.Outlined"
+                              Margin="Margin.Dense" />
+            </MudItem>
+        </MudGrid>
 
-        <button class="btn btn-primary" type="submit" disabled="@(!_canSubmit)">Save</button>
-        <a class="btn btn-outline-secondary ms-2" href="@($"Teams/{TeamId}")">Cancel</a>
+        <MudTextField T="string"
+                      Label="Notes"
+                      @bind-Value="_model.Notes"
+                      Lines="3"
+                      Variant="Variant.Outlined"
+                      Margin="Margin.Dense"
+                      Class="mb-3" />
+
+        <MudStack Row="true" Spacing="2">
+            <MudButton ButtonType="ButtonType.Submit"
+                       Color="Color.Primary"
+                       Variant="Variant.Filled"
+                       Disabled="@(!_canSubmit)">Save</MudButton>
+            <MudButton Href="@LinkBuilder.TeamHref(TeamId)"
+                       Color="Color.Default"
+                       Variant="Variant.Outlined">Cancel</MudButton>
+        </MudStack>
     </EditForm>
 }
 
@@ -122,6 +142,24 @@ else
     private string? _message;
     private bool _isError;
     private bool _canSubmit;
+
+    // Breadcrumb items for MudBreadcrumbs. The last item is the current
+    // page (no href, disabled). Built from the loaded team + isNew flag
+    // so it stays in sync whether the user is creating or editing a player.
+    private List<BreadcrumbItem> BreadcrumbItems
+    {
+        get
+        {
+            var items = new List<BreadcrumbItem>
+            {
+                new BreadcrumbItem("Home", href: ""),
+                new BreadcrumbItem("Leagues", href: "Leagues"),
+                new BreadcrumbItem(_team?.Name ?? $"Team #{TeamId}", href: LinkBuilder.TeamHref(TeamId)),
+                new BreadcrumbItem(_isNew ? "New player" : "Edit player", href: null, disabled: true),
+            };
+            return items;
+        }
+    }
 
     protected override async Task OnInitializedAsync()
     {

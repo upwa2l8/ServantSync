@@ -2,6 +2,8 @@ using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
+using MudBlazor;
+using MudBlazor.Services;
 using ServantSync.Components;
 using ServantSync.Data;
 using ServantSync.Models;
@@ -87,6 +89,14 @@ builder.Services.ConfigureApplicationCookie(opts =>
 // ---- Razor / Blazor ----
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
+
+// MudBlazor: register the provider services (IDialogService, ISnackbar,
+// MudBlazor's internal state, the IJsDialogService bridge) once at
+// startup. Without this call MudThemeProvider / MudDialogProvider /
+// MudSnackbarProvider / MudPopoverProvider will throw at first render
+// because the components rely on these services for state + JS interop.
+// See MudBlazor 8.x docs → "Getting started" → "Add services".
+builder.Services.AddMudServices();
 
 // DI-registered cascading authentication state. Routes.razor also wraps the
 // Router in <CascadingAuthenticationState> manually, but the markup-only

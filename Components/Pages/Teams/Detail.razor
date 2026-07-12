@@ -4,136 +4,152 @@
 
 <PageTitle>@(_team?.Name ?? "Team")</PageTitle>
 
-<nav aria-label="breadcrumb" class="mb-2">
-    <ol class="breadcrumb mb-0">
-        <li class="breadcrumb-item"><a href="">Home</a></li>
-        <li class="breadcrumb-item"><a href="Leagues">Leagues</a></li>
-        @if (_team is not null)
-        {
-            <li class="breadcrumb-item"><a href="@($"Leagues/{_team.MinistryId}")">@(_team.Ministry?.Name ?? "League")</a></li>
-        }
-        <li class="breadcrumb-item active" aria-current="page">@(_team?.Name ?? $"Team #{TeamId}")</li>
-    </ol>
-</nav>
+<MudBreadcrumbs Items="BreadcrumbItems" Class="mb-2 px-0" />
 
 @if (_team is null)
 {
-    <p><em>Loading…</em></p>
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
 }
 else
 {
-    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-3 flex-wrap" Spacing="2">
         <div>
-            <h1 class="mb-0">@_team.Name</h1>
-            <div class="text-muted">
-                <a href="@($"Leagues/{_team.MinistryId}")">@_team.Ministry?.Name</a>
+            <MudText Typo="Typo.h4" Class="mb-0">@_team.Name</MudText>
+            <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                <MudLink Href="@LinkBuilder.LeagueHref(_team.MinistryId)">@_team.Ministry?.Name</MudLink>
                 · @_team.Ministry?.Organization?.Name
                 · @_team.AgeBracket @_team.Gender
-            </div>
+            </MudText>
             @if (_team.CoachPerson is not null)
             {
-                <div class="text-muted small">Coach: <a href="@($"People/{_team.CoachPersonUserId}")">@_team.CoachPerson.DisplayName</a></div>
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                    Coach: <MudLink Href="@LinkBuilder.PersonHref(_team.CoachPersonUserId)">@_team.CoachPerson.DisplayName</MudLink>
+                </MudText>
             }
         </div>
-        <div class="d-flex gap-2 flex-wrap">                <a class="btn btn-outline-secondary" href="@($"Leagues/{_team.MinistryId}")">Back to league</a>
+        <MudStack Row="true" Spacing="2" Class="flex-wrap">
+            <MudButton Href="@LinkBuilder.LeagueHref(_team.MinistryId)"
+                       Color="Color.Default"
+                       Variant="Variant.Outlined">Back to league</MudButton>
             @if (_canManage)
             {
-                <a class="btn btn-primary" href="@($"Teams/{TeamId}/Players/New")">+ Add player</a>
-                <a class="btn btn-outline-secondary" href="@($"Teams/{TeamId}/Signups")">View parents</a>
+                <MudButton Href="@AddPlayerHref"
+                           Color="Color.Primary"
+                           Variant="Variant.Filled">+ Add player</MudButton>
+                <MudButton Href="@SignupsHref"
+                           Color="Color.Default"
+                           Variant="Variant.Outlined">View parents</MudButton>
             }
-        </div>
-    </div>
+        </MudStack>
+    </MudStack>
 
     @if (_isParent)
     {
-        <div class="alert alert-info py-2 small">You're a primary contact for a player on this team. You can see the roster and schedule; contact info for other players is hidden.</div>
+        <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">
+            You're a primary contact for a player on this team. You can see the roster and schedule; contact info for other players is hidden.
+        </MudAlert>
     }
 
-    <div class="row g-3">
-        <div class="col-md-6">
-            <div class="card">
-                <div class="card-header">Roster</div>
-                <div class="card-body">
+    <MudGrid Spacing="3">
+        <MudItem xs="12" md="6">
+            <MudCard Outlined="true">
+                <MudCardHeader>
+                    <CardHeaderContent>
+                        <MudText Typo="Typo.h6">Roster</MudText>
+                    </CardHeaderContent>
+                </MudCardHeader>
+                <MudCardContent>
                     @if (!_activePlayers.Any())
                     {
-                        <div class="text-muted">No active players.</div>
+                        <MudText Typo="Typo.body2" Class="mud-text-secondary">No active players.</MudText>
                     }
                     else
                     {
-                        <table class="table table-sm">
-                            <thead>
-                                <tr>
-                                    <th>#</th><th>Name</th><th>Pos</th>
-                                    @if (!_isParent) { <th>Contact</th> }
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach (var p in _activePlayers.OrderBy(p => p.JerseyNumber).ThenBy(p => p.LastName))
+                        <MudTable T="Player"
+                                  Items="_activePlayers.OrderBy(p => p.JerseyNumber).ThenBy(p => p.LastName)"
+                                  Dense="true"
+                                  Hover="true"
+                                  Striped="true">
+                            <HeaderContent>
+                                <MudTh>#</MudTh>
+                                <MudTh>Name</MudTh>
+                                <MudTh>Pos</MudTh>
+                                @if (!_isParent) { <MudTh>Contact</MudTh> }
+                            </HeaderContent>
+                            <RowTemplate>
+                                <MudTd>@(context.JerseyNumber?.ToString() ?? "—")</MudTd>
+                                <MudTd>
+                                    @if (_canManage)
+                                    {
+                                        <MudLink Href="@($"Teams/{TeamId}/Players/{context.Id}/Edit")">@context.DisplayName</MudLink>
+                                    }
+                                    else
+                                    {
+                                        @context.DisplayName
+                                    }
+                                </MudTd>
+                                <MudTd>@(context.Position ?? "—")</MudTd>
+                                @if (!_isParent)
                                 {
-                                    <tr>
-                                        <td>@(p.JerseyNumber?.ToString() ?? "—")</td>
-                                        <td>
-                                            @if (_canManage)
-                                            {
-                                                <a href="@($"Teams/{TeamId}/Players/{p.Id}/Edit")">@p.DisplayName</a>
-                                            }
-                                            else
-                                            {
-                                                @p.DisplayName
-                                            }
-                                        </td>
-                                        <td>@(p.Position ?? "—")</td>
-                                        @if (!_isParent)
-                                        {
-                                            <td class="small">
-                                                @if (!string.IsNullOrEmpty(p.PrimaryContactPhone)) { <div>@p.PrimaryContactPhone</div> }
-                                                @if (!string.IsNullOrEmpty(p.PrimaryContactEmail)) { <div>@p.PrimaryContactEmail</div> }
-                                            </td>
-                                        }
-                                    </tr>
+                                    <MudTd>
+                                        @if (!string.IsNullOrEmpty(context.PrimaryContactPhone)) { <div>@context.PrimaryContactPhone</div> }
+                                        @if (!string.IsNullOrEmpty(context.PrimaryContactEmail)) { <div>@context.PrimaryContactEmail</div> }
+                                    </MudTd>
                                 }
-                            </tbody>
-                        </table>
+                            </RowTemplate>
+                        </MudTable>
                     }
-                </div>
-            </div>
-        </div>
+                </MudCardContent>
+            </MudCard>
+        </MudItem>
 
-        <div class="col-md-6">
-            <div class="card">
-                <div class="card-header">Upcoming games</div>
-                <div class="card-body">
+        <MudItem xs="12" md="6">
+            <MudCard Outlined="true">
+                <MudCardHeader>
+                    <CardHeaderContent>
+                        <MudText Typo="Typo.h6">Upcoming games</MudText>
+                    </CardHeaderContent>
+                </MudCardHeader>
+                <MudCardContent>
                     @if (!_upcomingGames.Any())
                     {
-                        <div class="text-muted">No upcoming games.</div>
+                        <MudText Typo="Typo.body2" Class="mud-text-secondary">No upcoming games.</MudText>
                     }
                     else
                     {
-                        <ul class="list-group list-group-flush">
+                        <MudList T="Game" Dense="true">
                             @foreach (var g in _upcomingGames)
                             {
                                 var opp = g.HomeTeamId == TeamId ? g.AwayTeam : g.HomeTeam;
                                 var home = g.HomeTeamId == TeamId;
-                                <li class="list-group-item d-flex justify-content-between">
-                                    <a href="@($"Games/{g.Id}")">@(home ? "vs" : "@") @opp.Name</a>
-                                    <span class="text-muted small"><LocalTime Utc="@g.StartUtc" Format="ddd, MMM d h:mm tt" /> · @g.Arena.Name</span>
-                                </li>
+                                <MudListItem T="Game" Href="@LinkBuilder.GameHref(g.Id)">
+                                    <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                                        <span>@(home ? "vs" : "@") @opp.Name</span>
+                                        <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                                            <LocalTime Utc="@g.StartUtc" Format="ddd, MMM d h:mm tt" /> · @g.Arena.Name
+                                        </MudText>
+                                    </MudStack>
+                                </MudListItem>
                             }
-                        </ul>
+                        </MudList>
                     }
-                </div>
-            </div>
+                </MudCardContent>
+            </MudCard>
 
-            <div class="card mt-3">
-                <div class="card-header">Recent results</div>
-                <div class="card-body">
+            <MudCard Outlined="true" Class="mt-3">
+                <MudCardHeader>
+                    <CardHeaderContent>
+                        <MudText Typo="Typo.h6">Recent results</MudText>
+                    </CardHeaderContent>
+                </MudCardHeader>
+                <MudCardContent>
                     @if (!_pastGames.Any())
                     {
-                        <div class="text-muted">No games played yet.</div>
+                        <MudText Typo="Typo.body2" Class="mud-text-secondary">No games played yet.</MudText>
                     }
                     else
                     {
-                        <ul class="list-group list-group-flush">
+                        <MudList T="Game" Dense="true">
                             @foreach (var g in _pastGames)
                             {
                                 var opp = g.HomeTeamId == TeamId ? g.AwayTeam : g.HomeTeam;
@@ -147,17 +163,21 @@ else
                                     (var u, var t) when u < t => "L",
                                     _ => "D",
                                 };
-                                <li class="list-group-item d-flex justify-content-between">
-                                    <span><strong>@outcome</strong> · @(home ? "vs" : "@") @opp.Name @us–@them</span>
-                                    <span class="text-muted small"><LocalTime Utc="@g.StartUtc" Format="MMM d" /></span>
-                                </li>
+                                <MudListItem T="Game">
+                                    <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                                        <span><strong>@outcome</strong> · @(home ? "vs" : "@") @opp.Name @us–@them</span>
+                                        <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                                            <LocalTime Utc="@g.StartUtc" Format="MMM d" />
+                                        </MudText>
+                                    </MudStack>
+                                </MudListItem>
                             }
-                        </ul>
+                        </MudList>
                     }
-                </div>
-            </div>
-        </div>
-    </div>
+                </MudCardContent>
+            </MudCard>
+        </MudItem>
+    </MudGrid>
 }
 
 @inject IDbContextFactory<ApplicationDbContext> DbFactory
@@ -172,6 +192,33 @@ else
     private bool _canManage;
     private bool _isParent;
     private string? _userId;
+
+    // Computed hrefs for the action buttons. The Razor compiler chokes
+    // on complex expressions like `LinkBuilder.TeamHref(TeamId) + "/Signups"`
+    // inside an `Href="@(...)"` attribute (RZ9986), so we precompute them.
+    private string AddPlayerHref => $"Teams/{TeamId}/Players/New";
+    private string SignupsHref => $"Teams/{TeamId}/Signups";
+
+    // Breadcrumb items for MudBreadcrumbs. The last item is the current
+    // page (no href, disabled). Built from the loaded team so it stays
+    // in sync with whatever team the user is viewing.
+    private List<BreadcrumbItem> BreadcrumbItems
+    {
+        get
+        {
+            var items = new List<BreadcrumbItem>
+            {
+                new BreadcrumbItem("Home", href: ""),
+                new BreadcrumbItem("Leagues", href: "Leagues"),
+            };
+            if (_team is not null)
+            {
+                items.Add(new BreadcrumbItem(_team.Ministry?.Name ?? "League", href: LinkBuilder.LeagueHref(_team.MinistryId)));
+            }
+            items.Add(new BreadcrumbItem(_team?.Name ?? $"Team #{TeamId}", href: null, disabled: true));
+            return items;
+        }
+    }
 
     protected override async Task OnInitializedAsync()
     {

@@ -4,73 +4,107 @@
 
 <PageTitle>Organization dashboard</PageTitle>
 
-<nav aria-label="breadcrumb" class="mb-2">
-    <ol class="breadcrumb mb-0">
-        <li class="breadcrumb-item"><a href="">Home</a></li>
-        <li class="breadcrumb-item active" aria-current="page">Dashboard</li>
-    </ol>
-</nav>
+<MudBreadcrumbs Items="_crumbs" Class="mb-2 px-0" />
 
-<h1>@_title</h1>
-<p class="text-muted">@_windowDescription</p>
+<MudText Typo="Typo.h4" Class="mb-1">@_title</MudText>
+<MudText Typo="Typo.body2" Class="mud-text-secondary mb-4">@_windowDescription</MudText>
 
 @if (_loading)
 {
-    <p><em>Loading…</em></p>
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
 }
 else if (_manageableOrgs.Count == 0)
 {
     @if (_isSystemAdmin)
     {
-        <div class="alert alert-secondary">No organizations in the database yet. Use <a href="Organizations/New">+ New organization</a> to create the first one.</div>
+        <MudAlert Severity="Severity.Normal">
+            No organizations in the database yet. Use <MudLink Href="Organizations/New">+ New organization</MudLink> to create the first one.
+        </MudAlert>
     }
     else
     {
-        <div class="alert alert-secondary">
+        <MudAlert Severity="Severity.Normal">
             You're not a manager or admin in any organization yet. Ask an admin to add you,
-            or browse <a href="Organizations">available organizations</a>.
-        </div>
+            or browse <MudLink Href="Organizations">available organizations</MudLink>.
+        </MudAlert>
     }
 }
 else
 {
     @* ---- Org picker + window ---- *@
-    <div class="row g-2 mb-2">
-        <div class="col-md-4">
-            <label class="form-label small text-muted">Filter by organization</label>
-            <select class="form-select" @bind="_selectedOrgId" @bind:after="async () => await Reload()">
-                <option value="0">All organizations (@_manageableOrgs.Count)</option>
+    <MudGrid Spacing="2" Class="mb-3 align-end">
+        <MudItem xs="12" md="4">
+            <MudSelect T="int"
+                       Value="_selectedOrgId"
+                       ValueChanged="async v => { _selectedOrgId = v; await Reload(); }"
+                       Label="Filter by organization"
+                       Variant="Variant.Outlined"
+                       Dense="true"
+                       Margin="Margin.Dense">
+                <MudSelectItem Value="0">All organizations (@_manageableOrgs.Count)</MudSelectItem>
                 @foreach (var o in _manageableOrgs)
                 {
-                    <option value="@o.Id">@o.Name</option>
+                    <MudSelectItem Value="@o.Id">@o.Name</MudSelectItem>
                 }
-            </select>
-        </div>
-        <div class="col-md-8">
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" md="8">
             <DateRangeChips InitialMode="DateRangeChips.RangeMode.Next14"
                             FromUtc="_fromUtc" ToUtc="_toUtc"
                             OnRangeChanged="OnRangeChanged" />
-        </div>
-    </div>
+        </MudItem>
+    </MudGrid>
 
     @* ---- View toggle ---- *@
-    <div class="d-flex justify-content-between align-items-center mb-3">
-        <div class="btn-group btn-group-sm" role="group" aria-label="View">
-            <button type="button" class="btn @(_view == ViewMode.List ? "btn-primary" : "btn-outline-primary")"
-                    @onclick="() => _view = ViewMode.List">List</button>
-            <button type="button" class="btn @(_view == ViewMode.Calendar ? "btn-primary" : "btn-outline-primary")"
-                    @onclick="() => _view = ViewMode.Calendar">Calendar</button>
-        </div>
-        <span class="text-muted small">@_kpis.TotalAssignments assignment@(_kpis.TotalAssignments == 1 ? "" : "s")</span>
-    </div>
+    <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-3">
+        <MudButtonGroup Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small">
+            <MudButton Variant="@(_view == ViewMode.List ? Variant.Filled : Variant.Outlined)"
+                       Color="Color.Primary"
+                       OnClick="() => _view = ViewMode.List"
+                       StartIcon="@Icons.Material.Outlined.ViewList">List</MudButton>
+            <MudButton Variant="@(_view == ViewMode.Calendar ? Variant.Filled : Variant.Outlined)"
+                       Color="Color.Primary"
+                       OnClick="() => _view = ViewMode.Calendar"
+                       StartIcon="@Icons.Material.Outlined.CalendarMonth">Calendar</MudButton>
+        </MudButtonGroup>
+        <MudText Typo="Typo.caption" Class="mud-text-secondary">
+            @_kpis.TotalAssignments assignment@(_kpis.TotalAssignments == 1 ? "" : "s")
+        </MudText>
+    </MudStack>
 
     @* ---- KPI strip (always visible) ---- *@
-    <div class="row g-3 mb-3">
-        <div class="col-md-3"><div class="card"><div class="card-body"><div class="text-muted small">Assignments</div><div class="display-6">@_kpis.TotalAssignments</div></div></div></div>
-        <div class="col-md-3"><div class="card"><div class="card-body"><div class="text-muted small">Unique volunteers</div><div class="display-6">@_kpis.UniquePeople</div></div></div></div>
-        <div class="col-md-3"><div class="card @( _kpis.PersonOverlaps > 0 ? "border-danger" : "" )"><div class="card-body"><div class="text-muted small">Person overlaps</div><div class="display-6 @( _kpis.PersonOverlaps > 0 ? "text-danger" : "" )">@_kpis.PersonOverlaps</div></div></div></div>
-        <div class="col-md-3"><div class="card @( _kpis.OutstandingTrainings > 0 ? "border-warning" : "" )"><div class="card-body"><div class="text-muted small">Outstanding trainings</div><div class="display-6 @( _kpis.OutstandingTrainings > 0 ? "text-warning" : "" )">@_kpis.OutstandingTrainings</div></div></div></div>
-    </div>
+    <MudGrid Spacing="3" Class="mb-3">
+        <MudItem xs="6" md="3">
+            <MudPaper Outlined="true" Class="pa-4">
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">Assignments</MudText>
+                <MudText Typo="Typo.h4">@_kpis.TotalAssignments</MudText>
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="6" md="3">
+            <MudPaper Outlined="true" Class="pa-4">
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">Unique volunteers</MudText>
+                <MudText Typo="Typo.h4">@_kpis.UniquePeople</MudText>
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="6" md="3">
+            <MudPaper Outlined="@(_kpis.PersonOverlaps > 0)"
+                      Class="@("pa-4 " + (_kpis.PersonOverlaps > 0 ? "mud-border-error" : ""))">
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">Person overlaps</MudText>
+                <MudText Typo="Typo.h4" Color="@(_kpis.PersonOverlaps > 0 ? Color.Error : Color.Default)">
+                    @_kpis.PersonOverlaps
+                </MudText>
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="6" md="3">
+            <MudPaper Outlined="@(_kpis.OutstandingTrainings > 0)"
+                      Class="@("pa-4 " + (_kpis.OutstandingTrainings > 0 ? "mud-border-warning" : ""))">
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">Outstanding trainings</MudText>
+                <MudText Typo="Typo.h4" Color="@(_kpis.OutstandingTrainings > 0 ? Color.Warning : Color.Default)">
+                    @_kpis.OutstandingTrainings
+                </MudText>
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
 
     @if (_view == ViewMode.Calendar)
     {
@@ -82,49 +116,54 @@ else
         @* ---- Daily feed ---- *@
         @if (!_groupedByDay.Any())
         {
-            <div class="alert alert-info">No upcoming scheduled assignments in the selected window.</div>
+            <MudAlert Severity="Severity.Info">No upcoming scheduled assignments in the selected window.</MudAlert>
         }
         else
         {
             @foreach (var day in _groupedByDay)
             {
-                <div class="card mb-2">
-                    <div class="card-header d-flex justify-content-between align-items-center">
+                <MudPaper Outlined="true" Class="mb-2 pa-3">
+                    <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-2">
                         <strong>@day.Date.ToString("ddd, MMM d")</strong>
-                        <span class="badge bg-secondary">@day.Assignments.Count assignment@(day.Assignments.Count == 1 ? "" : "s")</span>
-                    </div>
-                    <ul class="list-group list-group-flush">
+                        <MudChip T="string" Size="Size.Small" Color="Color.Default">
+                            @day.Assignments.Count assignment@(day.Assignments.Count == 1 ? "" : "s")
+                        </MudChip>
+                    </MudStack>
+                    <MudList T="AssignmentRow" Dense="true">
                         @foreach (var a in day.Assignments)
                         {
                             var overlap = a.ConflictsWithSelf;
-                            <li class="list-group-item d-flex justify-content-between align-items-center @(!string.IsNullOrEmpty(overlap) ? "list-group-item-danger" : "")">
-                                <div>
-                                    <strong>
-                                        <a href="@($"People/{a.PersonUserId}")">@a.PersonName</a>
-                                    </strong>
-                                    @(" — ")
-                                    <a href="@($"Organizations/{a.OrgId}/Ministries/{a.MinistryId}/Roles/{a.ServiceSlotId}")">
-                                        @a.OrgName › @a.MinistryName › @a.ServiceSlotName
-                                    </a>
-                                    <div class="text-muted small">
-                                        <LocalTime Utc="@a.StartUtc" Format="HH:mm" />–<LocalTime Utc="@a.EndUtc" Format="HH:mm" /> ·
-                                        @a.Location · status: @a.Status
+                            <MudListItem T="AssignmentRow" Icon="@Icons.Material.Outlined.Assignment"
+                                         Class="@(!string.IsNullOrEmpty(overlap) ? "mud-list-item-error" : "")">
+                                <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                                    <div>
+                                        <strong>
+                                            <MudLink Href="@LinkBuilder.PersonHref(a.PersonUserId)">@a.PersonName</MudLink>
+                                        </strong>
+                                        <text> — </text>
+                                        <MudLink Href="@LinkBuilder.SlotHref(a.OrgId, a.MinistryId, a.ServiceSlotId)">
+                                            @a.OrgName › @a.MinistryName › @a.ServiceSlotName
+                                        </MudLink>
+                                        <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                                            <LocalTime Utc="@a.StartUtc" Format="HH:mm" />–<LocalTime Utc="@a.EndUtc" Format="HH:mm" /> ·
+                                            @a.Location · status: @a.Status
+                                        </MudText>
+                                        @if (!string.IsNullOrEmpty(overlap))
+                                        {
+                                            <MudText Typo="Typo.caption" Color="Color.Error" Class="mt-1">
+                                                ⚠ @overlap
+                                            </MudText>
+                                        }
                                     </div>
-                                    @if (!string.IsNullOrEmpty(overlap))
-                                    {
-                                        <div class="text-danger small mt-1">
-                                            ⚠ @overlap
-                                        </div>
-                                    }
-                                </div>
-                                <a class="btn btn-sm btn-outline-secondary"
-                                   href="@($"Organizations/{a.OrgId}/Ministries/{a.MinistryId}/Roles/{a.ServiceSlotId}/Schedule")">
-                                    Open
-                                </a>
-                            </li>
+                                    <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small"
+                                               Href="@LinkBuilder.SlotScheduleHref(a.OrgId, a.MinistryId, a.ServiceSlotId)">
+                                        Open
+                                    </MudButton>
+                                </MudStack>
+                            </MudListItem>
                         }
-                    </ul>
-                </div>
+                    </MudList>
+                </MudPaper>
             }
         }
     }
@@ -163,6 +202,11 @@ else
     private List<CalendarEvent> _calendarEvents = new();
     private List<AssignmentRow> _rawRows = new();
     private Kpis _kpis = new();
+    private List<BreadcrumbItem> _crumbs = new()
+    {
+        new BreadcrumbItem("Home", href: ""),
+        new BreadcrumbItem("Dashboard", href: null, disabled: true),
+    };
 
     private string _windowDescription => _isSystemAdmin
         ? $"Across every ministry in the database. Window: {RangeLabel(_fromUtc, _toUtc)}."
@@ -203,8 +247,6 @@ else
     {
         _fromUtc = range.From;
         _toUtc = range.To;
-        // Snap the calendar anchor to the start of the window so the user lands
-        // on a month with data.
         _anchorDate = _fromUtc.Year < 1900
             ? new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1)
             : new DateTime(_fromUtc.Year, _fromUtc.Month, 1);

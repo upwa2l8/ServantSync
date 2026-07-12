@@ -4,181 +4,186 @@
 
 <PageTitle>Coordinators · @(_orgName ?? "Organization")</PageTitle>
 
-<nav aria-label="breadcrumb" class="mb-2">
-    <ol class="breadcrumb mb-0">
-        <li class="breadcrumb-item"><a href="">Home</a></li>
-        <li class="breadcrumb-item"><a href="Organizations">Organizations</a></li>
-        <li class="breadcrumb-item"><a href="@($"Organizations/{Id}")">@(_orgName ?? $"Org #{Id}")</a></li>
-        <li class="breadcrumb-item active" aria-current="page">Manage coordinators</li>
-    </ol>
-</nav>
+<MudBreadcrumbs Items="BreadcrumbItems" Class="mb-2 px-0" />
 
-<h1>Coordinator dashboard</h1>
-<p class="text-muted">
+<MudText Typo="Typo.h4" Class="mb-2">Coordinator dashboard</MudText>
+<MudText Typo="Typo.body2" Class="mud-text-secondary mb-3">
     Manage who coordinates every volunteer opportunity in
     <strong>@(_orgName ?? "this organization")</strong>. Unassigned slots surface at the top so it's clear what still needs to be delegated. Permissions: Admin or Coordinator of this organization.
-    <a href="@($"Organizations/{Id}")">Back to organization</a>
-</p>
+    <MudLink Href="@LinkBuilder.OrganizationHref(Id)">Back to organization</MudLink>
+</MudText>
 
 @if (!_hasLoaded)
 {
-    <p><em>Loading…</em></p>
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
 }
 else if (_denied)
 {
-    <div class="alert alert-warning">
-        <h4>You don't have access to this dashboard</h4>
-        <p>Only an organization <strong>Admin</strong> can manage slot coordinators.</p>
-        <p><a href="@($"Organizations/{Id}")">Back to organization</a></p>
-    </div>
+    <MudAlert Severity="Severity.Warning">
+        <MudText Typo="Typo.h6">You don't have access to this dashboard</MudText>
+        <MudText>Only an organization <strong>Admin</strong> can manage slot coordinators.</MudText>
+        <MudLink Href="@LinkBuilder.OrganizationHref(Id)">Back to organization</MudLink>
+    </MudAlert>
 }
 else if (_rows is null || _rows.Count == 0)
 {
-    <div class="alert alert-info">
-        <h5>No volunteer opportunities yet</h5>
-        <p>This organization has no service slots to coordinate. <a href="@($"Organizations/{Id}")">Add a slot via a ministry</a>.</p>
-    </div>
+    <MudAlert Severity="Severity.Info">
+        <MudText Typo="Typo.h6">No volunteer opportunities yet</MudText>
+        <MudText>This organization has no service slots to coordinate. <MudLink Href="@LinkBuilder.OrganizationHref(Id)">Add a slot via a ministry</MudLink>.</MudText>
+    </MudAlert>
 }
 else
 {
     @* Summary chips up top: how many slots have a coordinator, how
        many don't, and how many are inactive. Click the "Unassigned"
        chip to filter the table. *@
-    <div class="d-flex gap-2 flex-wrap mb-3">
-        <button class="btn btn-sm @(_filter == FilterKind.All ? "btn-primary" : "btn-outline-primary")"
-                @onclick="() => _filter = FilterKind.All">
+    <MudStack Row="true" Spacing="2" Class="mb-3 flex-wrap">
+        <MudChip T="string"
+                 Color="@(_filter == FilterKind.All ? Color.Primary : Color.Default)"
+                 Variant="@(_filter == FilterKind.All ? Variant.Filled : Variant.Outlined)"
+                 OnClick="@(() => _filter = FilterKind.All)">
             All (@_rows.Count)
-        </button>
-        <button class="btn btn-sm @(_filter == FilterKind.Unassigned ? "btn-warning" : "btn-outline-warning")"
-                @onclick="() => _filter = FilterKind.Unassigned">
+        </MudChip>
+        <MudChip T="string"
+                 Color="@(_filter == FilterKind.Unassigned ? Color.Warning : Color.Default)"
+                 Variant="@(_filter == FilterKind.Unassigned ? Variant.Filled : Variant.Outlined)"
+                 OnClick="@(() => _filter = FilterKind.Unassigned)">
             Unassigned (@_unassignedCount)
-        </button>
-        <button class="btn btn-sm @(_filter == FilterKind.Assigned ? "btn-success" : "btn-outline-success")"
-                @onclick="() => _filter = FilterKind.Assigned">
+        </MudChip>
+        <MudChip T="string"
+                 Color="@(_filter == FilterKind.Assigned ? Color.Success : Color.Default)"
+                 Variant="@(_filter == FilterKind.Assigned ? Variant.Filled : Variant.Outlined)"
+                 OnClick="@(() => _filter = FilterKind.Assigned)">
             Assigned (@_assignedCount)
-        </button>
+        </MudChip>
         @if (_inactiveCount > 0)
         {
-            <button class="btn btn-sm @(_filter == FilterKind.Inactive ? "btn-secondary" : "btn-outline-secondary")"
-                    @onclick="() => _filter = FilterKind.Inactive">
+            <MudChip T="string"
+                     Color="@(_filter == FilterKind.Inactive ? Color.Default : Color.Default)"
+                     Variant="@(_filter == FilterKind.Inactive ? Variant.Filled : Variant.Outlined)"
+                     OnClick="@(() => _filter = FilterKind.Inactive)">
                 Inactive (@_inactiveCount)
-            </button>
+            </MudChip>
         }
-    </div>
+    </MudStack>
 
     @if (!string.IsNullOrEmpty(_lastMessage))
     {
-        <div class="alert @(_lastIsError ? "alert-danger" : "alert-success") py-2 small mb-2">
+        <MudAlert Severity="@(_lastIsError ? Severity.Error : Severity.Success)" Dense="true" Class="mb-2">
             @_lastMessage
-        </div>
+        </MudAlert>
     }
 
-    <div class="table-responsive">
-        <table class="table align-middle">
-            <thead>
-                <tr>
-                    <th>Slot</th>
-                    <th>Ministry</th>
-                    <th>Coordinator</th>
-                    <th>Contact</th>
-                    <th class="text-end">Action</th>
-                </tr>
-            </thead>
-            <tbody>
-                @foreach (var row in FilteredRows())
-                {
-                    var isEditing = _editingSlotId == row.SlotId;
-                    <tr class="@(!row.IsSlotActive ? "text-muted" : "")">
-                        <td>
-                            <a href="@($"Organizations/{Id}/Ministries/{row.MinistryId}/Roles/{row.SlotId}")"
-                               class="@(!row.IsSlotActive ? "link-secondary" : "")">
-                                @row.SlotName
-                            </a>
-                            @if (!row.IsSlotActive)
+    <MudPaper Outlined="true">
+        <MudTable T="CoordinatorAssignmentRow" Items="FilteredRows()" Dense="true" Hover="true">
+            <HeaderContent>
+                <MudTh>Slot</MudTh>
+                <MudTh>Ministry</MudTh>
+                <MudTh>Coordinator</MudTh>
+                <MudTh>Contact</MudTh>
+                <MudTh Class="text-end">Action</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd Style="@(context.IsSlotActive ? "" : "color: var(--mud-palette-text-secondary);")">
+                    <MudLink Href="@LinkBuilder.SlotHref(Id, context.MinistryId, context.SlotId)"
+                             Color="@(context.IsSlotActive ? Color.Default : Color.Default)">
+                        @context.SlotName
+                    </MudLink>
+                    @if (!context.IsSlotActive)
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="Color.Default" Class="ms-1">inactive</MudChip>
+                    }
+                </MudTd>
+                <MudTd>
+                    <MudLink Href="@LinkBuilder.MinistryHref(Id, context.MinistryId)">@context.MinistryName</MudLink>
+                </MudTd>
+                <MudTd>
+                    @if (_editingSlotId == context.SlotId)
+                    {
+                        <MudSelect T="string"
+                                   @bind-Value="_editCoordUserId"
+                                   @bind-Value:after="OnCoordPicked"
+                                   Variant="Variant.Outlined"
+                                   Margin="Margin.Dense"
+                                   Dense="true"
+                                   Style="min-width: 160px;">
+                            <MudSelectItem T="string" Value="@("")">— none —</MudSelectItem>
+                            @foreach (var p in _members)
                             {
-                                <span class="badge text-bg-secondary ms-1">inactive</span>
+                                <MudSelectItem T="string" Value="@p.UserId">@p.DisplayName</MudSelectItem>
                             }
-                        </td>
-                        <td>
-                            <a href="@($"Organizations/{Id}/Ministries/{row.MinistryId}")"
-                               class="@(!row.IsSlotActive ? "link-secondary" : "")">
-                                @row.MinistryName
-                            </a>
-                        </td>
-                        <td>
-                            @if (isEditing)
-                            {
-                                <select class="form-select form-select-sm"
-                                        @bind="_editCoordUserId"
-                                        @bind:after="OnCoordPicked">
-                                    <option value="">— none —</option>
-                                    @foreach (var p in _members)
-                                    {
-                                        <option value="@p.UserId">@p.DisplayName</option>
-                                    }
-                                </select>
-                            }
-                            else if (!string.IsNullOrEmpty(row.CoordinatorDisplayName))
-                            {
-                                <a href="@($"People/{row.CoordinatorUserId}")">@row.CoordinatorDisplayName</a>
-                            }
-                            else
-                            {
-                                <span class="badge text-bg-warning">Unassigned</span>
-                            }
-                        </td>
-                        <td class="small">
-                            @if (isEditing)
-                            {
-                                <input class="form-control form-control-sm mb-1"
-                                       placeholder="Email (optional)"
-                                       @bind="_editEmail" maxlength="120" />
-                                <input class="form-control form-control-sm"
-                                       placeholder="Phone (optional)"
-                                       @bind="_editPhone" maxlength="40" />
-                            }
-                            else
-                            {
-                                @if (!string.IsNullOrWhiteSpace(row.CoordinatorEmail))
-                                {
-                                    <div><span class="bi bi-envelope" aria-hidden="true"></span> <a href="mailto:@row.CoordinatorEmail">@row.CoordinatorEmail</a></div>
-                                }
-                                @if (!string.IsNullOrWhiteSpace(row.CoordinatorPhone))
-                                {
-                                    <div><span class="bi bi-telephone" aria-hidden="true"></span> @row.CoordinatorPhone</div>
-                                }
-                            }
-                        </td>
-                        <td class="text-end">
-                            @if (isEditing)
-                            {
-                                <button class="btn btn-sm btn-primary me-1"
-                                        @onclick="() => SaveEditAsync(row)">Save</button>
-                                <button class="btn btn-sm btn-outline-secondary"
-                                        @onclick="CancelEdit">Cancel</button>
-                            }
-                            else if (_canManage)
-                            {
-                                <button class="btn btn-sm btn-outline-secondary me-1"
-                                        @onclick="() => BeginEdit(row)">Assign / edit</button>
-                                @if (!string.IsNullOrEmpty(row.CoordinatorUserId)
-                                    || !string.IsNullOrWhiteSpace(row.CoordinatorEmail)
-                                    || !string.IsNullOrWhiteSpace(row.CoordinatorPhone))
-                                {
-                                    <button class="btn btn-sm btn-outline-danger"
-                                            @onclick="() => UnassignAsync(row)">Unassign</button>
-                                }
-                            }
-                            else
-                            {
-                                <span class="text-muted small">view-only</span>
-                            }
-                        </td>
-                    </tr>
-                }
-            </tbody>
-        </table>
-    </div>
+                        </MudSelect>
+                    }
+                    else if (!string.IsNullOrEmpty(context.CoordinatorDisplayName))
+                    {
+                        <MudLink Href="@LinkBuilder.PersonHref(context.CoordinatorUserId!)">@context.CoordinatorDisplayName</MudLink>
+                    }
+                    else
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="Color.Warning">Unassigned</MudChip>
+                    }
+                </MudTd>
+                <MudTd>
+                    @if (_editingSlotId == context.SlotId)
+                    {
+                        <MudTextField T="string"
+                                      Placeholder="Email (optional)"
+                                      @bind-Value="_editEmail"
+                                      MaxLength="120"
+                                      Variant="Variant.Outlined"
+                                      Margin="Margin.Dense"
+                                      Dense="true"
+                                      Class="mb-1" />
+                        <MudTextField T="string"
+                                      Placeholder="Phone (optional)"
+                                      @bind-Value="_editPhone"
+                                      MaxLength="40"
+                                      Variant="Variant.Outlined"
+                                      Margin="Margin.Dense"
+                                      Dense="true" />
+                    }
+                    else
+                    {
+                        @if (!string.IsNullOrWhiteSpace(context.CoordinatorEmail))
+                        {
+                            <div><MudIcon Icon="@Icons.Material.Outlined.Email" Size="Size.Small" /> <MudLink Href="@LinkBuilder.MailtoHref(context.CoordinatorEmail)">@context.CoordinatorEmail</MudLink></div>
+                        }
+                        @if (!string.IsNullOrWhiteSpace(context.CoordinatorPhone))
+                        {
+                            <div><MudIcon Icon="@Icons.Material.Outlined.Phone" Size="Size.Small" /> @context.CoordinatorPhone</div>
+                        }
+                    }
+                </MudTd>
+                <MudTd Class="text-end">
+                    @if (_editingSlotId == context.SlotId)
+                    {
+                        <MudButton Color="Color.Primary" Variant="Variant.Filled" Size="Size.Small"
+                                   OnClick="@(() => SaveEditAsync(context))"
+                                   Class="me-1">Save</MudButton>
+                        <MudButton Color="Color.Default" Variant="Variant.Outlined" Size="Size.Small"
+                                   OnClick="CancelEdit">Cancel</MudButton>
+                    }
+                    else if (_canManage)
+                    {
+                        <MudButton Color="Color.Default" Variant="Variant.Outlined" Size="Size.Small"
+                                   OnClick="@(() => BeginEdit(context))"
+                                   Class="me-1">Assign / edit</MudButton>
+                        @if (!string.IsNullOrEmpty(context.CoordinatorUserId)
+                            || !string.IsNullOrWhiteSpace(context.CoordinatorEmail)
+                            || !string.IsNullOrWhiteSpace(context.CoordinatorPhone))
+                        {
+                            <MudButton Color="Color.Error" Variant="Variant.Outlined" Size="Size.Small"
+                                       OnClick="@(() => UnassignAsync(context))">Unassign</MudButton>
+                        }
+                    }
+                    else
+                    {
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary">view-only</MudText>
+                    }
+                </MudTd>
+            </RowTemplate>
+        </MudTable>
+    </MudPaper>
 }
 
 @inject IDbContextFactory<ApplicationDbContext> DbFactory
@@ -237,6 +242,24 @@ else
     private string? _editCoordUserId;
     private string? _editEmail;
     private string? _editPhone;
+
+    // Breadcrumb items for MudBreadcrumbs. The last item is the current
+    // page (no href, disabled). Built from the route param + cached org
+    // name so it stays in sync with whatever org the user is viewing.
+    private List<BreadcrumbItem> BreadcrumbItems
+    {
+        get
+        {
+            var items = new List<BreadcrumbItem>
+            {
+                new BreadcrumbItem("Home", href: ""),
+                new BreadcrumbItem("Organizations", href: "Organizations"),
+                new BreadcrumbItem(_orgName ?? $"Org #{Id}", href: LinkBuilder.OrganizationHref(Id)),
+                new BreadcrumbItem("Manage coordinators", href: null, disabled: true),
+            };
+            return items;
+        }
+    }
 
     protected override async Task OnInitializedAsync()
     {

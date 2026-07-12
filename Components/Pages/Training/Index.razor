@@ -4,151 +4,148 @@
 
 <PageTitle>My training</PageTitle>
 
-<nav aria-label="breadcrumb" class="mb-2">
-    <ol class="breadcrumb mb-0">
-        <li class="breadcrumb-item"><a href="">Home</a></li>
-        <li class="breadcrumb-item active" aria-current="page">My training</li>
-    </ol>
-</nav>
+<MudBreadcrumbs Items="_crumbs" Class="mb-2 px-0" />
 
-<div class="d-flex justify-content-between align-items-center mb-3">
+<MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Start" Class="mb-3">
     <div>
-        <h1>My training</h1>
-        <div class="text-muted small">
+        <MudText Typo="Typo.h4">My training</MudText>
+        <MudText Typo="Typo.body2" Class="mud-text-secondary">
             The training this database requires <em>you</em> to take, plus your
             personal training history. Required training comes from the organizations
             you belong to and from any specific slot you are scheduled for.
-        </div>
+        </MudText>
     </div>
     @if (_canManageCatalog)
     {
-        <a class="btn btn-outline-primary" href="Training/Manage">Manage catalog</a>
+        <MudButton Variant="Variant.Outlined" Color="Color.Primary" Href="Training/Manage">
+            Manage catalog
+        </MudButton>
     }
-</div>
+</MudStack>
 
 @if (_loading)
 {
-    <p><em>Loading…</em></p>
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
 }
 else
 {
     @* ---- Action needed ---- *@
-    <section class="card mb-4">
-        <div class="card-header d-flex justify-content-between align-items-center">
+    <MudPaper Outlined="true" Class="mb-4">
+        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="px-4 py-3">
             <div>
-                <h5 class="mb-0">Action needed</h5>
-                <div class="text-muted small">
+                <MudText Typo="Typo.h6" Class="mb-0">Action needed</MudText>
+                <MudText Typo="Typo.body2" Class="mud-text-small mud-text-secondary">
                     Training you have not yet satisfied — re-takes show up here when a previous completion has expired.
-                </div>
+                </MudText>
             </div>
-            <span class="badge @(_actionNeeded.Count == 0 ? "bg-success" : "bg-warning text-dark")">
+            <MudChip T="string" Size="Size.Small"
+                     Color="@(_actionNeeded.Count == 0 ? Color.Success : Color.Warning)">
                 @_actionNeeded.Count
-            </span>
-        </div>
-        <div class="card-body">
+            </MudChip>
+        </MudStack>
+        <div class="px-4 pb-3">
             @if (!_hasAnyOrgMembership)
             {
-                <p class="text-muted mb-0">
+                <MudText Typo="Typo.body2" Class="mud-text-secondary mb-0">
                     You are not yet a member of any organization, so nothing applies.
                     Once you accept a registration link, training will appear here.
-                </p>
+                </MudText>
             }
             else if (_actionNeeded.Count == 0)
             {
-                <div class="alert alert-success mb-0">
+                <MudAlert Severity="Severity.Success" Class="mb-0">
                     You're up to date. You have completed all required training for your ministries.
-                </div>
+                </MudAlert>
             }
             else
             {
-                <ul class="list-group list-group-flush">
+                <MudList T="OutstandingRow" Dense="true">
                     @foreach (var r in _actionNeeded)
                     {
-                        <li class="list-group-item d-flex justify-content-between align-items-center">
-                            <div>
-                                <a href="@($"Training/{r.TrainingContentId}")">
-                                    <strong>@r.Title</strong>
-                                </a>
-                                <span class="badge bg-secondary ms-2">@r.ScopeLabel</span>
-                                @if (!string.IsNullOrEmpty(r.ContextLabel))
-                                {
-                                    <span class="text-muted small ms-2">@r.ContextLabel</span>
-                                }
-                            </div>
-                            <a class="btn btn-sm btn-primary" href="@($"Training/{r.TrainingContentId}")">Take</a>
-                        </li>
+                        <MudListItem T="OutstandingRow">
+                            <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                                <div>
+                                    <MudLink Href="@LinkBuilder.TrainingHref(r.TrainingContentId)">
+                                        <strong>@r.Title</strong>
+                                    </MudLink>
+                                    <MudChip T="string" Size="Size.Small" Color="Color.Default" Class="ms-2">@r.ScopeLabel</MudChip>
+                                    @if (!string.IsNullOrEmpty(r.ContextLabel))
+                                    {
+                                        <MudText Typo="Typo.caption" Class="mud-text-secondary ms-2 d-inline">@r.ContextLabel</MudText>
+                                    }
+                                </div>
+                                <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small"
+                                           Href="@LinkBuilder.TrainingHref(r.TrainingContentId)">
+                                    Take
+                                </MudButton>
+                            </MudStack>
+                        </MudListItem>
                     }
-                </ul>
+                </MudList>
             }
         </div>
-    </section>
+    </MudPaper>
 
     @* ---- My history ---- *@
-    <section class="card">
-        <div class="card-header d-flex justify-content-between align-items-center">
+    <MudPaper Outlined="true">
+        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="px-4 py-3">
             <div>
-                <h5 class="mb-0">My history</h5>
-                <div class="text-muted small">
+                <MudText Typo="Typo.h6" Class="mb-0">My history</MudText>
+                <MudText Typo="Typo.body2" Class="mud-text-small mud-text-secondary">
                     Every training completion recorded for you, newest first. A
-                    <span class="badge bg-success">Valid</span> badge means the
+                    <MudChip T="string" Size="Size.Small" Color="Color.Success" Class="mx-1">Valid</MudChip> badge means the
                     completion is still current; an
-                    <span class="badge bg-danger">Expired</span> badge means you
+                    <MudChip T="string" Size="Size.Small" Color="Color.Error" Class="mx-1">Expired</MudChip> badge means you
                     need to retake it (it will also appear in "Action needed" above).
-                </div>
+                </MudText>
             </div>
-            <span class="badge bg-secondary">@_history.Count</span>
-        </div>
-        <div class="card-body">
+            <MudChip T="string" Size="Size.Small" Color="Color.Default">@_history.Count</MudChip>
+        </MudStack>
+        <div class="px-4 pb-3">
             @if (_history.Count == 0)
             {
-                <p class="text-muted mb-0">
+                <MudText Typo="Typo.body2" Class="mud-text-secondary mb-0">
                     You haven't completed any training yet. Take one above to get started.
-                </p>
+                </MudText>
             }
             else
             {
-                <div class="table-responsive">
-                    <table class="table mb-0">
-                        <thead>
-                            <tr>
-                                <th>Training</th>
-                                <th>Version</th>
-                                <th>Completed</th>
-                                <th>Expires</th>
-                                <th>Status</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach (var c in _history)
+                <MudTable Items="_history" Hover="true" Dense="true" Elevation="0">
+                    <HeaderContent>
+                        <MudTh>Training</MudTh>
+                        <MudTh>Version</MudTh>
+                        <MudTh>Completed</MudTh>
+                        <MudTh>Expires</MudTh>
+                        <MudTh>Status</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Training">@(context.TrainingContent?.Title ?? "(removed)")</MudTd>
+                        <MudTd DataLabel="Version">v@context.TrainingContentVersion</MudTd>
+                        <MudTd DataLabel="Completed"><LocalTime Utc="@context.CompletionUtc" /></MudTd>
+                        <MudTd DataLabel="Expires">
+                            @if (context.ExpiresUtc.HasValue)
                             {
-                                var valid = c.IsValid(DateTime.UtcNow);
-                                <tr>
-                                    <td>@(c.TrainingContent?.Title ?? "(removed)")</td>
-                                    <td>v@c.TrainingContentVersion</td>
-                                    <td><LocalTime Utc="@c.CompletionUtc" /></td>
-                                    <td>
-                                        @if (c.ExpiresUtc.HasValue)
-                                        {
-                                            <LocalTime Utc="@c.ExpiresUtc.Value" Format="yyyy-MM-dd" />
-                                        }
-                                        else
-                                        {
-                                            <span class="text-muted small">never</span>
-                                        }
-                                    </td>
-                                    <td>
-                                        <span class="badge @(valid ? "bg-success" : "bg-danger")">
-                                            @(valid ? "Valid" : "Expired")
-                                        </span>
-                                    </td>
-                                </tr>
+                                <LocalTime Utc="@context.ExpiresUtc.Value" Format="yyyy-MM-dd" />
                             }
-                        </tbody>
-                    </table>
-                </div>
+                            else
+                            {
+                                <span class="mud-text-secondary mud-text-small">never</span>
+                            }
+                        </MudTd>
+                        <MudTd DataLabel="Status">
+                            @{
+                                var valid = context.IsValid(DateTime.UtcNow);
+                            }
+                            <MudChip T="string" Size="Size.Small"
+                                     Color="@(valid ? Color.Success : Color.Error)">
+                                @(valid ? "Valid" : "Expired")
+                            </MudChip>
+                        </MudTd>
+                    </RowTemplate>
+                </MudTable>
             }
         </div>
-    </section>
+    </MudPaper>
 }
 
 @inject IDbContextFactory<ApplicationDbContext> DbFactory
@@ -170,6 +167,14 @@ else
     // Show the "Manage catalog" CTA only to org admins — the
     // /Training/Manage page itself re-checks the gate as defense in depth.
     private bool _canManageCatalog;
+    // Per-page breadcrumb trail. Same shape as the rest of the migrated
+    // pages — `MudBreadcrumbs` is the MudBlazor equivalent of the old
+    // <ol class="breadcrumb"> block.
+    private List<BreadcrumbItem> _crumbs = new()
+    {
+        new BreadcrumbItem("Home", href: ""),
+        new BreadcrumbItem("My training", href: null, disabled: true),
+    };
 
     protected override async Task OnInitializedAsync()
     {

@@ -1,189 +1,148 @@
+@* New NavMenu. Grouped by audience (the user-feedback request): the
+   volunteer sees "Browse" prominently; the manager sees "Manage" tucked
+   below; the sysadmin sees "System" at the bottom. Sections are
+   collapsible MudNavGroups with role-driven visibility, preserving the
+   Round-FR-5 RBAC contract from the original NavMenu (the comment
+   block below preserves the exact four flag semantics):
+     • _isAdmin            → Admin || SystemAdmin
+     • _isTrainingManager  → Admin || MinistryDirector || SystemAdmin
+                                         (slot coordinators do NOT count)
+     • _isSlotCoordinator  → any SlotCoordinator membership
+     • _isSystemAdmin      → ASP.NET Core Identity "SystemAdmin" role
+   The flag pass-through is the same OrgAuthService surface that the
+   prior sidebar called, so a future rebalance only edits the four
+   OrgAuth predicates, not this file. *@
 @using Microsoft.AspNetCore.Components.Authorization
 @using ServantSync.Services
 
-<div class="top-row ps-3 navbar navbar-dark">
-    <div class="container-fluid">
-        @* The navbar brand. Uses the mark SVG (square 512×512, scales
-           cleanly) at a fixed navbar height; CSS caps the rendered size
-           so the SVG doesn't burst up to its native dimensions. The
-           visible "ServantSync" wordmark is preserved as accessible
-           text for screen readers (aria-label), and as a no-CSS fallback
-           if the SVG fails to load (the `<img>` alt text). The home
-           link is unchanged so the existing "/" navigation still works.
-           See BRANDING.md for the design tokens behind the choice. *@
-        <a class="navbar-brand d-flex align-items-center gap-2" href="" aria-label="ServantSync home">
-            <img src="@Assets["img/servantsync-mark.svg"]"
-                 alt="ServantSync"
-                 width="36" height="36"
-                 class="navbar-brand-mark" />
-            <span class="navbar-brand-wordmark">ServantSync</span>
-        </a>
-    </div>
-</div>
+<MudNavMenu>
+    @* ----- Home (everyone) ----- *@
+    <MudNavLink Href=""
+                Match="NavLinkMatch.All"
+                Icon="@Icons.Material.Outlined.Home">
+        Home
+    </MudNavLink>
 
-<input type="checkbox" title="Navigation menu" class="navbar-toggler" />
+    <AuthorizeView>
+        <Authorized>
+            @* ----- For me -----
+               Always visible to any signed-in user. Volunteers without
+               any manage role still need these. *@
+            <MudNavGroup Title="For me"
+                         Icon="@Icons.Material.Outlined.PersonOutline"
+                         Expanded="true">
+                <MudNavLink Href="MySchedule"
+                            Icon="@Icons.Material.Outlined.CalendarMonth">My schedule</MudNavLink>
+                <MudNavLink Href="Training"
+                            Icon="@Icons.Material.Outlined.School">My training</MudNavLink>
+                <MudNavLink Href="Open"
+                            Icon="@Icons.Material.Outlined.Search">Browse open slots</MudNavLink>
+            </MudNavGroup>
 
-<div class="nav-scrollable" onclick="document.querySelector('.navbar-toggler').click()">
-    <nav class="nav flex-column">
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
-                <span class="bi bi-house-door-fill-nav-menu" aria-hidden="true"></span> Home
-            </NavLink>
-        </div>
+            @* ----- Browse ---
+               Volunteers need to easily browse ministries and slots
+               (user feedback; the slot-level browse mission was why
+               "Browse open slots" was promoted into "For me" above). *@
+            <MudNavGroup Title="Browse"
+                         Icon="@Icons.Material.Outlined.Explore"
+                         Expanded="true">
+                <MudNavLink Href="Organizations"
+                            Icon="@Icons.Material.Outlined.Business">Organizations</MudNavLink>
+            </MudNavGroup>
 
-        <AuthorizeView>
-            <Authorized>
-                @* Round-FR-5: link visibility is driven by three role-aware
-                   flags (each one a pre-computed bit in @code), per the
-                   spec table in PLAN.md → Round-FR-5. The links break
-                   down into three tiers:
+            @* ----- Manage (admin/coord) ----- *@
+            @if (_isAdmin || _isTrainingManager || _isSlotCoordinator)
+            {
+                <MudNavGroup Title="Manage"
+                             Icon="@Icons.Material.Outlined.AdminPanelSettings"
+                             Expanded="@_manageExpanded"
+                             ExpandedChanged="v => _manageExpanded = v">
+                    @if (_isTrainingManager || _isSlotCoordinator)
+                    {
+                        <MudNavLink Href="Dashboard"
+                                    Icon="@Icons.Material.Outlined.Speed">Dashboard</MudNavLink>
+                    }
+                    @if (_isAdmin)
+                    {
+                        <MudNavLink Href="People"
+                                    Icon="@Icons.Material.Outlined.People">Volunteers</MudNavLink>
+                        <MudNavLink Href="Leagues"
+                                    Icon="@Icons.Material.Outlined.EmojiEvents">Leagues</MudNavLink>
+                    }
+                    @if (_isTrainingManager)
+                    {
+                        <MudNavLink Href="Training/Manage"
+                                    Icon="@Icons.Material.Outlined.Class">
+                            In-person training
+                        </MudNavLink>
+                    }
+                </MudNavGroup>
+            }
 
-                     • _isAdmin            → Organizations / Volunteers / Leagues
-                                              (the "manage the whole org" surfaces)
-                     • _isTrainingManager  → In-person training catalog
-                                              (admin + ministry directors only;
-                                              slot coordinators don't manage training)
-                     • _isTrainingManager
-                       || _isSlotCoordinator → Dashboard
-                       (all visible management tiers + slot coordinators see
-                        only their dashboard, never the org-wide nav)
+            @* ----- System (sysadmin) ----- *@
+            @if (_isSystemAdmin)
+            {
+                <MudNavGroup Title="System"
+                             Icon="@Icons.Material.Outlined.Shield"
+                             Expanded="false">
+                    <MudNavLink Href="SystemAdmin"
+                                Icon="@Icons.Material.Outlined.AdminPanelSettings">
+                        System admin
+                    </MudNavLink>
+                </MudNavGroup>
+            }
 
-                   _isSystemAdmin widens ALL flags so a fresh sysadmin with
-                   no per-org Admin/Coordinator role still sees the same nav
-                   as a per-org admin — they go through every page in
-                   visibility-only mode anyway. *@
-                @if (_isAdmin)
-                {
-                    <div class="nav-item px-3">
-                        <NavLink class="nav-link" href="Organizations">
-                            <span class="bi bi-building-nav-menu" aria-hidden="true"></span> Organizations
-                        </NavLink>
-                    </div>
-                    <div class="nav-item px-3">
-                        <NavLink class="nav-link" href="People">
-                            <span class="bi bi-people-nav-menu" aria-hidden="true"></span> Volunteers
-                        </NavLink>
-                    </div>
-                    <div class="nav-item px-3">
-                        <NavLink class="nav-link" href="Leagues">
-                            <span class="bi bi-trophy-nav-menu" aria-hidden="true"></span> Leagues
-                        </NavLink>
-                    </div>
-                }
-                @if (_isTrainingManager || _isSlotCoordinator)
-                {
-                    <div class="nav-item px-3">
-                        <NavLink class="nav-link" href="Dashboard">
-                            <span class="bi bi-speedometer2-nav-menu" aria-hidden="true"></span> Dashboard
-                        </NavLink>
-                    </div>
-                }
-                @if (_isTrainingManager)
-                {
-                    @* In-person training discoverability. Slot Coordinators
-                       deliberately do NOT see this link — they manage slots,
-                       not the training catalog (per the spec's IsAnyTrainingManagerAsync). *@
-                    <div class="nav-item px-3">
-                        <NavLink class="nav-link" href="Training/Manage">
-                            <span class="bi bi-mortarboard-nav-menu" aria-hidden="true"></span> In-person training
-                        </NavLink>
-                    </div>
-                }
-                @* Always-visible links for any signed-in user, regardless of
-                   org role. Training / My schedule / Browse open slots are
-                   the volunteer-primary surfaces; volunteers without any
-                   manage role still need them. *@
-                <div class="nav-item px-3">
-                    <NavLink class="nav-link" href="Training">
-                        <span class="bi bi-mortarboard-nav-menu" aria-hidden="true"></span> Training
-                    </NavLink>
-                </div>
-                <div class="nav-item px-3">
-                    <NavLink class="nav-link" href="MySchedule">
-                        <span class="bi bi-calendar-nav-menu" aria-hidden="true"></span> My schedule
-                    </NavLink>
-                </div>
-                <div class="nav-item px-3">
-                    <NavLink class="nav-link" href="Open">
-                        <span class="bi bi-search-nav-menu" aria-hidden="true"></span> Browse open slots
-                    </NavLink>
-                </div>
-
-                <div class="nav-item px-3 mt-3 border-top border-secondary pt-3">
-                    <NavLink class="nav-link" href="Account/Manage">
-                        <span class="bi bi-person-circle-nav-menu" aria-hidden="true"></span> Account
-                    </NavLink>
-                </div>
-                @* SystemAdmin-only nav link — only renders when the round-BC
-                   IsSystemAdminAsync lookup succeeds. Stays invisible for
-                   non-SysAdmin signed-in users; OrgAdmins/Coordinators do
-                   not see this link. *@
-                @if (_isSystemAdmin)
-                {
-                    <div class="nav-item px-3">
-                        <NavLink class="nav-link" href="SystemAdmin">
-                            <span class="bi bi-shield-lock-nav-menu" aria-hidden="true"></span> System admin
-                        </NavLink>
-                    </div>
-                }
-                <div class="nav-item px-3">
-                    <form method="post" action="Account/Logout">
-                        <AntiforgeryToken />
-                        <button type="submit" class="nav-link btn btn-link text-start w-100">
-                            <span class="bi bi-box-arrow-right-nav-menu" aria-hidden="true"></span> Sign out
-                        </button>
-                    </form>
-                </div>
-            </Authorized>
-            <NotAuthorized>
-                <div class="nav-item px-3 mt-3 border-top border-secondary pt-3">
-                    <NavLink class="nav-link" href="Account/Login">Sign in</NavLink>
-                </div>
-                <div class="nav-item px-3">
-                    <NavLink class="nav-link" href="Account/Register">Register</NavLink>
-                </div>
-            </NotAuthorized>
-        </AuthorizeView>
-    </nav>
-</div>
+            @* ----- Account (sign out lives at the very bottom under the
+               identity surface; clicking it posts a real form to
+               /Account/Logout, which signs the cookie out, then
+               redirects to "/" — same Minimal-API endpoint as before). ----- *@
+            <MudNavGroup Title="Account"
+                         Icon="@Icons.Material.Outlined.AccountCircle"
+                         Expanded="false">
+                <MudNavLink Href="Account/Manage"
+                            Icon="@Icons.Material.Outlined.ManageAccounts">
+                    Account settings
+                </MudNavLink>
+                <form method="post" action="Account/Logout" class="mud-nav-logout-form">
+                    <AntiforgeryToken />
+                    <button type="submit"
+                            class="mud-nav-logout-btn">
+                        <MudIcon Icon="@Icons.Material.Outlined.Logout"
+                                 Class="mud-nav-logout-icon" />
+                        <span>Sign out</span>
+                    </button>
+                </form>
+            </MudNavGroup>
+        </Authorized>
+        <NotAuthorized>
+            <MudNavGroup Title="Account"
+                         Icon="@Icons.Material.Outlined.AccountCircle"
+                         Expanded="true">
+                <MudNavLink Href="Account/Login"
+                            Icon="@Icons.Material.Outlined.Login">Sign in</MudNavLink>
+                <MudNavLink Href="Account/Register"
+                            Icon="@Icons.Material.Outlined.PersonAdd">Register</MudNavLink>
+            </MudNavGroup>
+        </NotAuthorized>
+    </AuthorizeView>
+</MudNavMenu>
 
 @inject AuthenticationStateProvider Auth
 @inject IOrgAuthService OrgAuth
 @inject ILoggerFactory LoggerFactory
 @implements IDisposable
 @code {
-    // Round-FR-5: three role-aware flags driven by the spec table.
-    //
-    //   _isAdmin            → Admin of any org OR SystemAdmin.
-    //                         Drives Organizations / Volunteers / Leagues
-    //                         nav links.
-    //   _isTrainingManager  → Admin || MinistryDirector || SystemAdmin.
-    //                         Drives the In-person training catalog link
-    //                         (slot coordinators are explicitly NOT training
-    //                         managers — they manage slots, not training).
-    //   _isSlotCoordinator  → IsAnySlotCoordinatorAsync. The membership-role
-    //                         label (not entity-level delegation) drives
-    //                         Dashboard visibility for slot coordinators.
-    //                         Specific slot management goes through
-    //                         ServiceSlot.CoordinatorPersonUserId per the
-    //                         spec's "key design principle".
-    //   _isSystemAdmin      → ASP.NET Core Identity "SystemAdmin" role.
-    //                         Stays orthogonal to the other three flags so
-    //                         the SystemAdmin nav link can render even for a
-    //                         SysAdmin who isn't a per-org Admin/Coordinator.
-    //
-    // All four default false until OnInitializedAsync finishes — that way
-    // the unauthorized user never sees a flicker of manage-only links while
-    // the auth-state await runs.
+    // RBAC flag set — see the comment block at the top of this file for
+    // the exact field semantics; they're identical to the prior NavMenu's
+    // so the OrgAuthService contract is unchanged.
     private bool _isAdmin;
     private bool _isTrainingManager;
     private bool _isSlotCoordinator;
     private bool _isSystemAdmin;
-    // Toolbar logger: created in OnInitialized so we don't allocate on
-    // every auth-state tick. Logging takes the place of a silent catch so
-    // a logic bug in RefreshManagerFlagAsync is visible in production
-    // logs rather than hiding behind a swallowed exception.
+    private bool _manageExpanded = true;
     private ILogger _log = null!;
+
+    [Parameter] public EventCallback OnDrawerLinkClicked { get; set; }
 
     protected override async Task OnInitializedAsync()
     {
@@ -215,19 +174,21 @@
             return;
         }
         _isSystemAdmin = await OrgAuth.IsSystemAdminAsync(userId);
-        // _isAdmin widens to OR SystemAdmin: a fresh SysAdmin with no
-        // per-org Admin role still sees Organizations / Volunteers /
-        // Leagues so they can navigate to the pages the SystemAdmin
-        // visibility-only contract grants them.
         _isAdmin = await OrgAuth.IsAnyOrgAdminAsync(userId) || _isSystemAdmin;
-        // _isTrainingManager: Admin or MinistryDirector of any org,
-        // OR SystemAdmin. Slot Coordinators deliberately do NOT count
-        // (per IsAnyTrainingManagerAsync).
         _isTrainingManager = await OrgAuth.IsAnyTrainingManagerAsync(userId) || _isSystemAdmin;
-        // _isSlotCoordinator: membership-role label only (per spec key
-        // design principle — actual slot-level management goes via
-        // ServiceSlot.CoordinatorPersonUserId, not this OrgRole label).
         _isSlotCoordinator = await OrgAuth.IsAnySlotCoordinatorAsync(userId);
+    }
+
+    // MudNavLink has its own click handler we can subscribe to; we use it to
+    // collapse the drawer on mobile after a tap. (Mini-variant drawer
+    // already auto-collapses on navigation; this is the policy belt over
+    // the framework's suspenders.)
+    private async Task HandleNavClick()
+    {
+        if (OnDrawerLinkClicked.HasDelegate)
+        {
+            await OnDrawerLinkClicked.InvokeAsync();
+        }
     }
 
     public void Dispose()

@@ -1,5 +1,5 @@
 @*
-    Bootstrap-flavored skeleton placeholder. Use in place of a "0" or
+    MudBlazor-flavored skeleton placeholder. Use in place of a "0" or
     empty value while async data is loading so the page doesn't flash
     zeros before the real data arrives.
 
@@ -8,19 +8,16 @@
     `Columns` (`col-1`…`col-12`) to control the visual width within
     its container.
 
-    Renders as `aria-hidden="true"` because it's purely visual chrome
-    — the surrounding label conveys what's loading for screen readers.
+    `aria-hidden="true"` on the <MudSkeleton> because it's purely
+    visual chrome — the surrounding label conveys what's loading for
+    screen readers.
 
-    Note: Bootstrap's `placeholder-lg` only bumps min-height to 2.5em,
-    which is too small for `display-6` (~4rem). For `Size="Display"` we
-    set an explicit inline `min-height` so the shimmer's row height
-    matches what the real number will occupy — otherwise the layout
-    shifts visibly when data arrives.
+    `MudSkeleton SkeletonType="Rectangle"` with `Style="min-height: 4rem"`
+    matches the height of `display-6` text (~4rem) so the layout
+    doesn't shift visibly when data arrives.
 *@
 
-<span class="placeholder-glow" aria-hidden="true">
-    <span class="placeholder @SizeClass @ColClass" style="@StyleAttr"></span>
-</span>
+<MudSkeleton SkeletonType="@_mudType" Class="@ColClass" Style="@StyleAttr" aria-hidden="true" />
 
 @code {
     [Parameter] public SkeletonSize Size { get; set; } = SkeletonSize.Medium;
@@ -28,13 +25,13 @@
 
     public enum SkeletonSize { Small, Medium, Large, Display }
 
-    private string SizeClass => Size switch
+    private SkeletonType _mudType => Size switch
     {
-        SkeletonSize.Small   => "placeholder-sm",
-        SkeletonSize.Medium  => "",
-        SkeletonSize.Large   => "placeholder-lg",
-        SkeletonSize.Display => "display-6",
-        _ => "",
+        SkeletonSize.Small   => SkeletonType.Text,
+        SkeletonSize.Medium  => SkeletonType.Text,
+        SkeletonSize.Large   => SkeletonType.Rectangle,
+        SkeletonSize.Display => SkeletonType.Rectangle,
+        _ => SkeletonType.Text,
     };
     private string ColClass => $"col-{Math.Clamp(Columns, 1, 12)}";
 

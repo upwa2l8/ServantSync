@@ -4,107 +4,116 @@
 
 <PageTitle>@(_slot?.Name ?? "Service slot")</PageTitle>
 
-<nav aria-label="breadcrumb" class="mb-2">
-    <ol class="breadcrumb mb-0">
-        <li class="breadcrumb-item"><a href="">Home</a></li>
-        <li class="breadcrumb-item"><a href="Organizations">Organizations</a></li>
-        <li class="breadcrumb-item"><a href="@($"Organizations/{OrgId}")">Org #{OrgId}</a></li>
-        <li class="breadcrumb-item"><a href="@($"Organizations/{OrgId}/Ministries/{MinId}")">Ministry #{MinId}</a></li>
-        <li class="breadcrumb-item active" aria-current="page">@(_slot?.Name ?? $"Slot #{Id}")</li>
-    </ol>
-</nav>
+<MudBreadcrumbs Items="_crumbs" Class="mb-2 px-0" />
 
 @if (_slot is null)
 {
-    <p><em>Loading…</em></p>
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
 }
 else
 {
-    <div class="d-flex justify-content-between align-items-center mb-3">
+    <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Start" Class="mb-3" Spacing="2">
         <div>
-            <h1 class="mb-0">@_slot.Name</h1>
-            <div class="text-muted">@_slot.Description</div>
+            <MudText Typo="Typo.h4" Class="mb-0">@_slot.Name</MudText>
+            <MudText Typo="Typo.body2" Class="mud-text-secondary">@_slot.Description</MudText>
             @if (!string.IsNullOrWhiteSpace(_slot.Location))
             {
-                <div class="text-muted small"><span class="bi bi-geo-alt" aria-hidden="true"></span> @_slot.Location</div>
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                    <MudIcon Icon="@Icons.Material.Outlined.Place" Size="Size.Small" /> @_slot.Location
+                </MudText>
             }
         </div>
-        @* Manager-only action buttons. _canManage is already computed in
-           OnInitializedAsync via SlotDocs.CanManageSlotAsync (which consults
-           OrgAuthService); the same gate is also enforced server-side by the
-           underlying Edit/Schedule/Series pages, so hiding here just avoids
-           403-on-submit UX. *@
-        @if (_canManage)
-        {
-            <div class="d-flex gap-2">
-                <a class="btn btn-outline-secondary"
-                   href="@($"Organizations/{OrgId}/Ministries/{MinId}/Roles/{Id}/Edit")">Edit slot</a>
-                <a class="btn btn-primary"
-                   href="@($"Organizations/{OrgId}/Ministries/{MinId}/Roles/{Id}/Schedule")">Schedule one</a>
-                <a class="btn btn-secondary"
-                   href="@($"Organizations/{OrgId}/Ministries/{MinId}/Roles/{Id}/Series")">Schedule series</a>
-            </div>
-        }
-        @* Round-FR-7: per-volunteer Subscribe toggle. Anyone in the parent
-           org sees this — it's the explicit opt-in surface for the
-           slot-level filter on /Open. Out-of-org visitors (who hit the
-           404 fallback above) don't see this row at all. The toggle
-           mirrors the Ministries/Detail.razor "Join this ministry"
-           affordance: single click → flicker-free flip via the
-           optimistic local update; error reverts. *@
-        @if (_isInOrg)
-        {
-            <div class="mt-2">
-                <button class="btn @(_subscribed ? "btn-outline-success" : "btn-primary")"
-                        type="button"
-                        disabled="@_busySubscribe"
-                        @onclick="ToggleSubscriptionAsync"
-                        title="@(_subscribed ? "Stop including this slot's shifts in the My slots filter on /Open" : "Add this slot's shifts to the My slots filter on /Open")">
-                    @if (_subscribed)
+        <MudStack Spacing="2" AlignItems="AlignItems.End">
+            @* Manager-only action buttons. _canManage is already computed in
+               OnInitializedAsync via SlotDocs.CanManageSlotAsync (which consults
+               OrgAuthService); the same gate is also enforced server-side by the
+               underlying Edit/Schedule/Series pages, so hiding here just avoids
+               403-on-submit UX. *@
+            @if (_canManage)
+            {
+                <MudStack Row="true" Spacing="2">
+                    <MudButton Variant="Variant.Outlined" Color="Color.Default"
+                               Href="@LinkBuilder.SlotEditHref(OrgId, MinId, Id)">
+                        Edit slot
+                    </MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                               Href="@LinkBuilder.SlotScheduleHref(OrgId, MinId, Id)">
+                        Schedule one
+                    </MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Secondary"
+                               Href="@LinkBuilder.SlotSeriesHref(OrgId, MinId, Id)">
+                        Schedule series
+                    </MudButton>
+                </MudStack>
+            }
+            @* Round-FR-7: per-volunteer Subscribe toggle. Anyone in the parent
+               org sees this — it's the explicit opt-in surface for the
+               slot-level filter on /Open. Out-of-org visitors (who hit the
+               404 fallback above) don't see this row at all. The toggle
+               mirrors the Ministries/Detail.razor "Join this ministry"
+               affordance: single click → flicker-free flip via the
+               optimistic local update; error reverts. *@
+            @if (_isInOrg)
+            {
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                    <MudButton Variant="@(_subscribed ? Variant.Outlined : Variant.Filled)"
+                               Color="@(_subscribed ? Color.Success : Color.Primary)"
+                               Disabled="@_busySubscribe"
+                               OnClick="ToggleSubscriptionAsync"
+                               StartIcon="@(_subscribed ? Icons.Material.Filled.CheckCircle : Icons.Material.Outlined.BookmarkAdd)"
+                               title="@(_subscribed ? "Stop including this slot's shifts in the My slots filter on /Open" : "Add this slot's shifts to the My slots filter on /Open")">
+                        @if (_subscribed)
+                        {
+                            @(_busySubscribe ? "Updating…" : $"Subscribed (since {_subscribedUtc:MMM d, yyyy})")
+                        }
+                        else
+                        {
+                            @(_busySubscribe ? "Updating…" : "Subscribe to this slot")
+                        }
+                    </MudButton>
+                    @if (_subscribeError is not null)
                     {
-                        <span class="bi bi-check-circle-fill me-1" aria-hidden="true"></span>
-                        @(_busySubscribe ? "Updating…" : $"Subscribed (since {_subscribedUtc:MMM d, yyyy})")
+                        <MudText Typo="Typo.caption" Color="Color.Error">@_subscribeError</MudText>
                     }
-                    else
-                    {
-                        <span class="bi bi-bookmark-plus me-1" aria-hidden="true"></span>
-                        @(_busySubscribe ? "Updating…" : "Subscribe to this slot")
-                    }
-                </button>
-                @if (_subscribeError is not null)
-                {
-                    <span class="text-danger small ms-2" role="alert">@_subscribeError</span>
-                }
-            </div>
-        }
-    </div>
+                </MudStack>
+            }
+        </MudStack>
+    </MudStack>
 
-    <div class="card mb-4 shadow-sm">
-        <div class="card-header"><h5 class="mb-0"><span class="bi bi-person-badge me-1" aria-hidden="true"></span>Slot coordinator</h5></div>
-        <div class="card-body">
-            @if (_slot.CoordinatorPerson is null
-                && string.IsNullOrWhiteSpace(_slot.CoordinatorEmail)
-                && string.IsNullOrWhiteSpace(_slot.CoordinatorPhone))
+    <MudPaper Outlined="true" Class="mb-4 pa-3">
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="mb-2">
+            <MudIcon Icon="@Icons.Material.Outlined.Badge" />
+            <MudText Typo="Typo.h6">Slot coordinator</MudText>
+        </MudStack>
+        @if (_slot.CoordinatorPerson is null
+            && string.IsNullOrWhiteSpace(_slot.CoordinatorEmail)
+            && string.IsNullOrWhiteSpace(_slot.CoordinatorPhone))
+        {
+            <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                No coordinator assigned. <MudLink Href="@LinkBuilder.SlotEditHref(OrgId, MinId, Id)">Assign one</MudLink> so the slot can be scheduled without going through the ministry coordinator.
+            </MudText>
+        }
+        else
+        {
+            @if (_slot.CoordinatorPerson is not null)
             {
-                <div class="text-muted small">No coordinator assigned. <a href="@($"Organizations/{OrgId}/Ministries/{MinId}/Roles/{Id}/Edit")">Assign one</a> so the slot can be scheduled without going through the ministry coordinator.</div>
+                <MudText Class="mb-2"><strong><MudLink Href="@LinkBuilder.PersonHref(_slot.CoordinatorPerson.UserId)">@_slot.CoordinatorPerson.DisplayName</MudLink></strong></MudText>
             }
-            else
+            @if (!string.IsNullOrWhiteSpace(_slot.CoordinatorEmail))
             {
-                @if (_slot.CoordinatorPerson is not null)
-                {
-                    <div class="mb-2"><strong><a href="@($"People/{_slot.CoordinatorPerson.UserId}")">@_slot.CoordinatorPerson.DisplayName</a></strong></div>
-                }
-                @if (!string.IsNullOrWhiteSpace(_slot.CoordinatorEmail))
-                {
-                    <div class="text-muted small"><span class="bi bi-envelope" aria-hidden="true"></span> <a href="mailto:@_slot.CoordinatorEmail">@_slot.CoordinatorEmail</a></div>
-                }
-                @if (!string.IsNullOrWhiteSpace(_slot.CoordinatorPhone))
-                {
-                    <div class="text-muted small"><span class="bi bi-telephone" aria-hidden="true"></span> @_slot.CoordinatorPhone</div>
-                }
+                <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                    <MudIcon Icon="@Icons.Material.Outlined.Email" Size="Size.Small" />
+                    <MudLink Href="@LinkBuilder.MailtoHref(_slot.CoordinatorEmail)">@_slot.CoordinatorEmail</MudLink>
+                </MudText>
             }
-        </div>
-    </div>
+            @if (!string.IsNullOrWhiteSpace(_slot.CoordinatorPhone))
+            {
+                <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                    <MudIcon Icon="@Icons.Material.Outlined.Phone" Size="Size.Small" /> @_slot.CoordinatorPhone
+                </MudText>
+            }
+        }
+    </MudPaper>
 
     @* Manager-only: the SlotTrainingEditor is the affordance for adding
        or removing TrainingRequirement rows scoped to this slot. A
@@ -117,183 +126,219 @@ else
        orphan section header. *@
     @if (_canManage)
     {
-        <h5>Slot-specific training</h5>
+        <MudText Typo="Typo.h6" Class="mb-2">Slot-specific training</MudText>
         <SlotTrainingEditor ServiceSlotId="Id" />
     }
 
-    <h5 class="mt-4">Upcoming assignments</h5>
+    <MudText Typo="Typo.h6" Class="mt-4 mb-2">Upcoming assignments</MudText>
     @if (!_slot.Assignments.Any())
     {
-        <div class="alert alert-info">None yet.</div>
+        <MudAlert Severity="Severity.Info">None yet.</MudAlert>
     }
     else
     {
-        <table class="table">                <thead><tr><th>When</th><th>Volunteer</th><th>Status</th></tr></thead>
-            <tbody>
-                @foreach (var a in _slot.Assignments.OrderBy(a => a.StartUtc))
-                {
-                    <tr>
-                        <td><LocalTime Utc="@a.StartUtc" /> – <LocalTime Utc="@a.EndUtc" /></td>
-                        <td><a href="@($"People/{a.PersonUserId}")">@a.Person.DisplayName</a></td>
-                        <td>@a.Status</td>
-                    </tr>
-                }
-            </tbody>
-        </table>
+        <MudPaper Outlined="true">
+            <MudTable Items="_slot.Assignments.OrderBy(a => a.StartUtc).ToList()" Hover="true" Dense="true" Elevation="0">
+                <HeaderContent>
+                    <MudTh>When</MudTh>
+                    <MudTh>Volunteer</MudTh>
+                    <MudTh>Status</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="When">
+                        <LocalTime Utc="@context.StartUtc" /> – <LocalTime Utc="@context.EndUtc" />
+                    </MudTd>
+                    <MudTd DataLabel="Volunteer">
+                        <MudLink Href="@LinkBuilder.PersonHref(context.PersonUserId)">@context.Person.DisplayName</MudLink>
+                    </MudTd>
+                    <MudTd DataLabel="Status">
+                        <MudChip T="string" Size="Size.Small" Color="@AssignmentStatusUi.MudColorFor(context.Status)">
+                            @context.Status
+                        </MudChip>
+                    </MudTd>
+                </RowTemplate>
+            </MudTable>
+        </MudPaper>
     }
 
-    <div class="card mt-4 shadow-sm">
-        <div class="card-header d-flex justify-content-between align-items-center">
-            <h5 class="mb-0"><span class="bi bi-folder2-open me-1" aria-hidden="true"></span>Shared documents</h5>
+    <MudPaper Outlined="true" Class="mt-4 pa-3">
+        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-2">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                <MudIcon Icon="@Icons.Material.Outlined.FolderOpen" />
+                <MudText Typo="Typo.h6">Shared documents</MudText>
+            </MudStack>
             @if (_docGroups is not null && _totalDocCount > 0)
             {
-                <span class="badge text-bg-light">@_totalDocCount file@(_totalDocCount == 1 ? "" : "s")</span>
+                <MudChip T="string" Size="Size.Small" Color="Color.Default">
+                    @_totalDocCount file@(_totalDocCount == 1 ? "" : "s")
+                </MudChip>
             }
-        </div>
-        <div class="card-body">
-            @if (_canManage)
-            {
-                <div class="card mb-3 border">
-                    <div class="card-body">
-                        <h6 class="card-title"><span class="bi bi-cloud-upload me-1" aria-hidden="true"></span>Upload a document</h6>
-                        <p class="text-muted small">Share reference materials (bulletins, set lists, setup guides, run sheets) with the volunteers who hold this slot. Anyone assigned to the slot can download.</p>
-                        <div class="mb-2">
-                            <label for="doc-file" class="form-label small text-muted">File — PDF, DOCX, image, etc. (max @SlotUploadLimits.MaxFileSizeDisplay)</label>
-                            <InputFile OnChange="HandleFileSelected" class="form-control" id="doc-file"
-                                       accept=".pdf,.docx,.doc,.xlsx,.xls,.pptx,.ppt,.txt,.md,.csv,.png,.jpg,.jpeg,.gif,.webp,.svg" />
-                        </div>
-                        <div class="row g-2 mb-2">
-                            <div class="col-md-7">
-                                <label for="doc-title" class="visually-hidden">Document title</label>
-                                <input @bind="_newDoc.Title" id="doc-title" placeholder="Title"
-                                       class="form-control" aria-label="Document title" maxlength="160" />
-                            </div>
-                            <div class="col-md-5">
-                                <label for="doc-category" class="visually-hidden">Category</label>
-                                <input @bind="_newDoc.Category" id="doc-category" placeholder="Category (optional, e.g. Music, Setup)"
-                                       class="form-control" aria-label="Category (optional)" maxlength="80" />
-                            </div>
-                        </div>
-                        <label for="doc-description" class="visually-hidden">Description</label>
-                        <textarea @bind="_newDoc.Description" id="doc-description" placeholder="Description (optional)"
-                                  class="form-control mb-2" rows="2" aria-label="Description (optional)" maxlength="2000"></textarea>
-                        @if (_uploadError is not null)
-                        {
-                            <div class="alert alert-danger py-2 mb-2 d-flex justify-content-between align-items-start gap-2" role="alert">
-                                <div><strong>Upload failed:</strong> @_uploadError</div>
-                                <button type="button" class="btn-close" @onclick="() => _uploadError = null" aria-label="Dismiss"></button>
-                            </div>
-                        }
-                        <button @onclick="UploadDocumentAsync"
-                                disabled="@(_busy || _newFile is null || string.IsNullOrWhiteSpace(_newDoc.Title))"
-                                class="btn btn-primary">
-                            @(_busy ? "Uploading…" : "Upload")
-                        </button>
-                    </div>
-                </div>
-            }
-
-            @if (_deleteError is not null)
-            {
-                <div class="alert alert-danger alert-dismissible fade show" role="alert">
-                    <strong>Couldn't delete:</strong> @_deleteError
-                    <button type="button" class="btn-close" @onclick="() => _deleteError = null" aria-label="Dismiss"></button>
-                </div>
-            }
-
-            @if (_replaceError is not null)
-            {
-                <div class="alert alert-danger alert-dismissible fade show" role="alert">
-                    <strong>Couldn't replace:</strong> @_replaceError
-                    <button type="button" class="btn-close" @onclick="() => _replaceError = null" aria-label="Dismiss"></button>
-                </div>
-            }
-
-            @if (_docGroups is null)
-            {
-                <p class="text-muted mb-0"><em>Loading documents…</em></p>
-            }
-            else if (_docGroups.Count == 0)
-            {
-                <div class="text-center text-muted py-4">
-                    <div class="bi bi-folder2 fs-1 d-block mb-2" aria-hidden="true"></div>
-                    <div class="fw-semibold">No documents shared yet.</div>
-                    @if (_canManage)
+        </MudStack>
+        @if (_canManage)
+        {
+            <MudPaper Outlined="true" Class="mb-3 pa-3">
+                <MudText Typo="Typo.subtitle1" Class="mb-1">
+                    <MudIcon Icon="@Icons.Material.Outlined.CloudUpload" Size="Size.Small" /> Upload a document
+                </MudText>
+                <MudText Typo="Typo.body2" Class="mud-text-secondary mb-2">
+                    Share reference materials (bulletins, set lists, setup guides, run sheets) with the volunteers who hold this slot. Anyone assigned to the slot can download.
+                </MudText>
+                <MudStack Spacing="2">
+                    <MudFileUpload T="IBrowserFile"
+                                   FilesChanged="HandleFileSelected"
+                                   Accept=".pdf,.docx,.doc,.xlsx,.xls,.pptx,.ppt,.txt,.md,.csv,.png,.jpg,.jpeg,.gif,.webp,.svg">
+                        <ActivatorContent>
+                            <MudButton HtmlTag="label"
+                                       Variant="Variant.Outlined"
+                                       Color="Color.Primary"
+                                       StartIcon="@Icons.Material.Outlined.CloudUpload">
+                                @(_newFile is null ? "Choose file" : _newFile.Name)
+                            </MudButton>
+                        </ActivatorContent>
+                    </MudFileUpload>
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                        Max file size: @SlotUploadLimits.MaxFileSizeDisplay
+                    </MudText>
+                    <MudTextField T="string" @bind-Value="_newDoc.Title"
+                                  Label="Title" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                  Required="true" MaxLength="160" />
+                    <MudTextField T="string" @bind-Value="_newDoc.Category"
+                                  Label="Category (optional, e.g. Music, Setup)"
+                                  Variant="Variant.Outlined" Margin="Margin.Dense" MaxLength="80" />
+                    <MudTextField T="string" @bind-Value="_newDoc.Description"
+                                  Label="Description (optional)"
+                                  Variant="Variant.Outlined" Margin="Margin.Dense" Lines="2" MaxLength="2000" />
+                    @if (_uploadError is not null)
                     {
-                        <div class="small">Use the upload form above to share your first reference document with the volunteers who hold this slot.</div>
+                        <MudAlert Severity="Severity.Error" Dense="true" ShowCloseIcon="true"
+                                  CloseIconClicked="() => _uploadError = null">
+                            <strong>Upload failed:</strong> @_uploadError
+                        </MudAlert>
                     }
-                    else
-                    {
-                        <div class="small">Coordinators can upload bulletins, set lists, and other reference materials here.</div>
-                    }
-                </div>
-            }
-            else
-            {
-                @foreach (var group in _docGroups)
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                               Disabled="@(_busy || _newFile is null || string.IsNullOrWhiteSpace(_newDoc.Title))"
+                               OnClick="UploadDocumentAsync">
+                        @(_busy ? "Uploading…" : "Upload")
+                    </MudButton>
+                </MudStack>
+            </MudPaper>
+        }
+
+        @if (_deleteError is not null)
+        {
+            <MudAlert Severity="Severity.Error" ShowCloseIcon="true"
+                      CloseIconClicked="() => _deleteError = null">
+                <strong>Couldn't delete:</strong> @_deleteError
+            </MudAlert>
+        }
+
+        @if (_replaceError is not null)
+        {
+            <MudAlert Severity="Severity.Error" ShowCloseIcon="true"
+                      CloseIconClicked="() => _replaceError = null">
+                <strong>Couldn't replace:</strong> @_replaceError
+            </MudAlert>
+        }
+
+        @if (_docGroups is null)
+        {
+            <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+        }
+        else if (_docGroups.Count == 0)
+        {
+            <div class="text-center mud-text-secondary py-4">
+                <MudIcon Icon="@Icons.Material.Outlined.Folder" Size="Size.Large" Class="d-block mx-auto mb-2" />
+                <div class="fw-semibold">No documents shared yet.</div>
+                @if (_canManage)
                 {
-                    <div class="d-flex justify-content-between align-items-center mt-3 mb-2">
-                        <h6 class="text-muted mb-0">
-                            @if (string.IsNullOrEmpty(group.Category))
-                            {
-                                <span><span class="bi bi-tag me-1" aria-hidden="true"></span>Uncategorized</span>
-                            }
-                            else
-                            {
-                                <span><span class="bi bi-folder2 me-1" aria-hidden="true"></span>@group.Category</span>
-                            }
-                        </h6>
-                        <span class="badge text-bg-light">@group.Documents.Count</span>
-                    </div>
-                    <ul class="list-group mb-2">
+                    <MudText Typo="Typo.caption">Use the upload form above to share your first reference document with the volunteers who hold this slot.</MudText>
+                }
+                else
+                {
+                    <MudText Typo="Typo.caption">Coordinators can upload bulletins, set lists, and other reference materials here.</MudText>
+                }
+            </div>
+        }
+        else
+        {
+            @foreach (var group in _docGroups)
+            {
+                <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mt-3 mb-2">
+                    <MudText Typo="Typo.subtitle1" Class="mb-0 mud-text-secondary">
+                        @if (string.IsNullOrEmpty(group.Category))
+                        {
+                            <MudIcon Icon="@Icons.Material.Outlined.Tag" Size="Size.Small" /><text> Uncategorized</text>
+                        }
+                        else
+                        {
+                            <MudIcon Icon="@Icons.Material.Outlined.Folder" Size="Size.Small" /> @group.Category
+                        }
+                    </MudText>
+                    <MudChip T="string" Size="Size.Small" Color="Color.Default">@group.Documents.Count</MudChip>
+                </MudStack>
+                <MudPaper Outlined="true" Class="mb-2">
+                    <MudList T="SlotDocument" Dense="true">
                         @foreach (var doc in group.Documents)
                         {
-                            <li class="list-group-item d-flex justify-content-between align-items-start">
-                                <div class="me-3">
+                            <MudListItem T="SlotDocument" Icon="@Icons.Material.Outlined.Description">
+                                <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Start">
                                     <div>
-                                        <span class="badge text-bg-light border me-2"
-                                              title="@doc.OriginalFileName"
-                                              aria-label="@GetFileTypeLabel(doc.OriginalFileName) document">@GetFileTypeLabel(doc.OriginalFileName)</span>
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Default" Class="mr-2"
+                                                 title="@doc.OriginalFileName"
+                                                 aria-label="@GetDocAriaLabel(doc.OriginalFileName)">
+                                            @GetFileTypeLabel(doc.OriginalFileName)
+                                        </MudChip>
                                         <strong>@doc.Title</strong>
+                                        @if (!string.IsNullOrWhiteSpace(doc.Description))
+                                        {
+                                            <MudText Typo="Typo.caption" Class="mud-text-secondary mt-1">@doc.Description</MudText>
+                                        }
+                                        <MudText Typo="Typo.caption" Class="mud-text-secondary mt-1">
+                                            <MudIcon Icon="@Icons.Material.Outlined.AttachFile" Size="Size.Small" /> @doc.OriginalFileName
+                                            <span class="ml-2">@FormatSize(doc.SizeBytes)</span>
+                                            <span class="ml-2">· uploaded <LocalTime Utc="@doc.UploadedUtc" Format="MMM d, yyyy" /> by @(doc.UploadedByPerson?.DisplayName ?? "Unknown uploader")</span>
+                                        </MudText>
                                     </div>
-                                    @if (!string.IsNullOrWhiteSpace(doc.Description))
-                                    {
-                                        <div class="text-muted small mt-1">@doc.Description</div>
-                                    }
-                                    <div class="text-muted small mt-1">
-                                        <span class="bi bi-paperclip" aria-hidden="true"></span> @doc.OriginalFileName
-                                        <span class="ms-2">@FormatSize(doc.SizeBytes)</span>
-                                        <span class="ms-2">· uploaded <LocalTime Utc="@doc.UploadedUtc" Format="MMM d, yyyy" /> by @(doc.UploadedByPerson?.DisplayName ?? "Unknown uploader")</span>
-                                    </div>
-                                </div>
-                                <div class="btn-group btn-group-sm flex-shrink-0">
-                                    <a class="btn btn-outline-primary"
-                                       href="/slots/@doc.ServiceSlotId/documents/@doc.Id/download"
-                                       target="_blank" rel="noopener"
-                                       aria-label="Download @doc.Title">Download</a>
-                                    @if (_canManage)
-                                    {
-                                        <InputFile OnChange="@(async e => await ReplaceFileAsync(doc.Id, e))"
-                                                   id="@($"replace-{doc.Id}")"
-                                                   accept=".pdf,.docx,.doc,.xlsx,.xls,.pptx,.ppt,.txt,.md,.csv,.png,.jpg,.jpeg,.gif,.webp,.svg"
-                                                   class="d-none" />
-                                        <label class="btn btn-outline-secondary"
-                                               for="@($"replace-{doc.Id}")"
-                                               aria-label="@($"Replace file for {doc.Title}")"
-                                               title="Replace the file (keeps the same title, description, and category)">Replace</label>
-                                        <button class="btn btn-outline-danger"
-                                                @onclick="() => AskDelete(doc.Id, doc.Title)"
-                                                disabled="@_busy"
-                                                aria-label="Delete @doc.Title">Delete</button>
-                                    }
-                                </div>
-                            </li>
+                                    <MudStack Row="true" Spacing="1" Class="flex-shrink-0">
+                                        <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small"
+                                                   Href="@LinkBuilder.DocDownloadHref(doc.ServiceSlotId, doc.Id)"
+                                                   Target="_blank" rel="noopener"
+                                                   aria-label="@DownloadAriaLabel(doc.Title)"
+                                                   StartIcon="@Icons.Material.Outlined.Download">
+                                            Download
+                                        </MudButton>
+                                        @if (_canManage)
+                                        {
+                                            <MudFileUpload T="IBrowserFile"
+                                                           FilesChanged="e => ReplaceFileAsync(doc.Id, e)"
+                                                           Accept=".pdf,.docx,.doc,.xlsx,.xls,.pptx,.ppt,.txt,.md,.csv,.png,.jpg,.jpeg,.gif,.webp,.svg">
+                                                <ActivatorContent>
+                                                    <MudButton HtmlTag="label"
+                                                               Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small"
+                                                               aria-label="@ReplaceAriaLabel(doc.Title)"
+                                                               title="Replace the file (keeps the same title, description, and category)"
+                                                               StartIcon="@Icons.Material.Outlined.SwapHoriz">
+                                                        Replace
+                                                    </MudButton>
+                                                </ActivatorContent>
+                                            </MudFileUpload>
+                                            <MudButton Variant="Variant.Outlined" Color="Color.Error" Size="Size.Small"
+                                                       OnClick="@(() => AskDelete(doc.Id, doc.Title))"
+                                                       Disabled="@_busy"
+                                                       aria-label="@DeleteAriaLabel(doc.Title)"
+                                                       StartIcon="@Icons.Material.Outlined.Delete">
+                                                Delete
+                                            </MudButton>
+                                        }
+                                    </MudStack>
+                                </MudStack>
+                            </MudListItem>
                         }
-                    </ul>
-                }
+                    </MudList>
+                </MudPaper>
             }
-        </div>
-    </div>
+        }
+    </MudPaper>
 
     <ConfirmDialog Visible="_confirmingDelete"
                    Title="Delete document?"
@@ -343,6 +388,11 @@ else
     private DateTime? _subscribedUtc;
     private bool _busySubscribe;
     private string? _subscribeError;
+    // Per-page breadcrumb trail. Same shape as the rest of the migrated
+    // pages — `MudBreadcrumbs` is the MudBlazor equivalent of the old
+    // <ol class="breadcrumb"> block. Slot #N is appended after the
+    // slot row is loaded (when the title becomes known).
+    private List<BreadcrumbItem> _crumbs = new();
 
     protected override async Task OnInitializedAsync()
     {
@@ -351,6 +401,19 @@ else
             .Include(s => s.Assignments).ThenInclude(a => a.Person)
             .Include(s => s.CoordinatorPerson)
             .FirstOrDefaultAsync(s => s.Id == Id);
+
+        // Build the breadcrumb once we have the slot row. The intermediate
+        // ids (Org / Ministry) are real even before their data is loaded,
+        // so the static path is enough — the user clicks back to the
+        // ministry page even if the underlying name never renders.
+        _crumbs = new()
+        {
+            new BreadcrumbItem("Home", href: ""),
+            new BreadcrumbItem("Organizations", href: "Organizations"),
+            new BreadcrumbItem($"Org #{OrgId}", href: $"Organizations/{OrgId}"),
+            new BreadcrumbItem($"Ministry #{MinId}", href: $"Organizations/{OrgId}/Ministries/{MinId}"),
+            new BreadcrumbItem(_slot?.Name ?? $"Slot #{Id}", href: null, disabled: true),
+        };
 
         var state = await Auth.GetAuthenticationStateAsync();
         var userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
@@ -380,9 +443,9 @@ else
         _docGroups = await SlotDocs.ListGroupedByCategoryAsync(Id);
     }
 
-    private void HandleFileSelected(InputFileChangeEventArgs e)
+    private void HandleFileSelected(IBrowserFile? file)
     {
-        _newFile = e.File;
+        _newFile = file;
         _uploadError = null;
         // Pre-fill the title with the file name (without extension) if the
         // coordinator hasn't typed one yet — common case.
@@ -473,8 +536,9 @@ else
         }
     }
 
-    private async Task ReplaceFileAsync(int documentId, InputFileChangeEventArgs e)
+    private async Task ReplaceFileAsync(int documentId, IBrowserFile? file)
     {
+        if (file is null) return;
         var state = await Auth.GetAuthenticationStateAsync();
         var userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
         if (string.IsNullOrEmpty(userId)) return;
@@ -486,9 +550,9 @@ else
             // 10 MB cap from SlotUploadLimits; SlotDocumentService.ReplaceAsync enforces
             // the same limit on the server (throwing ArgumentException if exceeded),
             // which we surface via _replaceError.
-            await using var stream = e.File.OpenReadStream(maxAllowedSize: SlotUploadLimits.MaxFileSizeBytes);
+            await using var stream = file.OpenReadStream(maxAllowedSize: SlotUploadLimits.MaxFileSizeBytes);
             await SlotDocs.ReplaceAsync(
-                documentId, stream, e.File.Name, e.File.ContentType, e.File.Size, userId);
+                documentId, stream, file.Name, file.ContentType, file.Size, userId);
             await ReloadDocumentsAsync();
         }
         catch (Exception ex)
@@ -507,6 +571,27 @@ else
         if (bytes < 1024 * 1024) return $"{bytes / 1024.0:0.#} KB";
         return $"{bytes / (1024.0 * 1024.0):0.#} MB";
     }
+
+    /// <summary>
+    /// Screen-reader label for the file-type pill on each document
+    /// row. Pre-computed via a helper because the inline Razor
+    /// expression with a string-literal inside the aria-label attribute
+    /// was ambiguous to the Razor parser in .NET 9.
+    /// </summary>
+    private static string GetDocAriaLabel(string fileName) =>
+        $"{GetFileTypeLabel(fileName)} document";
+
+    // Aria-label helpers below are page-specific (they reference
+    // document titles) and stay file-local. All href builders now
+    // live in the shared Components/Shared/LinkBuilder.cs.
+    private static string DownloadAriaLabel(string title) =>
+        $"Download {title}";
+
+    private static string ReplaceAriaLabel(string title) =>
+        $"Replace file for {title}";
+
+    private static string DeleteAriaLabel(string title) =>
+        $"Delete {title}";
 
     /// <summary>
     /// Short, human-readable label for the file extension — used as a

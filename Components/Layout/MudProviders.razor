@@ -1,0 +1,30 @@
+@* MudBlazor provider island.
+
+   WHY A SEPARATE COMPONENT WITH @rendermode HERE.
+   MudBlazor's MudThemeProvider + MudPopoverProvider + MudDialogProvider +
+   MudSnackbarProvider all require InteractiveServer context for theme
+   variables to flow and popovers / dialogs / snackbars to mount.
+
+   MainLayout itself CANNOT carry @rendermode (Body is a RenderFragment that
+   can't be serialized across the rendermode boundary — see the full
+   explanation in `Components/Routes.razor`). But a *child* component of a
+   non-interactive layout CAN carry @rendermode, so this component sits
+   inside MainLayout and acts as the single "everything interactive needs
+   to mount below this line" anchor. Pages that opt into
+   `@rendermode InteractiveServer` get their own circuit anyway, and
+   non-interactive pages (Login, Register) keep working as static SSR
+   because the providers themselves only matter for interactive fragments.
+
+   Theme: <see cref="ServantSyncTheme.Build"/> maps MudTheme to the
+   BRANDING.md color tokens — Primary=indigo (#3730a3), Secondary=violet,
+   Tertiary=purple, Warning=amber, Error=rose, AppbarBackground=#1f1f2e. *@
+@rendermode InteractiveServer
+
+<MudThemeProvider Theme="_theme" />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
+@code {
+    private readonly MudTheme _theme = ServantSyncTheme.Build();
+}

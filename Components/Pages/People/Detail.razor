@@ -4,103 +4,111 @@
 
 <PageTitle>@(_person?.DisplayName ?? "Volunteer")</PageTitle>
 
-<nav aria-label="breadcrumb" class="mb-2">
-    <ol class="breadcrumb mb-0">
-        <li class="breadcrumb-item"><a href="">Home</a></li>
-        @if (_canView && _person is not null)
-        {
-            <li class="breadcrumb-item"><a href="People">Volunteers</a></li>
-            <li class="breadcrumb-item active" aria-current="page">@_person.DisplayName</li>
-        }
-        else
-        {
-            <li class="breadcrumb-item active" aria-current="page">Volunteer</li>
-        }
-    </ol>
-</nav>
+<MudBreadcrumbs Items="@BreadcrumbItems" Class="mb-2" />
 
 @if (!_hasLoaded)
 {
-    <p><em>Loading…</em></p>
+    <MudText><em>Loading…</em></MudText>
 }
 else if (!_canView)
 {
-    <div class="alert alert-warning mt-3">
-        <h4>Not authorized</h4>
-        <p>You don't have access to view this volunteer's information.</p>
-        <p class="mb-0 small">
+    <MudAlert Severity="Severity.Warning" Class="mt-3">
+        <MudText Typo="Typo.h5">Not authorized</MudText>
+        <MudText>You don't have access to view this volunteer's information.</MudText>
+        <MudText Typo="Typo.caption" Class="mud-text-secondary">
             The global People directory is available to organization administrators.
             Co-volunteers in your orgs can be found on the
-            <a href="Organizations">Organizations</a> page &mdash;
+            <MudLink Href="Organizations">Organizations</MudLink> page &mdash;
             open any org you're a member of, then the <strong>Members</strong> tab.
-        </p>
-    </div>
+        </MudText>
+    </MudAlert>
 }
 else if (_person is null)
 {
-    <p><em>Volunteer not found.</em></p>
+    <MudText><em>Volunteer not found.</em></MudText>
 }
 else
 {
-    <h1>@_person.DisplayName</h1>
-    <div class="text-muted mb-3">@_person.User.Email</div>
+    <MudText Typo="Typo.h4">@_person.DisplayName</MudText>
+    <MudText Typo="Typo.body2" Class="mud-text-secondary mb-3">@_person.User.Email</MudText>
 
-    <ul class="nav nav-tabs" role="tablist">
-        <li class="nav-item"><button class="nav-link @(Tab == "orgs" ? "active" : "")" @onclick='() => Tab = "orgs"'>Organizations</button></li>
-        <li class="nav-item"><button class="nav-link @(Tab == "training" ? "active" : "")" @onclick='() => Tab = "training"'>Training</button></li>
-        <li class="nav-item"><button class="nav-link @(Tab == "schedule" ? "active" : "")" @onclick='() => Tab = "schedule"'>Schedule</button></li>
-    </ul>
+    @* Tab strip as MudButton row styled as tabs. Preserves the string
+       Tab property in @code (no ActivePanelIndex mapping needed). *@
+    <MudStack Row="true" Spacing="0" Class="mb-0">
+        <MudButton Variant="@(Tab == "orgs" ? Variant.Filled : Variant.Text)" Color="Color.Primary" OnClick='() => Tab = "orgs"'>Organizations</MudButton>
+        <MudButton Variant="@(Tab == "training" ? Variant.Filled : Variant.Text)" Color="Color.Primary" OnClick='() => Tab = "training"'>Training</MudButton>
+        <MudButton Variant="@(Tab == "schedule" ? Variant.Filled : Variant.Text)" Color="Color.Primary" OnClick='() => Tab = "schedule"'>Schedule</MudButton>
+    </MudStack>
 
     @if (Tab == "orgs")
     {
-        <table class="table mt-3">
-            <thead><tr><th>Organization</th><th>Role</th></tr></thead>
+        <MudSimpleTable Hover="true" Bordered="false" Dense="true" Class="mt-3">
+            <thead>
+                <tr>
+                    <th>Organization</th>
+                    <th>Role</th>
+                </tr>
+            </thead>
             <tbody>
                 @foreach (var m in _person.Memberships)
                 {
                     <tr>
-                        <td><a href="@($"Organizations/{m.OrganizationId}")">@m.Organization.Name</a></td>
+                        <td><MudLink Href="@LinkBuilder.OrganizationHref(m.OrganizationId)">@m.Organization.Name</MudLink></td>
                         <td>@m.Role</td>
                     </tr>
                 }
             </tbody>
-        </table>
+        </MudSimpleTable>
     }
     else if (Tab == "training")
     {
         if (!_person.TrainingCompletions.Any())
         {
-            <div class="alert alert-info mt-3">No training recorded yet.</div>
+            <MudAlert Severity="Severity.Info" Class="mt-3">No training recorded yet.</MudAlert>
         }
         else
         {
-            <table class="table mt-3">
-                <thead><tr><th>Training</th><th>Completed</th><th>Expires</th><th>Valid?</th></tr></thead>
+            <MudSimpleTable Hover="true" Bordered="false" Dense="true" Class="mt-3">
+                <thead>
+                    <tr>
+                        <th>Training</th>
+                        <th>Completed</th>
+                        <th>Expires</th>
+                        <th>Valid?</th>
+                    </tr>
+                </thead>
                 <tbody>
                     @foreach (var c in _person.TrainingCompletions)
                     {
                         var valid = c.IsValid(DateTime.UtcNow);
                         <tr>
-                            <td><a href="@($"Training/{c.TrainingContentId}")">@c.TrainingContent.Title</a> v@c.TrainingContentVersion</td>
+                            <td><MudLink Href="@LinkBuilder.TrainingHref(c.TrainingContentId)">@c.TrainingContent.Title</MudLink> v@c.TrainingContentVersion</td>
                             <td>@c.CompletionUtc.ToString("u")</td>
                             <td>@(c.ExpiresUtc?.ToString("u") ?? "—")</td>
                             <td>@(valid ? "✅" : "❌")</td>
                         </tr>
                     }
                 </tbody>
-            </table>
+            </MudSimpleTable>
         }
     }
     else
     {
         @if (!_upcoming.Any())
         {
-            <div class="alert alert-info mt-3">No upcoming assignments.</div>
+            <MudAlert Severity="Severity.Info" Class="mt-3">No upcoming assignments.</MudAlert>
         }
         else
         {
-            <table class="table mt-3">
-                <thead><tr><th>When</th><th>Slot</th><th>Ministry</th><th>Status</th></tr></thead>
+            <MudSimpleTable Hover="true" Bordered="false" Dense="true" Class="mt-3">
+                <thead>
+                    <tr>
+                        <th>When</th>
+                        <th>Slot</th>
+                        <th>Ministry</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
                 <tbody>
                     @foreach (var a in _upcoming)
                     {
@@ -112,7 +120,7 @@ else
                         </tr>
                     }
                 </tbody>
-            </table>
+            </MudSimpleTable>
         }
     }
 }
@@ -137,6 +145,31 @@ else
     // gate panel.
     private bool _canView;
     private string _userId = "";
+
+    // Breadcrumb items for MudBreadcrumbs. Conditional on the access-gate
+    // result so a denied viewer sees only "Home" + "Volunteer" (no PII
+    // leak), while an authorized viewer sees the full "Home / Volunteers /
+    // {Name}" trail. Last item is always the current page (disabled).
+    private List<BreadcrumbItem> BreadcrumbItems
+    {
+        get
+        {
+            var items = new List<BreadcrumbItem>
+            {
+                new("Home", href: LinkBuilder.HomeHref()),
+            };
+            if (_canView && _person is not null)
+            {
+                items.Add(new BreadcrumbItem("Volunteers", href: "People"));
+                items.Add(new BreadcrumbItem(_person.DisplayName, href: null, disabled: true));
+            }
+            else
+            {
+                items.Add(new BreadcrumbItem("Volunteer", href: null, disabled: true));
+            }
+            return items;
+        }
+    }
 
     protected override async Task OnInitializedAsync()
     {

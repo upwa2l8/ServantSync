@@ -5,90 +5,114 @@
 
 <PageTitle>@(_isNew ? "New game" : "Edit game")</PageTitle>
 
-<nav aria-label="breadcrumb" class="mb-2">
-    <ol class="breadcrumb mb-0">
-        <li class="breadcrumb-item"><a href="">Home</a></li>
-        <li class="breadcrumb-item"><a href="Leagues">Leagues</a></li>
-        <li class="breadcrumb-item"><a href="@($"Leagues/{_resolvedMinistryId}")">@(_ministry?.Name ?? "League")</a></li>
-        <li class="breadcrumb-item active" aria-current="page">@(_isNew ? "New game" : "Edit game")</li>
-    </ol>
-</nav>
+<MudBreadcrumbs Items="BreadcrumbItems" Class="mb-2 px-0" />
 
-<h1>@(_isNew ? "Schedule a new game" : "Edit game")</h1>
+<MudText Typo="Typo.h4" Class="mb-2">@(_isNew ? "Schedule a new game" : "Edit game")</MudText>
 <StatusMessage Message="@_message" IsError="@_isError" />
 
 @if (_ministry is null && _game is null)
 {
-    <p><em>Loading…</em></p>
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
 }
 else
 {
     <EditForm Model="_model" OnValidSubmit="Save" FormName="game">
-        <div class="row g-2">
-            <div class="col-md-6">
-                <label class="form-label">Home team</label>
-                <select class="form-select" @bind="_model.HomeTeamId">
-                    <option value="0">— pick a team —</option>
+        <MudGrid Spacing="2" Class="mb-2">
+            <MudItem xs="12" md="6">
+                <MudSelect T="int"
+                           @bind-Value="_model.HomeTeamId"
+                           Label="Home team"
+                           Variant="Variant.Outlined"
+                           Margin="Margin.Dense">
+                    <MudSelectItem T="int" Value="0">— pick a team —</MudSelectItem>
                     @foreach (var t in _teams)
                     {
-                        <option value="@t.Id">@t.Name (@t.AgeBracket)</option>
+                        <MudSelectItem T="int" Value="@t.Id">@t.Name (@t.AgeBracket)</MudSelectItem>
                     }
-                </select>
-            </div>
-            <div class="col-md-6">
-                <label class="form-label">Away team</label>
-                <select class="form-select" @bind="_model.AwayTeamId">
-                    <option value="0">— pick a team —</option>
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" md="6">
+                <MudSelect T="int"
+                           @bind-Value="_model.AwayTeamId"
+                           Label="Away team"
+                           Variant="Variant.Outlined"
+                           Margin="Margin.Dense">
+                    <MudSelectItem T="int" Value="0">— pick a team —</MudSelectItem>
                     @foreach (var t in _teams)
                     {
-                        <option value="@t.Id">@t.Name (@t.AgeBracket)</option>
+                        <MudSelectItem T="int" Value="@t.Id">@t.Name (@t.AgeBracket)</MudSelectItem>
                     }
-                </select>
-            </div>
-        </div>
+                </MudSelect>
+            </MudItem>
+        </MudGrid>
 
-        <div class="form-floating mt-2 mb-3">
-            <select id="arena" class="form-select" @bind="_model.ArenaId">
-                <option value="0">— pick an arena —</option>
-                @foreach (var a in _arenas)
-                {
-                    <option value="@a.Id">@a.Name@(a.SurfaceType is null ? "" : $" · {a.SurfaceType}")</option>
-                }
-            </select>
-            <label for="arena">Arena</label>
-        </div>
+        <MudSelect T="int"
+                   @bind-Value="_model.ArenaId"
+                   Label="Arena"
+                   Variant="Variant.Outlined"
+                   Margin="Margin.Dense"
+                   Class="mb-3">
+            <MudSelectItem T="int" Value="0">— pick an arena —</MudSelectItem>
+            @foreach (var a in _arenas)
+            {
+                <MudSelectItem T="int" Value="@a.Id">@a.Name@(a.SurfaceType is null ? "" : $" · {a.SurfaceType}")</MudSelectItem>
+            }
+        </MudSelect>
 
-        <div class="row g-2 align-items-end">
-            <div class="col-md-4">
-                <label class="form-label">Date</label>
-                <InputDate class="form-control" @bind-Value="_model.Date" />
-            </div>
-            <div class="col-md-2">
-                <label class="form-label">Start (HH:mm)</label>
-                <InputText type="time" class="form-control" @bind-Value="_model.StartLocal" />
-            </div>
-            <div class="col-md-2">
-                <label class="form-label">Duration (min)</label>
-                <input class="form-control" type="number" min="0" step="15" @bind="_model.DurationMinutes" />
-            </div>
-            <div class="col-md-4">
-                <label class="form-label">Time zone</label>
-                <select class="form-select" @bind="_model.TimeZoneId">
+        <MudGrid Spacing="2" Class="align-items-end mb-3">
+            <MudItem xs="12" md="4">
+                <MudDatePicker Label="Date"
+                               @bind-Date="_model.Date"
+                               Variant="Variant.Outlined"
+                               Margin="Margin.Dense" />
+            </MudItem>
+            <MudItem xs="6" md="2">
+                <MudTextField T="string"
+                              Label="Start (HH:mm)"
+                              @bind-Value="_model.StartLocal"
+                              Variant="Variant.Outlined"
+                              Margin="Margin.Dense" />
+            </MudItem>
+            <MudItem xs="6" md="2">
+                <MudNumericField T="int"
+                                 Label="Duration (min)"
+                                 @bind-Value="_model.DurationMinutes"
+                                 Min="0"
+                                 Step="15"
+                                 Variant="Variant.Outlined"
+                                 Margin="Margin.Dense" />
+            </MudItem>
+            <MudItem xs="12" md="4">
+                <MudSelect T="string"
+                           @bind-Value="_model.TimeZoneId"
+                           Label="Time zone"
+                           Variant="Variant.Outlined"
+                           Margin="Margin.Dense">
                     @foreach (var tz in _timeZones)
                     {
-                        <option value="@tz.Id">@tz.DisplayName</option>
+                        <MudSelectItem T="string" Value="@tz.Id">@tz.DisplayName</MudSelectItem>
                     }
-                </select>
-            </div>
-        </div>
+                </MudSelect>
+            </MudItem>
+        </MudGrid>
 
-        <div class="form-floating mt-2 mb-3">
-            <InputTextArea id="notes" class="form-control" style="height: 5rem" @bind-Value="_model.Notes" />
-            <label for="notes">Notes (optional)</label>
-        </div>
+        <MudTextField T="string"
+                      Label="Notes (optional)"
+                      @bind-Value="_model.Notes"
+                      Lines="3"
+                      Variant="Variant.Outlined"
+                      Margin="Margin.Dense"
+                      Class="mb-3" />
 
-        <button class="btn btn-primary" type="submit" disabled="@(!_canSubmit)">Save</button>
-        <a class="btn btn-outline-secondary ms-2" href="@CancelHref">Cancel</a>
+        <MudStack Row="true" Spacing="2">
+            <MudButton ButtonType="ButtonType.Submit"
+                       Color="Color.Primary"
+                       Variant="Variant.Filled"
+                       Disabled="@(!_canSubmit)">Save</MudButton>
+            <MudButton Href="@CancelHref"
+                       Color="Color.Default"
+                       Variant="Variant.Outlined">Cancel</MudButton>
+        </MudStack>
     </EditForm>
 }
 
@@ -117,6 +141,31 @@ else
     private int _resolvedMinistryId;
 
     private string CancelHref => _isNew ? $"Leagues/{MinistryId}" : $"Games/{GameId}";
+
+    // Breadcrumb items for MudBreadcrumbs. The last item is the current
+    // page (no href, disabled). Built from the route params so it stays
+    // in sync whether the user is creating or editing a game.
+    private List<BreadcrumbItem> BreadcrumbItems
+    {
+        get
+        {
+            var items = new List<BreadcrumbItem>
+            {
+                new BreadcrumbItem("Home", href: ""),
+                new BreadcrumbItem("Leagues", href: "Leagues"),
+            };
+            if (_ministry is not null)
+            {
+                items.Add(new BreadcrumbItem(_ministry.Name, href: $"Leagues/{_ministry.Id}"));
+            }
+            else
+            {
+                items.Add(new BreadcrumbItem("League", href: $"Leagues/{_resolvedMinistryId}"));
+            }
+            items.Add(new BreadcrumbItem(_isNew ? "New game" : "Edit game", href: null, disabled: true));
+            return items;
+        }
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -183,7 +232,8 @@ else
             _isError = true; _message = "Start time must be HH:mm."; return;
         }
         var tz = TimeZoneInfo.FindSystemTimeZoneById(_model.TimeZoneId);
-        var startLocal = DateTime.SpecifyKind(_model.Date.Date + stime, DateTimeKind.Unspecified);
+        if (_model.Date is null) { _isError = true; _message = "Date is required."; return; }
+        var startLocal = DateTime.SpecifyKind(_model.Date.Value.Date + stime, DateTimeKind.Unspecified);
         var startUtc = TimeZoneInfo.ConvertTimeToUtc(startLocal, tz);
         var endUtc = startUtc.AddMinutes(_model.DurationMinutes <= 0 ? 90 : _model.DurationMinutes);
 
@@ -216,7 +266,7 @@ else
         public int HomeTeamId { get; set; }
         public int AwayTeamId { get; set; }
         public int ArenaId { get; set; }
-        public DateTime Date { get; set; } = DateTime.Today;
+        public DateTime? Date { get; set; } = DateTime.Today;
         public string StartLocal { get; set; } = "09:00";
         public int DurationMinutes { get; set; } = 90;
         public string TimeZoneId { get; set; } = TimeZoneInfo.Utc.Id;

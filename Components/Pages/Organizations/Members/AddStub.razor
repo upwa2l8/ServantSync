@@ -14,15 +14,15 @@
 
 @if (!_hasLoaded)
 {
-    <p><em>Loading…</em></p>
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
 }
 else if (_org is null)
 {
-    <div class="alert alert-warning mt-3">
-        <h4>Organization not found</h4>
-        <p>No organization matches id <code>@Id</code>. Try the
-        <a href="Organizations">organization list</a>.</p>
-    </div>
+    <MudAlert Severity="Severity.Warning" Class="mt-3">
+        <MudText Typo="Typo.h6">Organization not found</MudText>
+        <MudText>No organization matches id <code>@Id</code>. Try the
+        <MudLink Href="Organizations">organization list</MudLink>.</MudText>
+    </MudAlert>
 }
 else if (!_canAddMember)
 {
@@ -31,11 +31,14 @@ else if (!_canAddMember)
        form. Server-side PersonService.CreateStubAsync re-gates on the
        same IsOrgAdminAsync check, so this UI gate is defense-in-depth
        rather than security-critical. *@
-    <div class="alert alert-danger mt-3">
-        <h4>Permission denied</h4>
-        <p>Only organization <strong>Admins</strong> can add manually-entered stub members.</p>
-        <a href="@($"Organizations/{Id}")" class="btn btn-outline-secondary">← Back to organization</a>
-    </div>
+    <MudAlert Severity="Severity.Error" Class="mt-3">
+        <MudText Typo="Typo.h6">Permission denied</MudText>
+        <MudText>Only organization <strong>Admins</strong> can add manually-entered stub members.</MudText>
+        <MudButton Href="@LinkBuilder.OrganizationHref(Id)"
+                   Color="Color.Default"
+                   Variant="Variant.Outlined"
+                   Class="mt-2">← Back to organization</MudButton>
+    </MudAlert>
 }
 else if (_claimToken is not null)
 {
@@ -56,6 +59,13 @@ else if (_claimToken is not null)
         </ol>
     </nav>
 
+    @* Keep the Bootstrap modal shell for the token-reveal panel: the
+       one-time token reveal needs custom buttons (Copy/Print/Manage
+       stubs/Add another/Done) — not a confirm/cancel pair. ConfirmDialog
+       would be the wrong shape. Bootstrap CSS is still loaded for the
+       remaining components (e.g. DateRangeChips) so the overlay +
+       centering work out-of-the-box. Mark this Bootstrap usage for the
+       Phase-4 cleanup. *@
     <div class="card border-warning mb-3">
         <div class="card-header bg-warning-subtle">
             <h4 class="mb-0">Stub member created successfully</h4>
@@ -143,32 +153,46 @@ else
        the SignalR circuit" failure mode doesn't apply here. *@
     <EditForm Model="_model" OnValidSubmit="SubmitAsync" FormName="stub-add">
         <DataAnnotationsValidator />
-        <div class="row g-2">
-            <div class="col">
-                <div class="form-floating mb-3">
-                    <InputText id="first" class="form-control" @bind-Value="_model.FirstName" autocomplete="given-name" />
-                    <label for="first">First name</label>
-                    <ValidationMessage For="() => _model.FirstName" class="text-danger small" />
-                </div>
-            </div>
-            <div class="col">
-                <div class="form-floating mb-3">
-                    <InputText id="last" class="form-control" @bind-Value="_model.LastName" autocomplete="family-name" />
-                    <label for="last">Last name</label>
-                    <ValidationMessage For="() => _model.LastName" class="text-danger small" />
-                </div>
-            </div>
-        </div>
-        <div class="form-floating mb-3">
-            <InputText id="email" type="email" class="form-control" @bind-Value="_model.Email" autocomplete="off" />
-            <label for="email">Email (optional)</label>
-            <ValidationMessage For="() => _model.Email" class="text-danger small" />
-            <div class="form-text">If supplied, can be used later as the email-match secondary claim path. Pick a unique value — collisions are rejected.</div>
-        </div>
-        <div class="form-floating mb-3">
-            <InputText id="phone" class="form-control" @bind-Value="_model.Phone" autocomplete="off" />
-            <label for="phone">Phone (optional)</label>
-        </div>
+        <MudGrid Spacing="2" Class="mb-2">
+            <MudItem xs="12" sm="6">
+                <MudTextField T="string"
+                              Label="First name"
+                              @bind-Value="_model.FirstName"
+                              autocomplete="given-name"
+                              Variant="Variant.Outlined"
+                              Margin="Margin.Dense"
+                              Required="true"
+                              RequiredError="First name is required" />
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudTextField T="string"
+                              Label="Last name"
+                              @bind-Value="_model.LastName"
+                              autocomplete="family-name"
+                              Variant="Variant.Outlined"
+                              Margin="Margin.Dense"
+                              Required="true"
+                              RequiredError="Last name is required" />
+            </MudItem>
+        </MudGrid>
+        <MudTextField T="string"
+                      Label="Email (optional)"
+                      InputType="InputType.Email"
+                      @bind-Value="_model.Email"
+                      autocomplete="off"
+                      Variant="Variant.Outlined"
+                      Margin="Margin.Dense"
+                      Class="mb-2" />
+        <MudText Typo="Typo.caption" Class="mud-text-secondary mb-3">
+            If supplied, can be used later as the email-match secondary claim path. Pick a unique value — collisions are rejected.
+        </MudText>
+        <MudTextField T="string"
+                      Label="Phone (optional)"
+                      @bind-Value="_model.Phone"
+                      autocomplete="off"
+                      Variant="Variant.Outlined"
+                      Margin="Margin.Dense"
+                      Class="mb-3" />
 
         <p class="small text-muted">
             After you click <strong>Create</strong>, a claim token will be generated and shown to
@@ -176,12 +200,17 @@ else
             recoverable from the database.
         </p>
 
-        <div class="d-flex gap-2">
-            <button type="submit" class="btn btn-primary" disabled="@_busy">
+        <MudStack Row="true" Spacing="2">
+            <MudButton ButtonType="ButtonType.Submit"
+                       Color="Color.Primary"
+                       Variant="Variant.Filled"
+                       Disabled="@_busy">
                 @(_busy ? "Creating…" : "Create stub member")
-            </button>
-            <a href="@($"Organizations/{Id}")" class="btn btn-outline-secondary">Cancel</a>
-        </div>
+            </MudButton>
+            <MudButton Href="@LinkBuilder.OrganizationHref(Id)"
+                       Color="Color.Default"
+                       Variant="Variant.Outlined">Cancel</MudButton>
+        </MudStack>
     </EditForm>
 }
 

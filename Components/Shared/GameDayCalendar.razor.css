@@ -1,2 +1,33 @@
-/* Scoped styles for GameDayCalendar.razor — kept minimal; the card +
-   list-group Bootstrap classes do most of the work. */
+/* Phase 5 — Bootstrap removal: keep the custom CSS grid from the prior
+   migration. Provide .list-group / .list-group-flush / .list-group-item
+   equivalents here so the game pills still render with proper spacing.
+   Color values mirror MudBlazor's palette tokens for consistency. */
+
+.list-group {
+    display: flex;
+    flex-direction: column;
+    padding-left: 0;
+    margin-bottom: 0;
+    border-radius: 0.375rem;
+}
+
+.list-group-flush {
+    border-radius: 0;
+}
+
+.list-group-flush > .list-group-item {
+    border-width: 0 0 1px;
+}
+
+.list-group-item {
+    position: relative;
+    display: block;
+    padding: 0.5rem 0.75rem;
+    color: var(--mud-palette-text-primary);
+    background-color: var(--mud-palette-surface);
+    border: 1px solid var(--mud-palette-lines-default);
+}
+
+.list-group-item:last-child {
+    border-bottom-width: 0;
+}

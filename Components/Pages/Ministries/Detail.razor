@@ -4,38 +4,31 @@
 
 <PageTitle>@(_ministry?.Name ?? "Ministry")</PageTitle>
 
-<nav aria-label="breadcrumb" class="mb-2">
-    <ol class="breadcrumb mb-0">
-        <li class="breadcrumb-item"><a href="">Home</a></li>
-        <li class="breadcrumb-item"><a href="Organizations">Organizations</a></li>
-        <li class="breadcrumb-item"><a href="@($"Organizations/{OrgId}")">Org #{OrgId}</a></li>
-        <li class="breadcrumb-item active" aria-current="page">@(_ministry?.Name ?? $"Ministry #{Id}")</li>
-    </ol>
-</nav>
+<MudBreadcrumbs Items="@BreadcrumbItems" Class="mb-2" />
 
 @if (!_hasLoaded)
 {
-    <p><em>Loading...</em></p>
+    <MudText><em>Loading...</em></MudText>
 }
 else if (_ministry is null)
 {
-    <div class="alert alert-warning mt-3">
-        <h4>Ministry not found</h4>
-        <p>
+    <MudAlert Severity="Severity.Warning" Class="mt-3">
+        <MudText Typo="Typo.h5">Ministry not found</MudText>
+        <MudText>
             No ministry matches id <code>@Id</code> in organization <code>@OrgId</code>. Try the
-            <a href="Organizations">organization list</a>.
-        </p>
-    </div>
+            <MudLink Href="Organizations">organization list</MudLink>.
+        </MudText>
+    </MudAlert>
 }
 else
 {
-    <div class="d-flex justify-content-between align-items-center mb-3">
+    <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-3">
         <div>
-            <h1 class="mb-0">@_ministry.Name</h1>
-            <div class="text-muted">@_ministry.Description</div>
+            <MudText Typo="Typo.h4">@_ministry.Name</MudText>
+            <MudText Typo="Typo.body2" Class="mud-text-secondary">@_ministry.Description</MudText>
         </div>
-        <div class="d-flex gap-2">
-            @* Personal-preference toggle. Anyone who's a member of the
+        <MudStack Row="true" Spacing="2">
+            @* Personal-preference toggle. Anyone who is a member of the
                parent org sees this; out-of-org visitors are redirected to
                the Not Found panel above before reaching this markup.
                Directors do NOT auto-follow a ministry they manage;
@@ -44,21 +37,21 @@ else
             {
                 @if (_isInterested)
                 {
-                    <button class="btn btn-outline-secondary" type="button"
-                            @onclick="LeaveThisMinistryAsync"
-                            disabled="@_busyToggle"
-                            title="Stop showing this ministry's open shifts on your Browse page">
+                    <MudButton Variant="Variant.Outlined" Color="Color.Default"
+                               OnClick="LeaveThisMinistryAsync"
+                               Disabled="@_busyToggle"
+                               title="Stop showing this ministry's open shifts on your Browse page">
                         @(_busyToggle ? "Leaving..." : "Leave this ministry")
-                    </button>
+                    </MudButton>
                 }
                 else
                 {
-                    <button class="btn btn-primary" type="button"
-                            @onclick="JoinThisMinistryAsync"
-                            disabled="@_busyToggle"
-                            title="Show this ministry's open shifts on your Browse page">
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                               OnClick="JoinThisMinistryAsync"
+                               Disabled="@_busyToggle"
+                               title="Show this ministry's open shifts on your Browse page">
                         @(_busyToggle ? "Joining..." : "Join this ministry")
-                    </button>
+                    </MudButton>
                 }
             }
             @* Admin-only "Edit ministry" affordance. Server gate on
@@ -66,7 +59,10 @@ else
                avoids 403-on-submit UX. *@
             @if (_canManageOrg)
             {
-                <a class="btn btn-outline-secondary" href="@($"Organizations/{OrgId}/Ministries/{Id}/Edit")">Edit ministry</a>
+                <MudButton Variant="Variant.Outlined" Color="Color.Default"
+                           Href="@LinkBuilder.MinistryEditHref(OrgId, Id)">
+                    Edit ministry
+                </MudButton>
             }
             @* Round-AW: ministry coordinator (Admin/Coordinator of the
                owning org OR the ministry's own CoordinatorPersonUserId
@@ -79,32 +75,36 @@ else
                per-org scoped). *@
             @if (_canManageMinistry)
             {
-                <a class="btn btn-outline-primary" href="@($"Organizations/{OrgId}/Ministries/{Id}/Signups")">View signups</a>
+                <MudButton Variant="Variant.Outlined" Color="Color.Primary"
+                           Href="@LinkBuilder.MinistrySignupsHref(OrgId, Id)">
+                    View signups
+                </MudButton>
             }
-        </div>
-    </div>
+        </MudStack>
+    </MudStack>
 
     @* Coordinator card is intentionally always-rendered (per the user
        requirement that "each coordinator email can be visible"). The name
        falls back to "-" when no CoordinatorPersonUserId is set; the email
        / phone come from the ministry's own columns and are visible to any
        authenticated page visitor. *@
-    <div class="card mb-4">         <div class="card-header">Director</div>
-        <div class="card-body">
-            <div><strong>@(_ministry.CoordinatorPerson?.DisplayName ?? "-")</strong></div>
-            <div>@_ministry.CoordinatorEmail &nbsp; <span class="text-muted">@_ministry.CoordinatorPhone</span></div>
-        </div>
-    </div>
+    <MudCard Class="mb-4">
+        <MudCardHeader>Director</MudCardHeader>
+        <MudCardContent>
+            <MudText><strong>@(_ministry.CoordinatorPerson?.DisplayName ?? "-")</strong></MudText>
+            <MudText>@_ministry.CoordinatorEmail &nbsp; <span class="mud-text-secondary">@_ministry.CoordinatorPhone</span></MudText>
+        </MudCardContent>
+    </MudCard>
 
     @if (_lastMessage is not null)
     {
-        <div class="alert @(_lastIsError ? "alert-danger" : "alert-success") py-2 small mb-3">
+        <MudAlert Severity="@(_lastIsError ? Severity.Error : Severity.Success)" Dense="true" Class="mb-3">
             @_lastMessage
-        </div>
+        </MudAlert>
     }
 
-    <div class="d-flex justify-content-between align-items-center mb-2">
-        <h4 class="mb-0">Service slots (volunteer opportunities)</h4>
+    <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-2">
+        <MudText Typo="Typo.h5">Service slots (volunteer opportunities)</MudText>
         @* Round-BA: gate widened from `_canManageOrg` (org-Admin only) to
            `_canManageMinistry` (CanManageMinistryAsync). Both target pages
            — ServiceSlots/Edit.razor create path and Leagues/Teams/New.razor —
@@ -115,12 +115,18 @@ else
            on OrgAuth alone). *@
         @if (_canManageMinistry)
         {
-            <div class="d-flex gap-2 flex-wrap">
-                <a class="btn btn-sm btn-primary" href="@($"Organizations/{OrgId}/Ministries/{Id}/Roles/New")">+ Add slot</a>
-                <a class="btn btn-sm btn-outline-primary" href="@($"Leagues/{Id}/Teams/New")">+ Add team</a>
-            </div>
+            <MudStack Row="true" Spacing="2">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small"
+                           Href="@LinkBuilder.SlotNewHref(OrgId, Id)">
+                    + Add slot
+                </MudButton>
+                <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small"
+                           Href="@LinkBuilder.TeamNewHref(Id)">
+                    + Add team
+                </MudButton>
+            </MudStack>
         }
-    </div>
+    </MudStack>
     @* League-CTA explainer: a ministry becomes a League (i.e. shows up
        under the Leagues nav / gets standings & games surfaces) the
        moment it owns at least one <c>Team</c>. Until then the ministry is
@@ -129,36 +135,36 @@ else
        one and points the admin at the right button above. *@
     @if (_canManageMinistry && !_ministry.Teams.Any())
     {
-        <div class="text-muted small mb-2">
-            <span class="bi bi-info-circle me-1" aria-hidden="true"></span>
-            A ministry becomes a <strong>league</strong> (visible on the Leagues page
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="mud-text-secondary mb-2" Style="font-size: 0.875rem;">
+            <MudIcon Icon="@Icons.Material.Outlined.Info" Size="Size.Small" />
+            <span>A ministry becomes a <strong>league</strong> (visible on the Leagues page
             with standings + games + team rosters) the moment it has at least one team.
-            Use <em>+ Add team</em> above to convert it.
-        </div>
+            Use <em>+ Add team</em> above to convert it.</span>
+        </MudStack>
     }
     @if (!_ministry.ServiceSlots.Any())
     {
-        <div class="alert alert-info">No service slots yet.</div>
+        <MudAlert Severity="Severity.Info">No service slots yet.</MudAlert>
     }
     else
     {
-        <ul class="list-group">
+        <MudList T="ServiceSlot">
             @foreach (var s in _ministry.ServiceSlots.OrderBy(s => s.Name))
             {
-                <li class="list-group-item">
-                    <div class="d-flex justify-content-between">
-                        <a href="@($"Organizations/{OrgId}/Ministries/{Id}/Roles/{s.Id}")">@s.Name</a>
-                        <span class="badge bg-secondary">@s.Assignments.Count scheduled</span>
-                    </div>
+                <MudListItem>
+                    <MudStack Row="true" Justify="Justify.SpaceBetween">
+                        <MudLink Href="@LinkBuilder.SlotHref(OrgId, Id, s.Id)">@s.Name</MudLink>
+                        <MudChip T="string" Size="Size.Small" Color="Color.Default">@s.Assignments.Count scheduled</MudChip>
+                    </MudStack>
                     @if (!string.IsNullOrWhiteSpace(s.Description))
                     {
-                        <div class="text-muted small">@s.Description</div>
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary">@s.Description</MudText>
                     }
-                    <div class="mt-2 d-flex gap-2 flex-wrap align-items-center">
-                        <a class="btn btn-sm btn-outline-primary"
-                           href="@ScheduleHref(s.Id)">Schedule</a>
-                        <a class="btn btn-sm btn-outline-secondary"
-                           href="@($"Organizations/{OrgId}/Ministries/{Id}/Roles/{s.Id}/Edit")">Edit</a>
+                    <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center" Class="mt-2">
+                        <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small"
+                                   Href="@ScheduleHref(s.Id)">Schedule</MudButton>
+                        <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small"
+                                   Href="@LinkBuilder.SlotEditHref(OrgId, Id, s.Id)">Edit</MudButton>
                         @* Round-FR-7: per-slot Subscribe toggle. The
                            pill flips between "Subscribe" and
                            "Subscribed ✓" so the volunteer can pin
@@ -170,30 +176,28 @@ else
                         {
                             @if (_subscribedSlotIds.Contains(s.Id))
                             {
-                                <button class="btn btn-sm btn-outline-success"
-                                        type="button"
-                                        disabled="@(_busySlotId == s.Id)"
-                                        @onclick="() => ToggleSlotSubscriptionAsync(s.Id, s.Name)"
-                                        title="Stop including this slot's shifts in the My slots filter on /Open">
-                                    <span class="bi bi-check-circle-fill me-1" aria-hidden="true"></span>
+                                <MudButton Variant="Variant.Outlined" Color="Color.Success" Size="Size.Small"
+                                           Disabled="@(_busySlotId == s.Id)"
+                                           OnClick="() => ToggleSlotSubscriptionAsync(s.Id, s.Name)"
+                                           Title="Stop including this slot's shifts in the My slots filter on /Open">
+                                    <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Small" Class="me-1" />
                                     @(_busySlotId == s.Id ? "Updating…" : "Subscribed")
-                                </button>
+                                </MudButton>
                             }
                             else
                             {
-                                <button class="btn btn-sm btn-outline-secondary"
-                                        type="button"
-                                        disabled="@(_busySlotId == s.Id)"
-                                        @onclick="() => ToggleSlotSubscriptionAsync(s.Id, s.Name)"
-                                        title="Add this slot's shifts to the My slots filter on /Open">
+                                <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small"
+                                           Disabled="@(_busySlotId == s.Id)"
+                                           OnClick="() => ToggleSlotSubscriptionAsync(s.Id, s.Name)"
+                                           Title="Add this slot's shifts to the My slots filter on /Open">
                                     @(_busySlotId == s.Id ? "Updating…" : "Subscribe")
-                                </button>
+                                </MudButton>
                             }
                         }
-                    </div>
-                </li>
+                    </MudStack>
+                </MudListItem>
             }
-        </ul>
+        </MudList>
     }
 }
 
@@ -246,6 +250,17 @@ else
     private string? _lastMessage;
     private bool _lastIsError;
     private bool _busyToggle;
+
+    // Breadcrumb items for MudBreadcrumbs. The last item is the current
+    // page (no href, disabled). Built from route params so it stays in
+    // sync if the user navigates between ministries.
+    private List<BreadcrumbItem> BreadcrumbItems => new()
+    {
+        new BreadcrumbItem("Home", href: ""),
+        new BreadcrumbItem("Organizations", href: "Organizations"),
+        new BreadcrumbItem($"Org #{OrgId}", href: LinkBuilder.OrganizationHref(OrgId)),
+        new BreadcrumbItem(_ministry?.Name ?? $"Ministry #{Id}", href: null, disabled: true)
+    };
 
     protected override async Task OnInitializedAsync()
     {
@@ -330,8 +345,8 @@ else
     // (ServiceSlots/Detail.razor) — the "actual published schedule"
     // the slot-list affordance is meant to surface for non-managers.
     private string ScheduleHref(int slotId) => _canManageMinistry
-        ? $"Organizations/{OrgId}/Ministries/{Id}/Roles/{slotId}/Schedule"
-        : $"Organizations/{OrgId}/Ministries/{Id}/Roles/{slotId}";
+        ? LinkBuilder.SlotScheduleHref(OrgId, Id, slotId)
+        : LinkBuilder.SlotHref(OrgId, Id, slotId);
 
     private async Task LeaveThisMinistryAsync()
     {

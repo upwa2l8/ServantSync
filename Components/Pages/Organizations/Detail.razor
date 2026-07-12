@@ -12,47 +12,43 @@
 
 <PageTitle>@(_org?.Name ?? "Organization")</PageTitle>
 
-<nav aria-label="breadcrumb" class="mb-2">
-    <ol class="breadcrumb mb-0">
-        <li class="breadcrumb-item"><a href="">Home</a></li>
-        <li class="breadcrumb-item"><a href="Organizations">Organizations</a></li>
-        <li class="breadcrumb-item active" aria-current="page">@(_org?.Name ?? $"Org #{Id}")</li>
-    </ol>
-</nav>
+<MudBreadcrumbs Items="@BreadcrumbItems" Class="mb-2" />
 
 @if (!_hasLoaded)
 {
-    <p><em>Loading…</em></p>
+    <MudText><em>Loading…</em></MudText>
 }
 else if (_org is null)
 {
-    <div class="alert alert-warning mt-3">
-        <h4>Organization not found</h4>
-        <p>No organization matches id <code>@Id</code>. Try the
-        <a href="Organizations">organization list</a>.</p>
-    </div>
+    <MudAlert Severity="Severity.Warning" Class="mt-3">
+        <MudText Typo="Typo.h5">Organization not found</MudText>
+        <MudText>No organization matches id <code>@Id</code>. Try the
+        <MudLink Href="Organizations">organization list</MudLink>.</MudText>
+    </MudAlert>
 }
 else
 {
-    <div class="d-flex justify-content-between align-items-center mb-3">
+    <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-3">
         <div>
-            <h1 class="mb-0">@_org.Name</h1>
-            <div class="text-muted">@_org.Description</div>
+            <MudText Typo="Typo.h4">@_org.Name</MudText>
+            <MudText Typo="Typo.body2" Class="mud-text-secondary">@_org.Description</MudText>
         </div>
-        <div class="d-flex gap-2">
+        <MudStack Row="true" Spacing="2">
             @if (_canAddMember)
             {
-                <a class="btn btn-outline-secondary" href="@($"Organizations/{Id}/Edit")">Edit</a>
+                <MudButton Variant="Variant.Outlined" Color="Color.Default"
+                           Href="@LinkBuilder.OrganizationEditHref(Id)">Edit</MudButton>
             }
             @if (_isOrgManager)
             {
-                <a class="btn btn-outline-secondary" href="@($"Organizations/{Id}/Coordinators")"
-                   title="Manage slot coordinators: see which volunteer opportunities have a coordinator assigned and which need one.">
+                <MudButton Variant="Variant.Outlined" Color="Color.Default"
+                           Href="@LinkBuilder.OrganizationCoordinatorsHref(Id)"
+                           title="Manage slot coordinators: see which volunteer opportunities have a coordinator assigned and which need one.">
                     Manage coordinators
-                </a>
+                </MudButton>
             }
-        </div>
-    </div>
+        </MudStack>
+    </MudStack>
 
     @* Admin-only registration-link section. Sits ABOVE the tab strip so the
        "Share this link" affordance is visible across all tabs (Ministries,
@@ -62,75 +58,73 @@ else
        and never leaks outside this panel. *@
     @if (_canAddMember)
     {
-        <div class="card border-primary-subtle mb-3">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <h6 class="mb-0">Share this link to invite new volunteers</h6>
+        <MudCard Outlined="true" Class="mb-3" Style="border-color: var(--mud-palette-primary-lighten);">
+            <MudCardHeader>
+                <MudText Typo="Typo.subtitle1">Share this link to invite new volunteers</MudText>
+            </MudCardHeader>
+            <MudCardContent>
                 @if (_lastMessage is not null)
                 {
-                    <span class="badge @(_lastIsError ? "text-bg-danger" : "text-bg-success")">@_lastMessage</span>
+                    <MudChip T="string" Color="@(_lastIsError ? Color.Error : Color.Success)" Size="Size.Small">@_lastMessage</MudChip>
                 }
-            </div>
-            <div class="card-body">
                 @if (_org is { RegistrationToken: not null })
                 {
                     var token = _org.RegistrationToken!;
-                    <p class="small text-muted mb-2">
+                    <MudText Typo="Typo.body2" Class="mud-text-secondary mb-2">
                         Anyone who registers with this link is automatically joined to <strong>@_org.Name</strong> as a volunteer. Rotate to immediately invalidate any previously-shared copy.
-                    </p>
-                    <div class="input-group mb-2">
-                        <input id="register-link" class="form-control font-monospace small"
-                               readonly value="@_registerUrl" />
-                        <button class="btn btn-outline-primary" type="button"
-                                @onclick="CopyRegisterLink"
-                                title="Copy the registration link to your clipboard">
+                    </MudText>
+                    <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center" Class="mb-2">
+                        <MudTextField Value="@_registerUrl" ReadOnly="true" Variant="Variant.Outlined" Margin="Margin.Dense" Class="flex-grow-1" Style="font-family: monospace; font-size: 0.875rem;" />
+                        <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="CopyRegisterLink"
+                                   title="Copy the registration link to your clipboard">
                             @(_copied ? "Copied" : "Copy")
-                        </button>
-                    </div>
-                    <div class="d-flex align-items-center gap-2">
+                        </MudButton>
+                    </MudStack>
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
                         @if (!_confirmingRotate)
                         {
-                            <button class="btn btn-sm btn-outline-warning" type="button"
-                                    @onclick="() => _confirmingRotate = true"
-                                    title="Generate a new registration token; any previously-shared invite links stop working">
+                            <MudButton Variant="Variant.Outlined" Color="Color.Warning" Size="Size.Small"
+                                       OnClick="() => _confirmingRotate = true"
+                                       Title="Generate a new registration token; any previously-shared invite links stop working">
                                 Rotate link
-                            </button>
+                            </MudButton>
                         }
                         else
                         {
-                            <span class="text-muted small">Existing links will stop working. Rotate?</span>
-                            <button class="btn btn-sm btn-warning" type="button"
-                                    @onclick="RotateRegisterLinkAsync"
-                                    disabled="@_busyRotate">
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary">Existing links will stop working. Rotate?</MudText>
+                            <MudButton Variant="Variant.Filled" Color="Color.Warning" Size="Size.Small"
+                                       OnClick="RotateRegisterLinkAsync" Disabled="@_busyRotate">
                                 @(_busyRotate ? "Rotating..." : "Yes, rotate")
-                            </button>
-                            <button class="btn btn-sm btn-outline-secondary" type="button"
-                                    @onclick="() => _confirmingRotate = false">
+                            </MudButton>
+                            <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small"
+                                       OnClick="() => _confirmingRotate = false">
                                 Cancel
-                            </button>
+                            </MudButton>
                         }
-                    </div>
+                    </MudStack>
                 }
                 else
                 {
-                    <p class="small text-muted mb-2">
+                    <MudText Typo="Typo.body2" Class="mud-text-secondary mb-2">
                         A registration link hasn't been generated yet.
-                    </p>
-                    <button class="btn btn-sm btn-primary" type="button"
-                            @onclick="RotateRegisterLinkAsync"
-                            disabled="@_busyRotate">
+                    </MudText>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small"
+                               OnClick="RotateRegisterLinkAsync" Disabled="@_busyRotate">
                         @(_busyRotate ? "Generating..." : "Generate registration link")
-                    </button>
+                    </MudButton>
                 }
-            </div>
-        </div>
+            </MudCardContent>
+        </MudCard>
     }
 
-    <ul class="nav nav-tabs" role="tablist">
-        <li class="nav-item"><button class="nav-link @(Tab == "ministries" ? "active" : "")" @onclick='() => Tab = "ministries"'>Ministries</button></li>
-        <li class="nav-item"><button class="nav-link @(Tab == "members" ? "active" : "")" @onclick='() => Tab = "members"'>Members</button></li>
-        <li class="nav-item"><button class="nav-link @(Tab == "arenas" ? "active" : "")" @onclick='() => Tab = "arenas"'>Arenas</button></li>
-        <li class="nav-item"><button class="nav-link @(Tab == "training" ? "active" : "")" @onclick='() => Tab = "training"'>Org training</button></li>
-    </ul>
+    @* Tab strip. Uses MudButton row styled as tabs to preserve the
+       string Tab property in @code (no ActivePanelIndex mapping needed). *@
+    <MudStack Row="true" Spacing="0" Class="mb-3">
+        <MudButton Variant="@(Tab == "ministries" ? Variant.Filled : Variant.Text)" Color="Color.Primary" OnClick='() => Tab = "ministries"'>Ministries</MudButton>
+        <MudButton Variant="@(Tab == "members" ? Variant.Filled : Variant.Text)" Color="Color.Primary" OnClick='() => Tab = "members"'>Members</MudButton>
+        <MudButton Variant="@(Tab == "arenas" ? Variant.Filled : Variant.Text)" Color="Color.Primary" OnClick='() => Tab = "arenas"'>Arenas</MudButton>
+        <MudButton Variant="@(Tab == "training" ? Variant.Filled : Variant.Text)" Color="Color.Primary" OnClick='() => Tab = "training"'>Org training</MudButton>
+    </MudStack>
 
     @if (Tab == "ministries")
     {
@@ -141,23 +135,26 @@ else
                create affordance. *@
             @if (_canAddMember)
             {
-                <a class="btn btn-sm btn-primary mb-2" href="@($"Organizations/{Id}/Ministries/New")">+ Add ministry</a>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small" Class="mb-2"
+                           Href="@LinkBuilder.MinistryNewHref(Id)">+ Add ministry</MudButton>
             }
             @if (!_org.Ministries.Any())
             {
-                <div class="alert alert-info">No ministries yet.</div>
+                <MudAlert Severity="Severity.Info">No ministries yet.</MudAlert>
             }
             else
             {
-                <ul class="list-group">
+                <MudList T="Ministry">
                     @foreach (var m in _org.Ministries.OrderBy(m => m.Name))
                     {
-                        <li class="list-group-item d-flex justify-content-between">
-                            <a href="@($"Organizations/{Id}/Ministries/{m.Id}")">@m.Name</a>
-                            <span class="badge bg-secondary">@m.ServiceSlots.Count slots</span>
-                        </li>
+                        <MudListItem>
+                            <MudStack Row="true" Justify="Justify.SpaceBetween">
+                                <MudLink Href="@LinkBuilder.MinistryHref(Id, m.Id)">@m.Name</MudLink>
+                                <MudChip T="string" Size="Size.Small" Color="Color.Default">@m.ServiceSlots.Count slots</MudChip>
+                            </MudStack>
+                        </MudListItem>
                     }
-                </ul>
+                </MudList>
             }
         </div>
     }
@@ -175,17 +172,17 @@ else
                The cost of confusing them is high (a stub-vs-real mixup
                leaks identities into the wrong table) so the headers are
                explicit. *@
-            <div class="d-flex justify-content-between align-items-end mb-2">
-                <h6 class="mb-0">Add a member</h6>
+            <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.End" Class="mb-2">
+                <MudText Typo="Typo.subtitle1">Add a member</MudText>
                 @if (_canAddMember)
                 {
-                    <a class="btn btn-sm btn-outline-primary"
-                       href="@($"Organizations/{Id}/Members/AddStub")"
-                       title="Add a volunteer who doesn't yet have an account. You'll get a one-time claim token to hand off in person; when they sign up, the token links their existing memberships / assignments / training to the new account.">
+                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small"
+                               Href="@LinkBuilder.OrganizationMemberAddStubHref(Id)"
+                               title="Add a volunteer who doesn't yet have an account. You'll get a one-time claim token to hand off in person; when they sign up, the token links their existing memberships / assignments / training to the new account.">
                         + Add manually (stub)
-                    </a>
+                    </MudButton>
                 }
-            </div>
+            </MudStack>
             @if (!_canAddMember)
             {
                 // Read-only view for non-Admins. The server gate inside
@@ -193,10 +190,10 @@ else
                 // RemoveAsync would also deny the request, but showing the
                 // form 403-on-submit is a worse UX than just not offering
                 // the form at all.
-                <div class="alert alert-secondary py-2 small mb-3">
+                <MudAlert Severity="Severity.Normal" Dense="true" Class="mb-3">
                     You don't have access to manage this organization's membership.
                     Only organization <strong>Admins</strong> can add members, change roles, or remove members.
-                </div>
+                </MudAlert>
             }
             else
             {
@@ -211,108 +208,100 @@ else
                    fix is to migrate the form's submission to a
                    separate page route, not to re-introduce FormName. *@
                 <EditForm Model="_joinModel" OnValidSubmit="Join">
-                    <div class="row g-2 align-items-end">
-                        <div class="col">
-                            <select class="form-select" @bind="_joinModel.PersonUserId">
-                                <option value="">— pick a person —</option>
+                    <MudGrid Spacing="2" Class="align-items-end">
+                        <MudItem xs="12" sm="6" md="5">
+                            <MudSelect T="string" @bind-Value="_joinModel.PersonUserId" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true">
+                                <MudSelectItem T="string" Value="@("")">— pick a person —</MudSelectItem>
                                 @foreach (var p in _allPeople)
                                 {
-                                    <option value="@p.UserId">@p.DisplayName</option>
+                                    <MudSelectItem T="string" Value="@p.UserId">@p.DisplayName</MudSelectItem>
                                 }
-                            </select>
-                        </div>
-                        <div class="col">
-                            <select class="form-select" @bind="_joinModel.Role">
+                            </MudSelect>
+                        </MudItem>
+                        <MudItem xs="12" sm="6" md="4">
+                            <MudSelect T="OrganizationRole" @bind-Value="_joinModel.Role" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true">
                                 @foreach (var r in Enum.GetValues<OrganizationRole>())
                                 {
-                                    <option value="@r">@r</option>
+                                    <MudSelectItem T="OrganizationRole" Value="@r">@r</MudSelectItem>
                                 }
-                            </select>
-                        </div>
-                        <div class="col-auto">
-                            <button class="btn btn-primary">Add</button>
-                        </div>
-                    </div>
+                            </MudSelect>
+                        </MudItem>
+                        <MudItem xs="12" sm="6" md="3">
+                            <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary">Add</MudButton>
+                        </MudItem>
+                    </MudGrid>
                 </EditForm>
             }
 
-            <h6 class="mt-4">@_org.Memberships.Count member@(_org.Memberships.Count == 1 ? "" : "s")</h6>
+            <MudText Typo="Typo.subtitle1" Class="mt-4">@_org.Memberships.Count member@(_org.Memberships.Count == 1 ? "" : "s")</MudText>
             @if (!_org.Memberships.Any())
             {
-                <div class="alert alert-info mt-2">No members yet.</div>
+                <MudAlert Severity="Severity.Info" Class="mt-2">No members yet.</MudAlert>
             }
             else
             {
-                <ul class="list-group mt-2">
+                <MudList T="OrganizationMembership" Class="mt-2">
                     @foreach (var mm in _org.Memberships.OrderBy(m => m.Person.LastName))
                     {
                         var isSelfRow = mm.PersonUserId == _userId;
                         var isConfirmingRemove = _removeConfirmUserId == mm.PersonUserId;
-                        <li class="list-group-item d-flex justify-content-between align-items-center">
-                            <div>
-                                <a href="@($"People/{mm.PersonUserId}")">@mm.Person.DisplayName</a>
-                                @if (isSelfRow)
-                                {
-                                    <span class="text-muted small ms-2">(you)</span>
-                                }
-                            </div>
-                            @if (isSelfRow || !_canAddMember)
-                            {
-                                // Self-row OR non-admin viewer: static badge
-                                // (Self-row: no role selector because
-                                // self-demotion is forbidden by the service;
-                                // non-admin viewer: read-only).
-                                <span class="badge bg-info text-dark">@mm.Role</span>
-                            }
-                            else
-                            {
-                                <div class="d-flex align-items-center gap-2">
-                                    <select class="form-select form-select-sm" style="width: auto"
-                                            @bind="mm.Role"
-                                            @bind:after="async () => await UpdateRole(mm)">
-                                        @foreach (var r in Enum.GetValues<OrganizationRole>())
-                                        {
-                                            <option value="@r">@r</option>
-                                        }
-                                    </select>
-                                    @* Remove button. Hidden for self-row
-                                       (you can't remove yourself without at
-                                       least one other Admin to keep the org
-                                       staffed — a self-removal that would
-                                       orphan the org is refused by the
-                                       service). Inline confirm avoids a
-                                       modal for the most common flow. *@
-                                    @if (!isConfirmingRemove)
+                        <MudListItem>
+                            <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                                <div>
+                                    <MudLink Href="@LinkBuilder.PersonHref(mm.PersonUserId)">@mm.Person.DisplayName</MudLink>
+                                    @if (isSelfRow)
                                     {
-                                        <button class="btn btn-sm btn-outline-danger" type="button"
-                                                @onclick="() => RequestRemove(mm.PersonUserId)">
-                                            Remove
-                                        </button>
-                                    }
-                                    else
-                                    {
-                                        <span class="text-muted small">Remove?</span>
-                                        <button class="btn btn-sm btn-danger" type="button"
-                                                @onclick="() => ConfirmRemove(mm.PersonUserId)">
-                                            Yes
-                                        </button>
-                                        <button class="btn btn-sm btn-outline-secondary" type="button"
-                                                @onclick="() => CancelRemove()">
-                                            No
-                                        </button>
+                                        <MudText Typo="Typo.caption" Inline="true" Class="mud-text-secondary ms-2">(you)</MudText>
                                     }
                                 </div>
-                            }
-                        </li>
+                                @if (isSelfRow || !_canAddMember)
+                                {
+                                    // Self-row OR non-admin viewer: static badge
+                                    // (Self-row: no role selector because
+                                    // self-demotion is forbidden by the service;
+                                    // non-admin viewer: read-only).
+                                    <MudChip T="string" Size="Size.Small" Color="Color.Info">@mm.Role</MudChip>
+                                }
+                                else
+                                {
+                                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                                        <MudSelect T="OrganizationRole" Value="mm.Role" ValueChanged="async (OrganizationRole newRole) => { mm.Role = newRole; await UpdateRole(mm); }" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Style="min-width: 120px;">
+                                            @foreach (var r in Enum.GetValues<OrganizationRole>())
+                                            {
+                                                <MudSelectItem T="OrganizationRole" Value="@r">@r</MudSelectItem>
+                                            }
+                                        </MudSelect>
+                                        @* Remove button. Hidden for self-row
+                                           (you can't remove yourself without at
+                                           least one other Admin to keep the org
+                                           staffed — a self-removal that would
+                                           orphan the org is refused by the
+                                           service). Inline confirm avoids a
+                                           modal for the most common flow. *@
+                                        @if (!isConfirmingRemove)
+                                        {
+                                            <MudButton Variant="Variant.Outlined" Color="Color.Error" Size="Size.Small"
+                                                       OnClick="() => RequestRemove(mm.PersonUserId)">Remove</MudButton>
+                                        }
+                                        else
+                                        {
+                                            <MudText Typo="Typo.caption" Inline="true" Class="mud-text-secondary">Remove?</MudText>
+                                            <MudButton Variant="Variant.Filled" Color="Color.Error" Size="Size.Small"
+                                                       OnClick="() => ConfirmRemove(mm.PersonUserId)">Yes</MudButton>
+                                            <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small"
+                                                       OnClick="() => CancelRemove()">No</MudButton>
+                                        }
+                                    </MudStack>
+                                }
+                            </MudStack>
+                        </MudListItem>
                     }
-                </ul>
+                </MudList>
             }
 
             @if (_lastMessage is not null)
             {
-                <div class="alert @(_lastIsError ? "alert-danger" : "alert-success") py-2 small mt-2 mb-0">
-                    @_lastMessage
-                </div>
+                <MudAlert Severity="@(_lastIsError ? Severity.Error : Severity.Success)" Dense="true" Class="mt-2 mb-0">@_lastMessage</MudAlert>
             }
 
             @* ─── FR-3.3 stub members sub-section (admin only) ─── *@
@@ -330,64 +319,64 @@ else
                dedicated page. *@
             @if (_canAddMember)
             {
-                <hr class="my-4" />
-                <div class="d-flex justify-content-between align-items-end mb-2">
-                    <h6 class="mb-0">Stub members (@(_stubPreview?.Count ?? 0))</h6>
-                    <a class="btn btn-sm btn-outline-primary"
-                       href="@($"Organizations/{Id}/Members/Stubs")"
-                       title="Manage manually-added volunteers who haven't yet registered an account. Rotate claim tokens, view full list.">
+                <MudDivider Class="my-4" />
+                <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.End" Class="mb-2">
+                    <MudText Typo="Typo.subtitle1">Stub members (@(_stubPreview?.Count ?? 0))</MudText>
+                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small"
+                               Href="@LinkBuilder.OrganizationStubsHref(Id)"
+                               title="Manage manually-added volunteers who haven't yet registered an account. Rotate claim tokens, view full list.">
                         Manage stub members →
-                    </a>
-                </div>
+                    </MudButton>
+                </MudStack>
                 @if (_stubPreview is null)
                 {
-                    <p class="text-muted small mb-0"><em>Loading stub list…</em></p>
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary mb-0"><em>Loading stub list…</em></MudText>
                 }
                 else if (_stubPreview.Count == 0)
                 {
-                    <p class="text-muted small mb-0">
+                    <MudText Typo="Typo.body2" Class="mud-text-secondary mb-0">
                         No stub members yet. Click <strong>+ Add manually</strong> above to create one — you'll get a one-time claim token to hand off to the volunteer in person.
-                    </p>
+                    </MudText>
                 }
                 else
                 {
                     @* Glance-sized preview (≤5). Sorted soonest-active-token-first
                        so an expiring-token warning lands on top. The full
                        list lives on /Members/Stubs. *@
-                    <ul class="list-group mt-2">
+                    <MudList T="StubListItem" Class="mt-2">
                         @foreach (var s in _stubPreview.OrderBy(s => s.TokenExpiresUtc ?? DateTime.MaxValue).Take(5))
                         {
-                            <li class="list-group-item d-flex justify-content-between align-items-center py-2">
-                                <div>
-                                    <strong>@s.DisplayName</strong>
-                                    <span class="text-muted small ms-2">
-                                        @if (s.HasActiveToken && s.TokenExpiresUtc.HasValue)
-                                            {
-                                                @:token expires @s.TokenExpiresUtc.Value.ToString("yyyy-MM-dd")
-                                            }
-                                            else if (s.ClaimedUtc.HasValue)
-                                            {
-                                                @:last claim/rotate @s.ClaimedUtc.Value.ToString("yyyy-MM-dd")
-                                            }
-                                            else
-                                            {
-                                                @:no active token
-                                            }
-                                    </span>
-                                </div>
-                                <a class="btn btn-sm btn-outline-secondary"
-                                   href="@($"Organizations/{Id}/Members/Stubs")">
-                                    Manage
-                                </a>
-                            </li>
+                            <MudListItem>
+                                <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                                    <div>
+                                        <strong>@s.DisplayName</strong>
+                                        <MudText Typo="Typo.caption" Inline="true" Class="mud-text-secondary ms-2">
+                                            @if (s.HasActiveToken && s.TokenExpiresUtc.HasValue)
+                                                {
+                                                    @:token expires @s.TokenExpiresUtc.Value.ToString("yyyy-MM-dd")
+                                                }
+                                                else if (s.ClaimedUtc.HasValue)
+                                                {
+                                                    @:last claim/rotate @s.ClaimedUtc.Value.ToString("yyyy-MM-dd")
+                                                }
+                                                else
+                                                {
+                                                    @:no active token
+                                                }
+                                        </MudText>
+                                    </div>
+                                    <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small"
+                                               Href="@LinkBuilder.OrganizationStubsHref(Id)">Manage</MudButton>
+                                </MudStack>
+                            </MudListItem>
                         }
-                    </ul>
+                    </MudList>
                     @if (_stubPreview.Count > 5)
                     {
-                        <p class="text-muted small mt-2 mb-0">
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary mt-2 mb-0">
                             Showing 5 of @_stubPreview.Count stubs.
-                            <a href="@($"Organizations/{Id}/Members/Stubs")">See all →</a>
-                        </p>
+                            <MudLink Href="@LinkBuilder.OrganizationStubsHref(Id)">See all →</MudLink>
+                        </MudText>
                     }
                 }
             }
@@ -396,18 +385,18 @@ else
     else if (Tab == "arenas")
     {
         <div class="mt-3">
-            <div class="d-flex justify-content-between align-items-center mb-2">
-                <h6 class="mb-0">Playing arenas (shared by all leagues in this org)</h6>
+            <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-2">
+                <MudText Typo="Typo.subtitle1">Playing arenas (shared by all leagues in this org)</MudText>
                 @* Tightened from _canManage to _canAddMember for arena
                    management: only Admins can add arenas now. Coordinators
                    see the existing arenas but no Add affordance. *@
                 @if (_canAddMember)
                 {
-                    <button class="btn btn-sm btn-primary" @onclick="() => _showAddArena = !(_showAddArena)">
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small" OnClick="() => _showAddArena = !(_showAddArena)">
                         @(_showAddArena ? "Cancel" : "+ Add arena")
-                    </button>
+                    </MudButton>
                 }
-            </div>
+            </MudStack>
 
             @if (_showAddArena && _canAddMember)
             {
@@ -417,56 +406,48 @@ else
                    InteractiveServer page breaks the SignalR circuit
                    on mount. See STATUS.md → Known quirks. *@
                 <EditForm Model="_arenaModel" OnValidSubmit="AddArena">
-                    <div class="row g-2 align-items-end">
-                        <div class="col-md-4">
-                            <div class="form-floating mb-2">
-                                <InputText id="aname" class="form-control" @bind-Value="_arenaModel.Name" />
-                                <label for="aname">Name (e.g. "Field 1")</label>
-                            </div>
-                        </div>
-                        <div class="col-md-3">
-                            <div class="form-floating mb-2">
-                                <InputText id="asurf" class="form-control" @bind-Value="_arenaModel.SurfaceType" />
-                                <label for="asurf">Surface (Grass / Turf / Hardwood)</label>
-                            </div>
-                        </div>
-                        <div class="col-md-2">
-                            <div class="form-floating mb-2">
-                                <InputNumber id="acap" class="form-control" @bind-Value="_arenaModel.Capacity" />
-                                <label for="acap">Capacity</label>
-                            </div>
-                        </div>
-                        <div class="col-md-2 form-check mb-2">
-                            <input type="checkbox" class="form-check-input" id="aactive" @bind="_arenaModel.IsActive" />
-                            <label class="form-check-label" for="aactive">Active</label>
-                        </div>
-                        <div class="col-md-1">
-                            <button class="btn btn-primary w-100" type="submit">Add</button>
-                        </div>
-                    </div>
+                    <MudGrid Spacing="2" Class="align-items-end">
+                        <MudItem xs="12" sm="6" md="4">
+                            <MudTextField @bind-Value="_arenaModel.Name" Label="Name (e.g. Field 1)" Required="true" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                        </MudItem>
+                        <MudItem xs="12" sm="6" md="3">
+                            <MudTextField @bind-Value="_arenaModel.SurfaceType" Label="Surface (Grass / Turf / Hardwood)" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                        </MudItem>
+                        <MudItem xs="12" sm="6" md="2">
+                            <MudNumericField @bind-Value="_arenaModel.Capacity" Label="Capacity" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                        </MudItem>
+                        <MudItem xs="12" sm="6" md="2">
+                            <MudCheckBox @bind-Value="_arenaModel.IsActive" Label="Active" />
+                        </MudItem>
+                        <MudItem xs="12" sm="6" md="1">
+                            <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary" FullWidth="true">Add</MudButton>
+                        </MudItem>
+                    </MudGrid>
                 </EditForm>
             }
 
             @if (!_orgArenas.Any())
             {
-                <div class="alert alert-info mt-2">No arenas yet.</div>
+                <MudAlert Severity="Severity.Info" Class="mt-2">No arenas yet.</MudAlert>
             }
             else
             {
-                <ul class="list-group mt-2">
+                <MudList T="Arena" Class="mt-2">
                     @foreach (var a in _orgArenas)
                     {
-                        <li class="list-group-item d-flex justify-content-between align-items-center">
-                            <div>
-                                <strong>@a.Name</strong>
-                                <span class="text-muted small ms-2">
-                                    @(a.SurfaceType ?? "—") @(a.Capacity.HasValue ? $"· cap {a.Capacity}" : "")
-                                </span>
-                            </div>
-                            <span class="badge @(a.IsActive ? "bg-success" : "bg-secondary")">@(a.IsActive ? "active" : "inactive")</span>
-                        </li>
+                        <MudListItem>
+                            <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                                <div>
+                                    <strong>@a.Name</strong>
+                                    <MudText Typo="Typo.caption" Inline="true" Class="mud-text-secondary ms-2">
+                                        @(a.SurfaceType ?? "—") @(a.Capacity.HasValue ? $"· cap {a.Capacity}" : "")
+                                    </MudText>
+                                </div>
+                                <MudChip T="string" Size="Size.Small" Color="@(a.IsActive ? Color.Success : Color.Default)">@(a.IsActive ? "active" : "inactive")</MudChip>
+                            </MudStack>
+                        </MudListItem>
                     }
-                </ul>
+                </MudList>
             }
         </div>
     }
@@ -490,15 +471,13 @@ else
                    per-person × per-requirement detail). Color bucket:
                    red if any overdue, yellow if only due-in-30, green if
                    zero. *@
-                <div class="d-flex justify-content-between align-items-end mb-2">
-                    <h6 class="mb-0">Org-wide training required for every volunteer</h6>
+                <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.End" Class="mb-2">
+                    <MudText Typo="Typo.subtitle1">Org-wide training required for every volunteer</MudText>
                     @if (_duesoonCounts is not null)
                     {
-                        <a class="badge @(DueSoonBadgeClass()) fs-6 text-decoration-none"
-                           href="@($"Organizations/{Id}/Training/DueSoon")"
-                           title="@DueSoonBadgeTooltip()">@DueSoonBadgeText()</a>
+                        <MudChip T="string" Size="Size.Small" Color="@DueSoonBadgeColor()" Href="@LinkBuilder.OrganizationDueSoonHref(Id)" title="@DueSoonBadgeTooltip()">@DueSoonBadgeText()</MudChip>
                     }
-                </div>
+                </MudStack>
                 <OrgTrainingEditor OrganizationId="Id" />
                 @* Round-FR-2.3 entry point: a sibling link to the
                    in-person scheduled sessions list for THIS org. The
@@ -508,11 +487,11 @@ else
                    same _isOrgManager gate hides the link for
                    non-managers; the destination page re-checks
                    CanManageOrgAsync server-side. *@
-                <hr class="my-3" />
-                <a class="btn btn-outline-primary"
-                   href="@($"Organizations/{Id}/Training/Sessions")">
+                <MudDivider Class="my-3" />
+                <MudButton Variant="Variant.Outlined" Color="Color.Primary"
+                           Href="@LinkBuilder.OrganizationSessionsHref(Id)">
                     In-person training sessions →
-                </a>
+                </MudButton>
             }
         </div>
     }
@@ -611,6 +590,16 @@ else
     private bool _confirmingRotate;
     private bool _busyRotate;
     private string Tab { get; set; } = "ministries";
+
+    // Breadcrumb items for MudBreadcrumbs. The last item is the current
+    // page (no href, disabled). Built from the route param so it stays
+    // in sync if the user navigates between organizations.
+    private List<BreadcrumbItem> BreadcrumbItems => new()
+    {
+        new BreadcrumbItem("Home", href: ""),
+        new BreadcrumbItem("Organizations", href: "Organizations"),
+        new BreadcrumbItem(_org?.Name ?? $"Org #{Id}", href: null, disabled: true)
+    };
 
     protected override async Task OnInitializedAsync()
     {
@@ -905,6 +894,17 @@ else
         if (_duesoonCounts.OverdueCount > 0) return "bg-danger";
         if (_duesoonCounts.TotalAtRiskCount > 0) return "bg-warning text-dark";
         return "bg-success";
+    }
+
+    // MudBlazor-native counterpart to DueSoonBadgeClass(). Returns the
+    // Color enum the MudChip Href widget expects (keeps the original
+    // string-returning helper for any future Bootstrap callers).
+    private Color DueSoonBadgeColor()
+    {
+        if (_duesoonCounts is null) return Color.Default;
+        if (_duesoonCounts.OverdueCount > 0) return Color.Error;
+        if (_duesoonCounts.TotalAtRiskCount > 0) return Color.Warning;
+        return Color.Success;
     }
 
     private string DueSoonBadgeText()

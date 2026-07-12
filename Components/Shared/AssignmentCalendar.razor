@@ -10,27 +10,44 @@
    (via UserTimeZoneProvider) so an evening service scheduled as
    "2025-01-12 03:00Z" lands under Jan 11 for an EST viewer, not Jan 12.
    Falls back to server TimeZoneInfo.Local during the brief prerender
-   window before the JS roundtrip populates the provider. *@
+   window before the JS roundtrip populates the provider.
 
-<div class="card">
-    <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
-        <div class="btn-group btn-group-sm">
-            <button type="button" class="btn btn-outline-secondary" @onclick="Prev" aria-label="Previous">‹</button>
-            <button type="button" class="btn btn-outline-secondary" @onclick="GoToday">Today</button>
-            <button type="button" class="btn btn-outline-secondary" @onclick="Next" aria-label="Next">›</button>
-        </div>
-        <strong>@_title</strong>
-        <div class="d-flex align-items-center gap-2 flex-wrap">
-            <span class="text-muted small">@Events.Count event@(Events.Count == 1 ? "" : "s") in view</span>
-            <div class="btn-group btn-group-sm" role="group" aria-label="View">
-                <button type="button" class="btn @(_viewMode == CalendarViewMode.Month ? "btn-primary" : "btn-outline-primary")"
-                        @onclick="() => SetViewMode(CalendarViewMode.Month)">Month</button>
-                <button type="button" class="btn @(_viewMode == CalendarViewMode.Week ? "btn-primary" : "btn-outline-primary")"
-                        @onclick="() => SetViewMode(CalendarViewMode.Week)">Week</button>
-            </div>
-        </div>
-    </div>
+   Migration note: the custom CSS grid (`.calendar-grid`, `.calendar-cell`,
+   `.calendar-out`, `.calendar-today`, `.calendar-daynum`, `.calendar-pill`,
+   `.calendar-pill-time`, `.week-grid`, `.week-corner`, `.week-day-header`,
+   `.week-hour-label`, `.week-cell`) is preserved because MudGrid is a
+   12-column flexbox grid that can't represent the 6×7 month layout or
+   the hour-row × 7-day-column week layout. Only the header controls
+   (card, btn-group, buttons) were migrated to MudBlazor primitives.
+   The event pills stay as raw `<a class="badge bg-*">` elements because
+   the custom `.calendar-pill` CSS handles overflow/ellipsis/line-height
+   that MudChip would break. The "+N more" expand buttons also stay as
+   raw `<button class="btn btn-link">` because they're inline-text
+   affordances inside the calendar cell, not standalone buttons. *@
 
+<MudCard>
+    <MudCardHeader>
+        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap" Spacing="2">
+            <MudButtonGroup Variant="Variant.Outlined" Size="Size.Small">
+                <MudButton OnClick="Prev" aria-label="Previous">‹</MudButton>
+                <MudButton OnClick="GoToday">Today</MudButton>
+                <MudButton OnClick="Next" aria-label="Next">›</MudButton>
+            </MudButtonGroup>
+            <MudText Typo="Typo.subtitle1"><strong>@_title</strong></MudText>
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Wrap="Wrap.Wrap">
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">@Events.Count event@(Events.Count == 1 ? "" : "s") in view</MudText>
+                <MudButtonGroup Variant="Variant.Outlined" Size="Size.Small">
+                    <MudButton Color="@(_viewMode == CalendarViewMode.Month ? Color.Primary : Color.Default)"
+                               Variant="@(_viewMode == CalendarViewMode.Month ? Variant.Filled : Variant.Outlined)"
+                               OnClick="() => SetViewMode(CalendarViewMode.Month)">Month</MudButton>
+                    <MudButton Color="@(_viewMode == CalendarViewMode.Week ? Color.Primary : Color.Default)"
+                               Variant="@(_viewMode == CalendarViewMode.Week ? Variant.Filled : Variant.Outlined)"
+                               OnClick="() => SetViewMode(CalendarViewMode.Week)">Week</MudButton>
+                </MudButtonGroup>
+            </MudStack>
+        </MudStack>
+    </MudCardHeader>
+    <MudCardContent Class="pa-0">
     @if (_viewMode == CalendarViewMode.Month)
     {
         <div class="calendar-grid">
@@ -128,7 +145,7 @@
                     {
                         <a href="@ev.Href" class="calendar-pill badge bg-@ev.StatusColor text-decoration-none"
                            title="@ev.Tooltip">
-                            <LocalTime Utc="@ev.StartUtc" Format="HH:mm" Class="calendar-pill-time" />@(ev.EndUtc.Hour > ev.StartUtc.Hour ? "→" : "")<LocalTime Utc="@ev.EndUtc" Format="HH:mm" />@ev.Title
+                            <LocalTime Utc="@ev.StartUtc" Format="HH:mm" />@(ev.EndUtc.Hour > ev.StartUtc.Hour ? "→" : "")<LocalTime Utc="@ev.EndUtc" Format="HH:mm" />@ev.Title
                             @* Round-FR-2.3b: training-event badge so
                                a training session doesn't visually
                                compete with regular assignments in the
@@ -150,8 +167,8 @@
             }
         </div>
     }
-</div>
-
+    </MudCardContent>
+</MudCard>
 @code {
     public enum CalendarViewMode { Month, Week }
 

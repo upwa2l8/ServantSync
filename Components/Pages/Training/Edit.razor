@@ -5,28 +5,14 @@
 
 <PageTitle>@(_isNew ? "New training" : $"Edit · {_model.Title}")</PageTitle>
 
-<nav aria-label="breadcrumb" class="mb-2">
-    <ol class="breadcrumb mb-0">
-        <li class="breadcrumb-item"><a href="">Home</a></li>
-        <li class="breadcrumb-item"><a href="Training/Manage">Training catalog</a></li>
-        @if (_isNew)
-        {
-            <li class="breadcrumb-item active" aria-current="page">New training</li>
-        }
-        else
-        {
-            <li class="breadcrumb-item"><a href="@($"Training/{Id}")">@_model.Title</a></li>
-            <li class="breadcrumb-item active" aria-current="page">Edit</li>
-        }
-    </ol>
-</nav>
+<MudBreadcrumbs Items="BreadcrumbItems" Class="mb-2 px-0" />
 
-<h1>@(_isNew ? "New training content" : "Edit training content")</h1>
+<MudText Typo="Typo.h4" Class="mb-2">@(_isNew ? "New training content" : "Edit training content")</MudText>
 <StatusMessage Message="@_message" IsError="@_isError" />
 
 @if (!_authChecked)
 {
-    <p class="text-muted">Loading permissions…</p>
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
 }
 
 <EditForm Model="_model" OnValidSubmit="Save" FormName="training-content-edit">
@@ -59,99 +45,123 @@
         <div class="mb-3">
             @if (_isNew)
             {
-                <label class="form-label">Organization</label>
-                @if (_adminOfMultipleOrgs)
+                <MudSelect T="int"
+                           @bind-Value="_model.OrganizationId"
+                           Label="Organization"
+                           Variant="Variant.Outlined"
+                           Margin="Margin.Dense"
+                           Disabled="@(!_adminOfMultipleOrgs)">
+                    <MudSelectItem T="int" Value="0">— pick the owning organization —</MudSelectItem>
+                    @foreach (var o in _adminOrgs)
+                    {
+                        <MudSelectItem T="int" Value="@o.Id">@o.Name</MudSelectItem>
+                    }
+                </MudSelect>
+                @if (!_adminOfMultipleOrgs)
                 {
-                    <select class="form-select" @bind="_model.OrganizationId">
-                        <option value="0">— pick the owning organization —</option>
-                        @foreach (var o in _adminOrgs)
-                        {
-                            <option value="@o.Id">@o.Name</option>
-                        }
-                    </select>
-                    <div class="form-text">Training belongs to one organization and is visible only to members of that org.</div>
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary mt-1">
+                        Auto-assigned to the only organization you administer. Cross-org sharing isn't supported.
+                    </MudText>
                 }
                 else
                 {
-                    <input type="text" class="form-control" readonly value="@(_adminOrgs.FirstOrDefault()?.Name ?? "")" />
-                    <input type="hidden" @bind="_model.OrganizationId" />
-                    <div class="form-text">Auto-assigned to the only organization you administer. Cross-org sharing isn't supported.</div>
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary mt-1">
+                        Training belongs to one organization and is visible only to members of that org.
+                    </MudText>
                 }
             }
             else if (_existingOrg is not null)
             {
-                <span class="badge bg-secondary">Owned by:</span>
-                <span class="ms-1 fw-semibold">@_existingOrg.Name</span>
-                <input type="hidden" @bind="_model.OrganizationId" />
-                <div class="form-text mt-1">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="mb-1">
+                    <MudChip T="string" Size="Size.Small" Color="Color.Default">Owned by:</MudChip>
+                    <strong>@_existingOrg.Name</strong>
+                </MudStack>
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">
                     To move training to another organization, delete and recreate it.
-                </div>
+                </MudText>
             }
         </div>
 
-        <div class="form-floating mb-3">
-            <InputText id="title" class="form-control" @bind-Value="_model.Title" />
-            <label for="title">Title</label>
-        </div>
-        <div class="form-floating mb-3">
-            <InputTextArea id="desc" class="form-control" style="height: 5rem" @bind-Value="_model.Description" />
-            <label for="desc">Description</label>
-        </div>
-        <div class="row g-2">
-            <div class="col-md-6">
-                <label class="form-label">Format</label>
-                <select class="form-select" @bind="_model.Format">
+        <MudTextField T="string"
+                      Label="Title"
+                      @bind-Value="_model.Title"
+                      Variant="Variant.Outlined"
+                      Margin="Margin.Dense"
+                      Class="mb-3"
+                      Required="true"
+                      RequiredError="Title is required" />
+        <MudTextField T="string"
+                      Label="Description"
+                      @bind-Value="_model.Description"
+                      Lines="3"
+                      Variant="Variant.Outlined"
+                      Margin="Margin.Dense"
+                      Class="mb-3" />
+        <MudGrid Spacing="2" Class="mb-2">
+            <MudItem xs="12" md="6">
+                <MudSelect T="TrainingFormat"
+                           @bind-Value="_model.Format"
+                           Label="Format"
+                           Variant="Variant.Outlined"
+                           Margin="Margin.Dense">
                     @foreach (var f in Enum.GetValues<TrainingFormat>())
                     {
-                        <option value="@f">@f</option>
+                        <MudSelectItem T="TrainingFormat" Value="@f">@f</MudSelectItem>
                     }
-                </select>
-            </div>
-            <div class="col-md-6">
-                <label class="form-label">Estimated duration (minutes)</label>
-                <input class="form-control" type="number" @bind="_model.DurationMinutes" />
-            </div>
-        </div>
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" md="6">
+                <MudNumericField T="int?"
+                                 @bind-Value="_model.DurationMinutes"
+                                 Label="Estimated duration (minutes)"
+                                 Variant="Variant.Outlined"
+                                 Margin="Margin.Dense" />
+            </MudItem>
+        </MudGrid>
 
         <div class="mt-3">
-            <label class="form-label">Source</label>
-            <ul class="nav nav-pills mb-2" role="tablist">
-                <li class="nav-item">
-                    <button type="button" class="nav-link @(_source == "url" ? "active" : "")" @onclick='() => _source = "url"'>Use URL</button>
-                </li>
-                <li class="nav-item">
-                    <button type="button" class="nav-link @(_source == "upload" ? "active" : "")" @onclick='() => _source = "upload"'>Upload file</button>
-                </li>
-            </ul>
+            <MudText Typo="Typo.subtitle2" Class="mb-2">Source</MudText>
+            <MudButtonGroup Color="Color.Primary" Variant="Variant.Outlined" Class="mb-2">
+                <MudButton OnClick="@(() => _source = "url")"
+                           Variant="@(_source == "url" ? Variant.Filled : Variant.Outlined)">Use URL</MudButton>
+                <MudButton OnClick="@(() => _source = "upload")"
+                           Variant="@(_source == "upload" ? Variant.Filled : Variant.Outlined)">Upload file</MudButton>
+            </MudButtonGroup>
 
             @if (_source == "url")
             {
-                <div class="form-floating mb-3">
-                    <InputText id="url" class="form-control" @bind-Value="_model.FilePathOrUrl" />
-                    <label for="url">URL (YouTube/Vimeo/Drive/etc.)</label>
-                </div>
+                <MudTextField T="string"
+                              Label="URL (YouTube/Vimeo/Drive/etc.)"
+                              @bind-Value="_model.FilePathOrUrl"
+                              Variant="Variant.Outlined"
+                              Margin="Margin.Dense"
+                              Class="mb-3" />
             }
             else
             {
-                <InputFile OnChange="HandleUpload" class="form-control" accept="video/*,application/pdf" />
+                <InputFile OnChange="HandleUpload" class="form-control mb-2" accept="video/*,application/pdf" />
                 @if (_uploading)
                 {
-                    <div class="form-text">Uploading…</div>
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary">Uploading…</MudText>
                 }
                 else if (!string.IsNullOrEmpty(_uploadedPath))
                 {
-                    <div class="form-text text-success">
-                        Uploaded: @_uploadedPath
-                        <button type="button" class="btn btn-sm btn-link" @onclick="() => _model.FilePathOrUrl = _uploadedPath!">Use this</button>
-                    </div>
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mt-1">
+                        <MudText Typo="Typo.caption" Color="Color.Success">Uploaded: @_uploadedPath</MudText>
+                        <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => _model.FilePathOrUrl = _uploadedPath!)">Use this</MudButton>
+                    </MudStack>
                 }
             }
         </div>
 
-        <div class="mt-3">
-            <button class="btn btn-primary" type="submit">Save</button>
-            <a class="btn btn-outline-secondary ms-2" href="/Training/Manage">Cancel</a>
-        </div>
+        <MudStack Row="true" Spacing="2" Class="mt-3">
+            <MudButton ButtonType="ButtonType.Submit"
+                       Color="Color.Primary"
+                       Variant="Variant.Filled">Save</MudButton>
+            <MudButton Href="@LinkBuilder.TrainingManageHref()"
+                       Color="Color.Default"
+                       Variant="Variant.Outlined">Cancel</MudButton>
+        </MudStack>
     </fieldset>
 </EditForm>
 
@@ -195,6 +205,28 @@
     // resolve or if the caller isn't Admin of it (in which case Save is
     // refused explicitly).
     private OrganizationLite? _existingOrg;
+
+    // Breadcrumb items for MudBreadcrumbs. The last item is the current
+    // page (no href, disabled). Built from the route param + isNew flag
+    // + loaded data so it stays in sync whether the user is creating or
+    // editing training.
+    private List<BreadcrumbItem> BreadcrumbItems
+    {
+        get
+        {
+            var items = new List<BreadcrumbItem>
+            {
+                new BreadcrumbItem("Home", href: ""),
+                new BreadcrumbItem("Training catalog", href: LinkBuilder.TrainingManageHref()),
+            };
+            if (!_isNew && _model is not null && !string.IsNullOrEmpty(_model.Title))
+            {
+                items.Add(new BreadcrumbItem(_model.Title, href: _model.Id > 0 ? LinkBuilder.TrainingHref(_model.Id) : null));
+            }
+            items.Add(new BreadcrumbItem(_isNew ? "New training" : "Edit", href: null, disabled: true));
+            return items;
+        }
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -268,6 +300,7 @@
         _existingOrg = new OrganizationLite { Id = existing.OrganizationId, Name = existing.Organization.Name };
         _model = new ContentModel
         {
+            Id = existing.Id,
             OrganizationId = existing.OrganizationId,
             Title = existing.Title,
             Description = existing.Description,
@@ -367,7 +400,7 @@
                 TotalPageCount = _detectedPageCount,
             });
             await db.SaveChangesAsync();
-            Nav.NavigateTo("Training/Manage");
+            Nav.NavigateTo(LinkBuilder.TrainingManageHref());
             return;
         }
         var existing = await db.TrainingContents.FindAsync(Id!.Value);
@@ -400,11 +433,12 @@
         existing.Version += 1;
         existing.VersionDateUtc = DateTime.UtcNow;
         await db.SaveChangesAsync();
-        Nav.NavigateTo("Training/Manage");
+        Nav.NavigateTo(LinkBuilder.TrainingManageHref());
     }
 
     private sealed class ContentModel
     {
+        public int Id { get; set; }
         [Required, StringLength(200)] public string Title { get; set; } = "";
         [StringLength(2000)] public string? Description { get; set; }
         public TrainingFormat Format { get; set; }

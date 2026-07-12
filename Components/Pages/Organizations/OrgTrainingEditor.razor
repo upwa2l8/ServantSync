@@ -3,20 +3,19 @@
 
 @if (_loading)
 {
-    <p><em>Loading…</em></p>
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
 }
 else
 {
     @if (_errorMessage is not null)
     {
-        <div class="alert alert-warning d-flex justify-content-between align-items-center" role="alert">
-            <div>@_errorMessage</div>
-            <button type="button" class="btn-close" @onclick="() => _errorMessage = null" aria-label="Dismiss"></button>
-        </div>
+        <MudAlert Severity="Severity.Warning" ShowCloseIcon="true" CloseIconClicked="@(() => _errorMessage = null)">
+            @_errorMessage
+        </MudAlert>
     }
     @if (!_content.Any())
     {
-        <p class="text-muted">No training content available yet — add some under <a href="Training">Training</a> first.</p>
+        <MudText Typo="Typo.body2" Class="mud-text-secondary">No training content available yet — add some under <MudLink Href="Training">Training</MudLink> first.</MudText>
     }
     else
     {
@@ -31,58 +30,75 @@ else
            dropdown has nothing to show. Keep this comment if you
            ever add a FormName back. *@
         <EditForm Model="_addModel" OnValidSubmit="AddRequirement">
-            <div class="row g-2 align-items-end">
-                <div class="col">
-                    <select class="form-select"
-                            @bind="_addModel.TrainingContentId"
-                            @bind:after="ClearError">
-                        <option value="">— pick training —</option>
+            <MudGrid Spacing="2" Class="align-items-center mb-2">
+                <MudItem xs="12" sm="4">
+                    <MudSelect T="int"
+                               @bind-Value="_addModel.TrainingContentId"
+                               @bind-Value:after="ClearError"
+                               Label="Training"
+                               Variant="Variant.Outlined"
+                               Margin="Margin.Dense">
+                        <MudSelectItem T="int" Value="0">— pick training —</MudSelectItem>
                         @foreach (var c in _content)
                         {
-                            <option value="@c.Id">@c.Title (@c.Format v@c.Version)</option>
+                            <MudSelectItem T="int" Value="@c.Id">@c.Title (@c.Format v@c.Version)</MudSelectItem>
                         }
-                    </select>
-                </div>
-                <div class="col">
-                    <select class="form-select" @bind="_addModel.Cadence">
-                        <option value="@TrainingCadence.Yearly">Yearly</option>
-                        <option value="@TrainingCadence.OneTime">One-time</option>
-                        <option value="@TrainingCadence.EveryMonths">Every N months…</option>
-                    </select>
-                </div>
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12" sm="3">
+                    <MudSelect T="TrainingCadence"
+                               @bind-Value="_addModel.Cadence"
+                               Label="Cadence"
+                               Variant="Variant.Outlined"
+                               Margin="Margin.Dense">
+                        <MudSelectItem T="TrainingCadence" Value="TrainingCadence.Yearly">Yearly</MudSelectItem>
+                        <MudSelectItem T="TrainingCadence" Value="TrainingCadence.OneTime">One-time</MudSelectItem>
+                        <MudSelectItem T="TrainingCadence" Value="TrainingCadence.EveryMonths">Every N months…</MudSelectItem>
+                    </MudSelect>
+                </MudItem>
                 @if (_addModel.Cadence == TrainingCadence.EveryMonths)
                 {
-                    <div class="col">
-                        <input class="form-control" type="number" min="1" max="60"
-                               @bind="_addModel.CadenceMonths" placeholder="Months" />
-                    </div>
+                    <MudItem xs="6" sm="2">
+                        <MudNumericField T="int"
+                                         @bind-Value="_addModel.CadenceMonths"
+                                         Label="Months"
+                                         Min="1"
+                                         Max="60"
+                                         Variant="Variant.Outlined"
+                                         Margin="Margin.Dense" />
+                    </MudItem>
                 }
-                <div class="col-auto">
-                    <button class="btn btn-primary">Required</button>
-                </div>
-            </div>
+                <MudItem xs="12" sm="3" Class="d-flex align-end">
+                    <MudButton ButtonType="ButtonType.Submit"
+                               Color="Color.Primary"
+                               Variant="Variant.Filled">Required</MudButton>
+                </MudItem>
+            </MudGrid>
         </EditForm>
     }
 
-    <h6 class="mt-4">Currently required</h6>
+    <MudText Typo="Typo.h6" Class="mt-4">Currently required</MudText>
     @if (!_requirements.Any())
     {
-        <div class="alert alert-secondary">No org-wide training required yet.</div>
+        <MudAlert Severity="Severity.Normal" Dense="true">No org-wide training required yet.</MudAlert>
     }
     else
     {
-        <ul class="list-group">
+        <MudList T="ReqRow" Dense="true">
             @foreach (var r in _requirements)
             {
-                <li class="list-group-item d-flex justify-content-between align-items-center">
-                    <div>
-                        <a href="@($"Training/{r.TrainingContentId}/Edit")">@r.Title</a>
-                        <span class="badge bg-secondary ms-2">@r.Cadence</span>
-                    </div>
-                    <button class="btn btn-sm btn-outline-danger" @onclick="() => Remove(r.Id)">Remove</button>
-                </li>
+                <MudListItem T="ReqRow">
+                    <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                        <div>
+                            <MudLink Href="@LinkBuilder.TrainingEditHref(r.TrainingContentId)">@r.Title</MudLink>
+                            <MudChip T="string" Size="Size.Small" Color="Color.Default" Class="ms-2">@r.Cadence</MudChip>
+                        </div>
+                        <MudButton Color="Color.Error" Variant="Variant.Outlined" Size="Size.Small"
+                                   OnClick="@(() => Remove(r.Id))">Remove</MudButton>
+                    </MudStack>
+                </MudListItem>
             }
-        </ul>
+        </MudList>
     }
 }
 

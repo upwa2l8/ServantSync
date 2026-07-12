@@ -33,6 +33,7 @@
 
   <ItemGroup>
     <PackageReference Include="MailKit" Version="4.13.0" />
+    <PackageReference Include="MudBlazor" Version="8.1.0" />
     <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="9.0.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.0">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>

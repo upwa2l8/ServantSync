@@ -1,9 +1,8 @@
 @if (!string.IsNullOrEmpty(Message))
 {
-    var statusClass = IsError ? "alert-danger" : "alert-success";
-    <div class="alert @statusClass" role="alert">
+    <MudAlert Severity="@(IsError ? Severity.Error : Severity.Success)" Dense="true" Class="mb-3">
         @Message
-    </div>
+    </MudAlert>
 }
 
 @code {

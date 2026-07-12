@@ -12,15 +12,15 @@
 
 @if (!_hasLoaded)
 {
-    <p><em>Loading…</em></p>
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
 }
 else if (_org is null)
 {
-    <div class="alert alert-warning mt-3">
-        <h4>Organization not found</h4>
-        <p>No organization matches id <code>@Id</code>. Try the
-        <a href="Organizations">organization list</a>.</p>
-    </div>
+    <MudAlert Severity="Severity.Warning" Class="mt-3">
+        <MudText Typo="Typo.h6">Organization not found</MudText>
+        <MudText>No organization matches id <code>@Id</code>. Try the
+        <MudLink Href="Organizations">organization list</MudLink>.</MudText>
+    </MudAlert>
 }
 else if (!_canManage)
 {
@@ -28,11 +28,14 @@ else if (!_canManage)
        Organizations/Detail.razor + Ministries/Edit.razor). Server-side
        PersonService.ListStubsAsync / RotateClaimTokenAsync re-gate on
        IsOrgAdminAsync, so a forged URL doesn't expose the row table. *@
-    <div class="alert alert-danger mt-3">
-        <h4>Permission denied</h4>
-        <p>Only organization <strong>Admins</strong> can view and manage stub members.</p>
-        <a href="@($"Organizations/{Id}")" class="btn btn-outline-secondary">← Back to organization</a>
-    </div>
+    <MudAlert Severity="Severity.Error" Class="mt-3">
+        <MudText Typo="Typo.h6">Permission denied</MudText>
+        <MudText>Only organization <strong>Admins</strong> can view and manage stub members.</MudText>
+        <MudButton Href="@LinkBuilder.OrganizationHref(Id)"
+                   Color="Color.Default"
+                   Variant="Variant.Outlined"
+                   Class="mt-2">← Back to organization</MudButton>
+    </MudAlert>
 }
 else
 {
@@ -44,13 +47,17 @@ else
         </ol>
     </nav>
 
-    <div class="d-flex justify-content-between align-items-center mb-3">
-        <h1 class="h3 mb-0">Stub members (@(_stubs?.Count ?? 0))</h1>
-        <div>
-            <a class="btn btn-primary" href="@($"Organizations/{Id}/Members/AddStub")">+ Add stub manually</a>
-            <a class="btn btn-outline-secondary ms-1" href="@($"Organizations/{Id}")">← Back to organization</a>
-        </div>
-    </div>
+    <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-3">
+        <MudText Typo="Typo.h4">Stub members (@(_stubs?.Count ?? 0))</MudText>
+        <MudStack Row="true" Spacing="1">
+            <MudButton Href="@LinkBuilder.OrganizationMemberAddStubHref(Id)"
+                       Color="Color.Primary"
+                       Variant="Variant.Filled">+ Add stub manually</MudButton>
+            <MudButton Href="@LinkBuilder.OrganizationHref(Id)"
+                       Color="Color.Default"
+                       Variant="Variant.Outlined">← Back to organization</MudButton>
+        </MudStack>
+    </MudStack>
 
     <p class="text-muted small">
         Stub members are volunteers manually added by an admin who haven't yet
@@ -63,83 +70,74 @@ else
 
     @if (_stubs is null)
     {
-        <p><em>Loading stub list…</em></p>
+        <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
     }
     else if (_stubs.Count == 0)
     {
-        <div class="alert alert-info">
+        <MudAlert Severity="Severity.Info">
             <strong>No stub members yet.</strong>
-            <a href="@($"Organizations/{Id}/Members/AddStub")">Add the first one →</a>
-        </div>
+            <MudLink Href="@LinkBuilder.OrganizationMemberAddStubHref(Id)">Add the first one →</MudLink>
+        </MudAlert>
     }
     else
     {
-        <div class="table-responsive">
-            <table class="table table-sm align-middle">
-                <thead>
-                    <tr>
-                        <th scope="col">Name</th>
-                        <th scope="col">Email</th>
-                        <th scope="col">Token status</th>
-                        <th scope="col">Token expires</th>
-                        <th scope="col">Last claim / rotate</th>
-                        <th scope="col" class="text-end">Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach (var s in _stubs)
-                    {
-                        <tr>
-                            <td>
-                                <strong>@s.DisplayName</strong>
-                            </td>
-                            <td>
-                                @if (!string.IsNullOrEmpty(s.Email))
-                                {
-                                    @s.Email
-                                }
-                                else
-                                {
-                                    <span class="text-muted">—</span>
-                                }
-                            </td>
-                            <td>
-                                @TokenStatusBadge(s)
-                            </td>
-                            <td>
-                                @if (s.TokenExpiresUtc.HasValue)
-                                {
-                                    @s.TokenExpiresUtc.Value.ToString("yyyy-MM-dd")
-                                }
-                                else
-                                {
-                                    <span class="text-muted">—</span>
-                                }
-                            </td>
-                            <td>
-                                @if (s.ClaimedUtc.HasValue)
-                                {
-                                    <span title="UTC">
-                                        @s.ClaimedUtc.Value.ToString("yyyy-MM-dd HH:mm 'UTC'")
-                                    </span>
-                                }
-                                else
-                                {
-                                    <span class="text-muted">—</span>
-                                }
-                            </td>
-                            <td class="text-end">
-                                <button class="btn btn-sm btn-outline-warning" type="button"
-                                        @onclick="() => RequestRotate(s.PersonUserId, s.DisplayName)"
-                                        title="Generate a new claim token. The old token (if any) becomes invalid immediately.">
-                                    Rotate token
-                                </button>
-                            </td>
-                        </tr>
-                    }
-                </tbody>
-            </table>
-        </div>
+        <MudPaper Outlined="true">
+            <MudTable T="StubListItem" Items="_stubs" Dense="true" Hover="true">
+                <HeaderContent>
+                    <MudTh>Name</MudTh>
+                    <MudTh>Email</MudTh>
+                    <MudTh>Token status</MudTh>
+                    <MudTh>Token expires</MudTh>
+                    <MudTh>Last claim / rotate</MudTh>
+                    <MudTh Class="text-end">Actions</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd><strong>@context.DisplayName</strong></MudTd>
+                    <MudTd>
+                        @if (!string.IsNullOrEmpty(context.Email))
+                        {
+                            @context.Email
+                        }
+                        else
+                        {
+                            <span class="mud-text-secondary">—</span>
+                        }
+                    </MudTd>
+                    <MudTd>
+                        @TokenStatusBadge(context)
+                    </MudTd>
+                    <MudTd>
+                        @if (context.TokenExpiresUtc.HasValue)
+                        {
+                            @context.TokenExpiresUtc.Value.ToString("yyyy-MM-dd")
+                        }
+                        else
+                        {
+                            <span class="mud-text-secondary">—</span>
+                        }
+                    </MudTd>
+                    <MudTd>
+                        @if (context.ClaimedUtc.HasValue)
+                        {
+                            <span title="UTC">
+                                @context.ClaimedUtc.Value.ToString("yyyy-MM-dd HH:mm 'UTC'")
+                            </span>
+                        }
+                        else
+                        {
+                            <span class="mud-text-secondary">—</span>
+                        }
+                    </MudTd>
+                    <MudTd Class="text-end">
+                        <MudButton Color="Color.Warning" Variant="Variant.Outlined" Size="Size.Small"
+                                   OnClick="@(() => RequestRotate(context.PersonUserId, context.DisplayName))"
+                                   Title="Generate a new claim token. The old token (if any) becomes invalid immediately.">
+                            Rotate token
+                        </MudButton>
+                    </MudTd>
+                </RowTemplate>
+            </MudTable>
+        </MudPaper>
     }
 
     if (!string.IsNullOrEmpty(_errorMessage))
@@ -174,9 +172,10 @@ else
    "Done" button + the token copy/print affordances, not the
    confirm/cancel pair. The new raw token is set by ConfirmRotateAsync
    on the success branch and cleared by CloseOneTimeReveal (Done
-   button or Esc / backdrop). Pattern-mirrors the one-time reveal in
-   AddStub.razor (same Bootstrap modal + Clipboard-API JS interop
-   + same-broad-but-non-fatal catch on older browsers). *@
+   button or Esc / backdrop). Keep the Bootstrap modal shell here for
+   the same reason as AddStub.razor's reveal: custom buttons, not
+   confirm/cancel. Bootstrap CSS is still loaded for the remaining
+   components. *@
 @if (_rotatedToken is not null)
 {
     <div class="modal fade show d-block" tabindex="0"

@@ -4,18 +4,11 @@
 
 <PageTitle>Parents &middot; @(_team?.Name ?? "Team")</PageTitle>
 
-<nav aria-label="breadcrumb" class="mb-2">
-    <ol class="breadcrumb mb-0">
-        <li class="breadcrumb-item"><a href="">Home</a></li>
-        <li class="breadcrumb-item"><a href="Leagues">Leagues</a></li>
-        <li class="breadcrumb-item"><a href="@($"Teams/{TeamId}")">@(_team?.Name ?? $"Team #{TeamId}")</a></li>
-        <li class="breadcrumb-item active" aria-current="page">Parents</li>
-    </ol>
-</nav>
+<MudBreadcrumbs Items="BreadcrumbItems" Class="mb-2 px-0" />
 
 @if (!_hasLoaded)
 {
-    <p><em>Loading…</em></p>
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
 }
 else if (!_canView)
 {
@@ -30,85 +23,78 @@ else if (!_canView)
        the "Not authorized" panel below because _canView=false in both
        cases. Privacy: don't leak cross-org existence via a "Team not
        found" panel. *@
-    <div class="alert alert-warning mt-3">
-        <h4>Not authorized</h4>
-        <p>You don't have permission to view the parent contacts for this team.</p>
-        <p class="mb-0 small">
+    <MudAlert Severity="Severity.Warning" Class="mt-3">
+        <MudText Typo="Typo.h6">Not authorized</MudText>
+        <MudText>You don't have permission to view the parent contacts for this team.</MudText>
+        <MudText Typo="Typo.caption" Class="mt-2 mb-0">
             Team coaches, ministry directors, and organization administrators
             (plus SystemAdmin platform administrators) can see the parent
             contact list. To view a specific parent's profile from your own
             team page, use the link on the team detail's roster.
-        </p>
-    </div>
+        </MudText>
+    </MudAlert>
 }
 else
 {
-    <div class="d-flex justify-content-between align-items-center mb-3">
+    <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-3">
         <div>
-            <h1 class="mb-0">Parents &middot; @_team!.Name</h1>
-            <div class="text-muted">
+            <MudText Typo="Typo.h4" Class="mb-0">Parents &middot; @_team!.Name</MudText>
+            <MudText Typo="Typo.body2" Class="mud-text-secondary">
                 @_activePlayers.Count active player@(_activePlayers.Count == 1 ? "" : "s") on the current roster.
-                &middot; <a href="@($"Teams/{TeamId}")">Back to team</a>
-            </div>
+                &middot; <MudLink Href="@LinkBuilder.TeamHref(TeamId)">Back to team</MudLink>
+            </MudText>
         </div>
-    </div>
+    </MudStack>
 
     @if (!_activePlayers.Any())
     {
-        <div class="alert alert-info">
+        <MudAlert Severity="Severity.Info">
             No active players on this team's roster yet. Once a coach adds a player
             with a primary-contact link, that parent's info surfaces here.
-        </div>
+        </MudAlert>
     }
     else
     {
-        <div class="table-responsive">
-            <table class="table align-middle">
-                <thead>
-                    <tr>
-                        <th>#</th>
-                        <th>Player</th>
-                        <th>Pos</th>
-                        <th>Parent / guardian</th>
-                        <th>Contact</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach (var p in _activePlayers)
-                    {
-                        <tr>
-                            <td>@(p.JerseyNumber?.ToString() ?? "—")</td>
-                            <td>@p.DisplayName</td>
-                            <td>@(p.Position ?? "—")</td>
-                            <td>
-                                @if (p.PrimaryContactPerson is not null)
-                                {
-                                    <a href="@($"People/{p.PrimaryContactPersonUserId}")">@p.PrimaryContactPerson.DisplayName</a>
-                                }
-                                else
-                                {
-                                    <span class="text-muted">— not linked —</span>
-                                }
-                            </td>
-                            <td class="small">
-                                @if (!string.IsNullOrEmpty(p.PrimaryContactPhone))
-                                {
-                                    <div>@p.PrimaryContactPhone</div>
-                                }
-                                @if (!string.IsNullOrEmpty(p.PrimaryContactEmail))
-                                {
-                                    <div>@p.PrimaryContactEmail</div>
-                                }
-                                @if (string.IsNullOrEmpty(p.PrimaryContactPhone) && string.IsNullOrEmpty(p.PrimaryContactEmail))
-                                {
-                                    <span class="text-muted">—</span>
-                                }
-                            </td>
-                        </tr>
-                    }
-                </tbody>
-            </table>
-        </div>
+        <MudPaper Outlined="true">
+            <MudTable T="Player" Items="_activePlayers" Dense="true" Hover="true">
+                <HeaderContent>
+                    <MudTh>#</MudTh>
+                    <MudTh>Player</MudTh>
+                    <MudTh>Pos</MudTh>
+                    <MudTh>Parent / guardian</MudTh>
+                    <MudTh>Contact</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd>@(context.JerseyNumber?.ToString() ?? "—")</MudTd>
+                    <MudTd>@context.DisplayName</MudTd>
+                    <MudTd>@(context.Position ?? "—")</MudTd>
+                    <MudTd>
+                        @if (context.PrimaryContactPerson is not null)
+                        {
+                            <MudLink Href="@LinkBuilder.PersonHref(context.PrimaryContactPersonUserId!)">@context.PrimaryContactPerson.DisplayName</MudLink>
+                        }
+                        else
+                        {
+                            <span class="mud-text-secondary">— not linked —</span>
+                        }
+                    </MudTd>
+                    <MudTd>
+                        @if (!string.IsNullOrEmpty(context.PrimaryContactPhone))
+                        {
+                            <div>@context.PrimaryContactPhone</div>
+                        }
+                        @if (!string.IsNullOrEmpty(context.PrimaryContactEmail))
+                        {
+                            <div>@context.PrimaryContactEmail</div>
+                        }
+                        @if (string.IsNullOrEmpty(context.PrimaryContactPhone) && string.IsNullOrEmpty(context.PrimaryContactEmail))
+                        {
+                            <span class="mud-text-secondary">—</span>
+                        }
+                    </MudTd>
+                </RowTemplate>
+            </MudTable>
+        </MudPaper>
     }
 }
 
@@ -131,6 +117,24 @@ else
     // so navigation never shows a spinner indefinitely.
     private bool _hasLoaded;
     private string _userId = "";
+
+    // Breadcrumb items for MudBreadcrumbs. The last item is the current
+    // page (no href, disabled). Built from the loaded team so it stays
+    // in sync with whatever team the user is viewing.
+    private List<BreadcrumbItem> BreadcrumbItems
+    {
+        get
+        {
+            var items = new List<BreadcrumbItem>
+            {
+                new BreadcrumbItem("Home", href: ""),
+                new BreadcrumbItem("Leagues", href: "Leagues"),
+                new BreadcrumbItem(_team?.Name ?? $"Team #{TeamId}", href: LinkBuilder.TeamHref(TeamId)),
+                new BreadcrumbItem("Parents", href: null, disabled: true),
+            };
+            return items;
+        }
+    }
 
     protected override async Task OnInitializedAsync()
     {

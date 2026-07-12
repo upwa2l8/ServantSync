@@ -27,12 +27,12 @@
          width="@Width.ToString()"
          loading="@Loading"
          aria-hidden="true"
-         class="img-fluid" />
+         class="ss-wordmark-img" />
     @if (!string.IsNullOrEmpty(Caption))
     {
-        <figcaption class="text-muted small mt-2 mb-0">
+        <MudText Typo="Typo.caption" Align="Align.Center" Class="mud-text-secondary mt-2 mb-0">
             @Caption
-        </figcaption>
+        </MudText>
     }
 </figure>
 
@@ -41,17 +41,18 @@
     /// Intrinsic width of the wordmark image in CSS pixels. The
     /// marketing wordmark SVG has a tall-portrait viewBox so a
     /// 120/140/180 px intrinsic keeps the aspect ratio honest on
-    /// the auth + empty-state surfaces. Bootstrap's .img-fluid
-    /// (max-width: 100%; height: auto) on the img still scales
-    /// the figure down for narrow viewports.
+    /// the auth + empty-state surfaces. The .ss-wordmark-img class
+    /// in wwwroot/app.css (max-width: 100%; height: auto) replaces
+    /// Bootstrap's .img-fluid so the figure scales down for narrow
+    /// viewports.
     /// </summary>
     [Parameter, EditorRequired] public int Width { get; set; }
 
     /// <summary>
     /// Optional figcaption (e.g. the breadth tagline on Login).
-    /// When set, the <figcaption> is rendered below the <img> with
+    /// When set, the caption is rendered below the <img> with
     /// muted-small styling; when null/empty, the figure contains
-    /// only the <img>. The figcaption is NOT aria-hidden (the
+    /// only the <img>. The caption is NOT aria-hidden (the
     /// <img> is), so a screen reader navigating the figure will
     /// announce only the caption text.
     /// </summary>

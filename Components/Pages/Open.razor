@@ -4,20 +4,15 @@
 
 <PageTitle>Browse open slots</PageTitle>
 
-<nav aria-label="breadcrumb" class="mb-2">
-    <ol class="breadcrumb mb-0">
-        <li class="breadcrumb-item"><a href="">Home</a></li>
-        <li class="breadcrumb-item active" aria-current="page">Browse open slots</li>
-    </ol>
-</nav>
+<MudBreadcrumbs Items="_crumbs" Class="mb-2 px-0" />
 
-<h1>Browse open slots</h1>
-<p class="text-muted">
+<MudText Typo="Typo.h4" Class="mb-2">Browse open slots</MudText>
+<MudText Typo="Typo.body1" Class="mud-text-secondary mb-4">
     Open shifts that coordinators have queued for your organizations. Sign-up is
     immediate — the slot becomes <strong>Scheduled</strong> on your
-    <a href="MySchedule">My schedule</a> right away. Missing training will block
+    <MudLink Href="MySchedule">My schedule</MudLink> right away. Missing training will block
     the sign-up button so the coordinator can route you to the right content.
-</p>
+</MudText>
 
 @* Round-FR-7: the 3-way pill-segment below combines three orthogonal
    filters. The volunteer picks the narrowness: "All slots" (every open
@@ -25,229 +20,216 @@
    MinistryInterest rows), or "My slots" (only shifts from SlotInterest
    rows). The first paint auto-selects based on which preference set the
    user has populated; subsequent clicks override and persist for the
-   rest of the session (no cross-session persistence in round 1). The
-   org picker still scopes each option when set. *@
+   rest of the session. *@
 @if (_userIdPresent && _hasMembership && !_loading)
 {
-    <div class="d-flex justify-content-between align-items-center mb-3">
-        <div class="d-flex gap-2 align-items-center flex-wrap">
-            <div class="btn-group" role="group" aria-label="Filter open shifts by scope">
-                <button type="button"
-                        class="btn btn-sm @(_filterMode == OpenSlotFilterMode.MySlots ? "btn-primary" : "btn-outline-primary")"
-                        @onclick="() => SetFilterMode(OpenSlotFilterMode.MySlots)"
-                        title="Show only open shifts for slots you have explicitly subscribed to">
+    <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-3" Spacing="2">
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Wrap="Wrap.Wrap">
+            <MudButtonGroup Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small">
+                <MudButton Variant="@(_filterMode == OpenSlotFilterMode.MySlots ? Variant.Filled : Variant.Outlined)"
+                           Color="Color.Primary"
+                           OnClick="() => SetFilterMode(OpenSlotFilterMode.MySlots)"
+                           title="Show only open shifts for slots you have explicitly subscribed to">
                     My slots (@_subscribedSlotIds.Count)
-                </button>
-                <button type="button"
-                        class="btn btn-sm @(_filterMode == OpenSlotFilterMode.MyMinistries ? "btn-primary" : "btn-outline-primary")"
-                        @onclick="() => SetFilterMode(OpenSlotFilterMode.MyMinistries)"
-                        title="Show only open shifts from ministries you have joined">
+                </MudButton>
+                <MudButton Variant="@(_filterMode == OpenSlotFilterMode.MyMinistries ? Variant.Filled : Variant.Outlined)"
+                           Color="Color.Primary"
+                           OnClick="() => SetFilterMode(OpenSlotFilterMode.MyMinistries)"
+                           title="Show only open shifts from ministries you have joined">
                     My ministries (@_joinedMinistryIds.Count)
-                </button>
-                <button type="button"
-                        class="btn btn-sm @(_filterMode == OpenSlotFilterMode.AllSlots ? "btn-primary" : "btn-outline-primary")"
-                        @onclick="() => SetFilterMode(OpenSlotFilterMode.AllSlots)"
-                        title="Show every open shift across every ministry in your organizations">
+                </MudButton>
+                <MudButton Variant="@(_filterMode == OpenSlotFilterMode.AllSlots ? Variant.Filled : Variant.Outlined)"
+                           Color="Color.Primary"
+                           OnClick="() => SetFilterMode(OpenSlotFilterMode.AllSlots)"
+                           title="Show every open shift across every ministry in your organizations">
                     All slots
-                </button>
-            </div>
-            <select class="form-select form-select-sm" style="width:auto" @bind="_selectedOrgId" @bind:after="OnOrgChanged">
-                <option value="0">All organizations (@_orgs.Count)</option>
+                </MudButton>
+            </MudButtonGroup>
+            <MudSelect T="int"
+                       Value="_selectedOrgId"
+                       ValueChanged="async v => { _selectedOrgId = v; await OnOrgChanged(); }"
+                       Variant="Variant.Outlined" Dense="true" Margin="Margin.Dense"
+                       Style="min-width:200px">
+                <MudSelectItem Value="0">All organizations (@_orgs.Count)</MudSelectItem>
                 @foreach (var o in _orgs)
                 {
-                    <option value="@o.Id">@o.Name</option>
+                    <MudSelectItem Value="@o.Id">@o.Name</MudSelectItem>
                 }
-            </select>
-        </div>
+            </MudSelect>
+        </MudStack>
         @if (_subscribedSlotIds.Count > 0 || _joinedMinistryIds.Count > 0)
         {
-            <a class="btn btn-sm btn-outline-secondary" href="@OrgLink">Manage my subscriptions</a>
+            <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small"
+                       Href="@OrgLink">
+                Manage my subscriptions
+            </MudButton>
         }
-    </div>
+    </MudStack>
 }
 
 @if (_loading)
 {
-    <p><em>Loading…</em></p>
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
 }
 else if (!_userIdPresent)
 {
-    <div class="alert alert-warning">You need to be signed in to see open slots.</div>
+    <MudAlert Severity="Severity.Warning">You need to be signed in to see open slots.</MudAlert>
 }
 else if (!_hasMembership)
 {
     @* Wordmark above the no-membership empty-state. Parallel to
-       the Home no-org splash. See WordmarkSplash. *@
+       the Home no-org splash. *@
     <WordmarkSplash Width="120" Loading="lazy" />
-    <div class="alert alert-info">
+    <MudAlert Severity="Severity.Info" Class="mt-2">
         You're not a member of any organization yet. Once an Admin invites you,
         open slots from that org will show up here.
-    </div>
+    </MudAlert>
 }
 else if (_filterMode == OpenSlotFilterMode.MySlots && _subscribedSlotIds.Count == 0)
 {
-    @* "My slots" filter applied + zero slot-level subscriptions → the
-       user has explicitly opted into slot-level filtering but has no
-       data to show. Distinct empty-state CTA so the user can either
-       widen the scope OR subscribe to a slot from another surface. *@
     <WordmarkSplash Width="120" Loading="lazy" />
-    <div class="alert alert-info">
-        <h6 class="alert-heading mb-2">You haven't subscribed to any slots yet</h6>
-        <p class="mb-2">
+    <MudAlert Severity="Severity.Info" Class="mt-2">
+        <MudText Typo="Typo.h6" Class="mb-2">You haven't subscribed to any slots yet</MudText>
+        <MudText Class="mb-2">
             Turn on slot-level filtering to see only shifts for slots you specifically want.
             Visit a slot's detail page and tap <strong>Subscribe</strong>, or browse the ministry
             page to subscribe to one or two slots at a time.
-        </p>
-        <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="() => SetFilterMode(OpenSlotFilterMode.AllSlots)">
+        </MudText>
+        <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small"
+                   OnClick="() => SetFilterMode(OpenSlotFilterMode.AllSlots)">
             Switch to All slots
-        </button>
-    </div>
+        </MudButton>
+    </MudAlert>
 }
 else if (_filterMode == OpenSlotFilterMode.MyMinistries && _joinedMinistryIds.Count == 0)
 {
-    @* Filter-induced empty-state (NOT data-empty): the user toggled
-       the "My ministries" pill-segment and the joined set is empty,
-       so the filter provably has nothing to show. Distinct from the
-       data-empty branches above (no membership / no shifts queued) in
-       that the user has agency — switching to "All slots" or
-       following one ministry re-populates the page. The wordmark
-       stays for brand consistency but the WHY here names the
-       distinction so the next maintainer doesn't read
-       "0 results + wordmark = optimism" and quietly tone it down. *@
     <WordmarkSplash Width="120" Loading="lazy" />
-    <div class="alert alert-info">
-        <h6 class="alert-heading mb-2">You haven't joined any ministries yet</h6>
-        <p class="mb-2">
+    <MudAlert Severity="Severity.Info" Class="mt-2">
+        <MudText Typo="Typo.h6" Class="mb-2">You haven't joined any ministries yet</MudText>
+        <MudText Class="mb-2">
             You're filtering to your followed ministries, but you haven't followed any. Switch to <strong>All slots</strong> to see everything, or pick a few ministries from your organizations.
-        </p>
-        <a class="btn btn-primary btn-sm" href="/">Pick ministries to follow</a>
-        <button class="btn btn-outline-secondary btn-sm ms-2" type="button" @onclick="() => SetFilterMode(OpenSlotFilterMode.AllSlots)">
-            Switch to All slots
-        </button>
-    </div>
+        </MudText>
+        <MudStack Row="true" Spacing="2">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small"
+                       Href="/">
+                Pick ministries to follow
+            </MudButton>
+            <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small"
+                       OnClick="() => SetFilterMode(OpenSlotFilterMode.AllSlots)">
+                Switch to All slots
+            </MudButton>
+        </MudStack>
+    </MudAlert>
 }
 else if (!_openShifts.Any())
 {
-    @* Wordmark above the no-shifts empty-state. *@
     <WordmarkSplash Width="120" Loading="lazy" />
-    <div class="alert alert-info">
+    <MudAlert Severity="Severity.Info" Class="mt-2">
         Nothing open @EmptyMessageSuffix(). Check back later, or ask a coordinator to queue a shift for a slot you care about.
-    </div>
+    </MudAlert>
 }
 else
 {
-    <div class="row g-3">
+    <MudGrid Spacing="3">
         @foreach (var s in _openShifts)
         {
-            <div class="col-md-6">
-                <div class="card h-100">
-                    <div class="card-body">
-                        <h5 class="card-title mb-1">@s.SlotName</h5>
-                        <div class="text-muted small mb-2">
-                            <a href="Organizations/@s.OrganizationId">@s.MinistryName</a>
-                        </div>
-                        <p class="mb-2">
-                            @* Format is wrapped in @("…") so Razor evaluates the C#
-                               string literal and resolves the \u2022 Unicode escape
-                               into an actual bullet ( • ) character. Without the
-                               @(...) wrapper, Razor treats the attribute as a plain
-                               HTML value and the literal six characters "\u2022"
-                               pass through to DateTime.ToString, which renders them
-                               as plain text "u2022" instead of the bullet. The wrap
-                               preserves the user's design intent (keep the bullet)
-                               per the round-AV design decision. *@
-                            <strong><LocalTime Utc="@s.StartUtc" Format="@("ddd, MMM d \u2022 h:mm tt")" FallbackTimeZoneId="@s.OrganizationTimeZoneId" /></strong>
-                            &ndash; <LocalTime Utc="@s.EndUtc" Format="h:mm tt" FallbackTimeZoneId="@s.OrganizationTimeZoneId" />
-                            @if (!string.IsNullOrEmpty(s.Location))
-                            {
-                                <span class="text-muted small ms-2">@s.Location</span>
-                            }
-                        </p>
-                        <div class="d-flex justify-content-between align-items-center mb-2">
-                            <span class="badge bg-secondary">
-                                @s.SignedUpCount / @s.Capacity signed up
-                            </span>
-                            @if (s.SignedUpCount + 1 >= s.Capacity)
-                            {
-                                <span class="badge bg-warning text-dark">Last spot</span>
-                            }
-                        </div>
-                        @if (!s.TrainingCompliant)
+            <MudItem xs="12" md="6">
+                <MudPaper Outlined="true" Class="pa-4 h-100 d-flex flex-column">
+                    <MudText Typo="Typo.h6" Class="mb-1">@s.SlotName</MudText>
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary mb-2">
+                        <MudLink Href="@LinkBuilder.OrganizationHref(s.OrganizationId)">@s.MinistryName</MudLink>
+                    </MudText>
+                    <MudText Class="mb-2">
+                        <strong><LocalTime Utc="@s.StartUtc" Format="@("ddd, MMM d \u2022 h:mm tt")" FallbackTimeZoneId="@s.OrganizationTimeZoneId" /></strong>
+                        – <LocalTime Utc="@s.EndUtc" Format="h:mm tt" FallbackTimeZoneId="@s.OrganizationTimeZoneId" />
+                        @if (!string.IsNullOrEmpty(s.Location))
                         {
-                            <div class="alert alert-warning py-2 small mb-2">
-                                Training required before signing up:
-                                <ul class="mb-0">
-                                    @foreach (var t in s.MissingTrainings)
-                                    {
-                                        <li>@t</li>
-                                    }
-                                </ul>
-                            </div>
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary ml-2">@s.Location</MudText>
                         }
-                    </div>
-                    <div class="card-footer bg-transparent border-0 pt-0">
-                        @* Per-card Subscribe/Unsubscribe toggle (Round-FR-7).
-                           The button label flips based on local
-                           _subscribedSlotIds membership. Click optimistically
-                           mutates the local cache; the service call below
-                           reconciles with the DB. On error the cache is undone
-                           so the UI stays in sync with the DB. *@
-                        <div class="d-flex justify-content-between align-items-center gap-2 mb-2">
+                    </MudText>
+                    <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-2">
+                        <MudChip T="string" Size="Size.Small" Color="Color.Default">
+                            @s.SignedUpCount / @s.Capacity signed up
+                        </MudChip>
+                        @if (s.SignedUpCount + 1 >= s.Capacity)
+                        {
+                            <MudChip T="string" Size="Size.Small" Color="Color.Warning">Last spot</MudChip>
+                        }
+                    </MudStack>
+                    @if (!s.TrainingCompliant)
+                    {
+                        <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">
+                            Training required before signing up:
+                            <ul class="mb-0 pl-4">
+                                @foreach (var t in s.MissingTrainings)
+                                {
+                                    <li>@t</li>
+                                }
+                            </ul>
+                        </MudAlert>
+                    }
+                    <div class="mt-auto">
+                        <div class="d-flex align-items-center gap-2 mb-2">
+                            @* Per-card Subscribe/Unsubscribe toggle (Round-FR-7). *@
                             @if (_subscribedSlotIds.Contains(s.ServiceSlotId))
                             {
-                                <button class="btn btn-sm btn-outline-success flex-grow-1"
-                                        disabled="@(_busySlotId == s.ServiceSlotId)"
-                                        @onclick="() => ToggleSlotSubscriptionAsync(s.ServiceSlotId, s.SlotName)"
-                                        title="Stop including this slot's shifts in the My slots filter">
-                                    <span class="bi bi-check-circle-fill me-1" aria-hidden="true"></span>
+                                <MudButton Variant="Variant.Outlined" Color="Color.Success" Size="Size.Small"
+                                           FullWidth="true"
+                                           Disabled="@(_busySlotId == s.ServiceSlotId)"
+                                           OnClick="@(() => ToggleSlotSubscriptionAsync(s.ServiceSlotId, s.SlotName))"
+                                           StartIcon="@Icons.Material.Filled.CheckCircle"
+                                           title="Stop including this slot's shifts in the My slots filter">
                                     @(_busySlotId == s.ServiceSlotId ? "Updating…" : "Subscribed")
-                                </button>
+                                </MudButton>
                             }
                             else
                             {
-                                <button class="btn btn-sm btn-outline-secondary flex-grow-1"
-                                        disabled="@(_busySlotId == s.ServiceSlotId || !_inAnyOrgForSlot.Contains(s.OrganizationId))"
-                                        @onclick="() => ToggleSlotSubscriptionAsync(s.ServiceSlotId, s.SlotName)"
-                                        title="@(_inAnyOrgForSlot.Contains(s.OrganizationId) ? "Add this slot's shifts to the My slots filter" : "You can only subscribe to slots in organizations you belong to")">
+                                <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small"
+                                           FullWidth="true"
+                                           Disabled="@(_busySlotId == s.ServiceSlotId || !_inAnyOrgForSlot.Contains(s.OrganizationId))"
+                                           OnClick="@(() => ToggleSlotSubscriptionAsync(s.ServiceSlotId, s.SlotName))"
+                                           StartIcon="@Icons.Material.Outlined.BookmarkAdd"
+                                           title="@(_inAnyOrgForSlot.Contains(s.OrganizationId) ? "Add this slot's shifts to the My slots filter" : "You can only subscribe to slots in organizations you belong to")">
                                     @(_busySlotId == s.ServiceSlotId ? "Updating…" : (IsSubFilterActive() ? "Subscribe to keep in My slots" : "Subscribe"))
-                                </button>
+                                </MudButton>
                             }
                             @if (_lastSlotError is not null && _lastSlotError.SlotId == s.ServiceSlotId)
                             {
-                                <span class="text-danger small" role="alert">@_lastSlotError.Message</span>
+                                <MudText Typo="Typo.caption" Color="Color.Error">@_lastSlotError.Message</MudText>
                             }
                         </div>
                         @if (!_joinedMinistryIds.Contains(s.MinistryId))
                         {
-                            <button class="btn btn-outline-primary w-100"
-                                    disabled="@(!s.TrainingCompliant || _busyId == s.OccurrenceId)"
-                                    @onclick="() => JoinAndSignUp(s)">
+                            <MudButton Variant="Variant.Outlined" Color="Color.Primary" FullWidth="true"
+                                       Disabled="@(!s.TrainingCompliant || _busyId == s.OccurrenceId)"
+                                       OnClick="@(() => JoinAndSignUp(s))">
                                 @(_busyId == s.OccurrenceId
-                                    ? "Joining\u2026"
+                                    ? "Joining…"
                                     : (s.TrainingCompliant ? "Join ministry and sign up" : "Update training to sign up"))
-                            </button>
+                            </MudButton>
                         }
                         else
                         {
-                            <button class="btn btn-primary w-100"
-                                    disabled="@(!s.TrainingCompliant || _busyId == s.OccurrenceId)"
-                                    @onclick="() => SignUp(s)">
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true"
+                                       Disabled="@(!s.TrainingCompliant || _busyId == s.OccurrenceId)"
+                                       OnClick="@(() => SignUp(s))">
                                 @(_busyId == s.OccurrenceId
-                                    ? "Signing up\u2026"
+                                    ? "Signing up…"
                                     : (s.TrainingCompliant ? "Sign up" : "Update training to sign up"))
-                            </button>
+                            </MudButton>
                         }
                         @if (_lastResult is not null && _lastResult.Id == s.OccurrenceId)
                         {
-                            <div class="alert @(_lastResult.Succeeded ? "alert-success" : "alert-danger") py-2 small mt-2 mb-0">
+                            <MudAlert Severity="@(_lastResult.Succeeded ? Severity.Success : Severity.Error)"
+                                      Dense="true" Class="mt-2 mb-0">
                                 @_lastResult.Message
-                            </div>
+                            </MudAlert>
                         }
                     </div>
-                </div>
-            </div>
+                </MudPaper>
+            </MudItem>
         }
-    </div>
+    </MudGrid>
 }
 
 @inject IDbContextFactory<ApplicationDbContext> DbFactory
@@ -316,6 +298,11 @@ else
     // Populated in Reload when _selectedOrgId > 0; drives org-scoped
     // filtering for both "My ministries" and "All slots" modes.
     private HashSet<int> _orgMinistryIds = new();
+    private List<BreadcrumbItem> _crumbs = new()
+    {
+        new BreadcrumbItem("Home", href: ""),
+        new BreadcrumbItem("Browse open slots", href: null, disabled: true),
+    };
 
     protected override async Task OnInitializedAsync() => await Reload();
 
@@ -358,14 +345,6 @@ else
     /// LOCAL, and only commits to Blazor fields after passing the FINAL
     /// version guard. A stale Reload that loses the race simply
     /// abandons its locals without ever mutating the bound fields.
-    /// <para>
-    /// We deliberately don't pass a <see cref="CancellationToken"/> to the
-    /// awaits: doing so risks an unhandled
-    /// <see cref="OperationCanceledException"/> surfacing as a runtime
-    /// error in Blazor's interactive-server circuit when one Reload
-    /// cancels another. The version-token pattern achieves the same
-    /// outcome without the OCE surface.
-    /// </para>
     /// </summary>
     private async Task Reload()
     {
@@ -413,9 +392,6 @@ else
             var hasMembership = myOrgIdsSet.Count > 0;
 
             // Fetch org memberships with names for the org picker dropdown.
-            // OrderBy comes before Select so EF Core can translate the
-            // sort to SQL. After projecting into the OrgItem record,
-            // EF Core can't trace property access back to DB columns.
             var orgs = await db.OrganizationMemberships
                 .Where(m => m.PersonUserId == userId)
                 .OrderBy(m => m.Organization.Name)

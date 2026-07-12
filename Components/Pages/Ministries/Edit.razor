@@ -5,66 +5,70 @@
 
 <PageTitle>@(_isNew ? "New ministry" : "Edit ministry")</PageTitle>
 
-<nav aria-label="breadcrumb" class="mb-2">
-    <ol class="breadcrumb mb-0">
-        <li class="breadcrumb-item"><a href="">Home</a></li>
-        <li class="breadcrumb-item"><a href="Organizations">Organizations</a></li>
-        <li class="breadcrumb-item"><a href="@($"Organizations/{OrgId}")">Org #{OrgId}</a></li>
-        @if (_isNew)
-        {
-            <li class="breadcrumb-item active" aria-current="page">New ministry</li>
-        }
-        else
-        {
-            <li class="breadcrumb-item"><a href="@($"Organizations/{OrgId}/Ministries/{Id}")">Ministry #{Id}</a></li>
-            <li class="breadcrumb-item active" aria-current="page">Edit</li>
-        }
-    </ol>
-</nav>
+<MudBreadcrumbs Items="BreadcrumbItems" Class="mb-2 px-0" />
 
-<h1>@(_isNew ? "New ministry" : "Edit ministry")</h1>
+<MudText Typo="Typo.h4" Class="mb-2">@(_isNew ? "New ministry" : "Edit ministry")</MudText>
 <StatusMessage Message="@_message" IsError="@_isError" />
 
 <EditForm Model="_model" OnValidSubmit="Save" FormName="min">
     <DataAnnotationsValidator />
     <ValidationSummary />
 
-    <div class="form-floating mb-3">
-        <InputText id="name" class="form-control" @bind-Value="_model.Name" />
-        <label for="name">Name</label>
-    </div>
-    <div class="form-floating mb-3">
-        <InputTextArea id="desc" class="form-control" style="height: 5rem" @bind-Value="_model.Description" />
-        <label for="desc">Description</label>
-    </div>
+    <MudTextField T="string"
+                  Label="Name"
+                  @bind-Value="_model.Name"
+                  Variant="Variant.Outlined"
+                  Margin="Margin.Dense"
+                  Class="mb-3"
+                  Required="true"
+                  RequiredError="Name is required" />
+    <MudTextField T="string"
+                  Label="Description"
+                  @bind-Value="_model.Description"
+                  Lines="3"
+                  Variant="Variant.Outlined"
+                  Margin="Margin.Dense"
+                  Class="mb-3" />
 
-    <div class="row g-2">
-        <div class="col-md-6">
-            <label class="form-label">Director</label>
-            <select class="form-select" @bind="_model.CoordinatorPersonUserId">
-                <option value="">— none —</option>
+    <MudGrid Spacing="2" Class="mb-2">
+        <MudItem xs="12" md="6">
+            <MudSelect T="string"
+                       @bind-Value="_model.CoordinatorPersonUserId"
+                       Label="Director"
+                       Variant="Variant.Outlined"
+                       Margin="Margin.Dense">
+                <MudSelectItem T="string" Value="@("")">— none —</MudSelectItem>
                 @foreach (var p in _members)
                 {
-                    <option value="@p.UserId">@p.DisplayName</option>
+                    <MudSelectItem T="string" Value="@p.UserId">@p.DisplayName</MudSelectItem>
                 }
-            </select>
-        </div>
-        <div class="col-md-6">
-            <div class="form-floating">
-                <InputText id="cemail" class="form-control" @bind-Value="_model.CoordinatorEmail" />
-                <label for="cemail">Director email</label>
-            </div>
-        </div>
-    </div>
-    <div class="form-floating mt-2">
-        <InputText id="cphone" class="form-control" @bind-Value="_model.CoordinatorPhone" />                <label for="cphone">Director phone</label>
-    </div>
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" md="6">
+            <MudTextField T="string"
+                          Label="Director email"
+                          InputType="InputType.Email"
+                          @bind-Value="_model.CoordinatorEmail"
+                          Variant="Variant.Outlined"
+                          Margin="Margin.Dense" />
+        </MudItem>
+    </MudGrid>
+    <MudTextField T="string"
+                  Label="Director phone"
+                  @bind-Value="_model.CoordinatorPhone"
+                  Variant="Variant.Outlined"
+                  Margin="Margin.Dense"
+                  Class="mb-3" />
 
-    <div class="mt-3">
-        <button class="btn btn-primary" type="submit" disabled="@(!_canSubmit)">Save</button>
-        <a class="btn btn-outline-secondary ms-2"
-           href="@(_isNew ? $"Organizations/{OrgId}" : $"Organizations/{OrgId}/Ministries/{Id}")">Cancel</a>
-    </div>
+    <MudStack Row="true" Spacing="2">
+        <MudButton ButtonType="ButtonType.Submit"
+                   Color="Color.Primary"
+                   Variant="Variant.Filled"
+                   Disabled="@(!_canSubmit)">Save</MudButton>
+        <MudButton Href="@CancelHref"
+                   Color="Color.Default"
+                   Variant="Variant.Outlined">Cancel</MudButton>
+    </MudStack>
 </EditForm>
 
 @inject IDbContextFactory<ApplicationDbContext> DbFactory
@@ -92,6 +96,30 @@
     // fresh Auth call. Empty string (never null) keeps the gate from
     // misclassifying an anonymous request as "admin".
     private string _userId = "";
+
+    // Breadcrumb items for MudBreadcrumbs. The last item is the current
+    // page (no href, disabled). Built from the route params + isNew flag
+    // so it stays in sync whether the user is creating or editing a ministry.
+    private List<BreadcrumbItem> BreadcrumbItems
+    {
+        get
+        {
+            var items = new List<BreadcrumbItem>
+            {
+                new BreadcrumbItem("Home", href: ""),
+                new BreadcrumbItem("Organizations", href: "Organizations"),
+                new BreadcrumbItem($"Org #{OrgId}", href: $"Organizations/{OrgId}"),
+            };
+            if (!_isNew)
+            {
+                items.Add(new BreadcrumbItem($"Ministry #{Id}", href: $"Organizations/{OrgId}/Ministries/{Id}"));
+            }
+            items.Add(new BreadcrumbItem(_isNew ? "New ministry" : "Edit", href: null, disabled: true));
+            return items;
+        }
+    }
+
+    private string CancelHref => _isNew ? $"Organizations/{OrgId}" : $"Organizations/{OrgId}/Ministries/{Id}";
 
     protected override async Task OnInitializedAsync()
     {

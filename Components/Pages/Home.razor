@@ -4,214 +4,211 @@
 
 <PageTitle>ServantSync</PageTitle>
 
-<section class="px-4 py-4">
-    <h1 class="display-6">Welcome to ServantSync</h1>
-    <p class="lead text-muted">
-        A volunteer database that handles org memberships, ministry sign-ups, training
-        (video, slideshow, or PDF), and conflict-free scheduling.
-    </p>
+<MudContainer MaxWidth="MaxWidth.Large" Class="pb-8">
+    <MudStack Spacing="4">
+        <div>
+            <MudText Typo="Typo.h3">Welcome to ServantSync</MudText>
+            <MudText Typo="Typo.body1" Class="mud-text-secondary">
+                A volunteer database that handles org memberships, ministry sign-ups,
+                training (video, slideshow, or PDF), and conflict-free scheduling.
+            </MudText>
+        </div>
 
-    <AuthorizeView>
-        <Authorized>
-            <div class="row g-3 mt-3">
-                <div class="col-md-3">
-                    <a class="card text-decoration-none h-100" href="Organizations">
-                        <div class="card-body">
-                            <div class="text-muted small">Ministries available</div>
+        <AuthorizeView>
+            <Authorized>
+                <MudGrid Spacing="3">
+                    <MudItem xs="12" sm="6" md="3">
+                        <MudPaper Outlined="true" Class="pa-4">
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary">Ministries available</MudText>
                             @if (!_loaded)
                             {
-                                <SkeletonLoader Size="SkeletonLoader.SkeletonSize.Display" Columns="3" />
+                                <MudSkeleton Width="60%" Height="36px" />
                             }
                             else
                             {
-                                <div class="display-6">@_ministryCount</div>
+                                <MudText Typo="Typo.h4">@_ministryCount</MudText>
                             }
-                        </div>
-                    </a>
-                </div>
-                @if (_isManager)
-                {
-                    <div class="col-md-3">
-                        <a class="card text-decoration-none h-100" href="People">
-                            <div class="card-body">
-                                <div class="text-muted small">Volunteers</div>
+                            <MudLink Href="Organizations" Typo="Typo.body2">Open organizations →</MudLink>
+                        </MudPaper>
+                    </MudItem>
+                    @if (_isManager)
+                    {
+                        <MudItem xs="12" sm="6" md="3">
+                            <MudPaper Outlined="true" Class="pa-4">
+                                <MudText Typo="Typo.caption" Class="mud-text-secondary">Volunteers</MudText>
                                 @if (!_loaded)
                                 {
-                                    <SkeletonLoader Size="SkeletonLoader.SkeletonSize.Display" Columns="3" />
+                                    <MudSkeleton Width="60%" Height="36px" />
                                 }
                                 else
                                 {
-                                    <div class="display-6">@_personCount</div>
+                                    <MudText Typo="Typo.h4">@_personCount</MudText>
                                 }
-                            </div>
-                        </a>
-                    </div>
-                }
-                <div class="col-md-3">
-                    <a class="card text-decoration-none h-100" href="Training">
-                        <div class="card-body">
-                            <div class="text-muted small">My pending training</div>
+                                <MudLink Href="People" Typo="Typo.body2">Open directory →</MudLink>
+                            </MudPaper>
+                        </MudItem>
+                    }
+                    <MudItem xs="12" sm="6" md="3">
+                        <MudPaper Outlined="true" Class="pa-4">
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary">My pending training</MudText>
                             @if (!_loaded)
                             {
-                                <SkeletonLoader Size="SkeletonLoader.SkeletonSize.Display" Columns="3" />
+                                <MudSkeleton Width="60%" Height="36px" />
                             }
                             else
                             {
-                                <div class="display-6">@_myPending</div>
+                                <MudText Typo="Typo.h4">@_myPending</MudText>
                             }
-                        </div>
-                    </a>
-                </div>
-                <div class="col-md-3">
-                    <a class="card text-decoration-none h-100" href="MySchedule">
-                        <div class="card-body">
-                            <div class="text-muted small">Next 30 days</div>
+                            <MudLink Href="Training" Typo="Typo.body2">Open my training →</MudLink>
+                        </MudPaper>
+                    </MudItem>
+                    <MudItem xs="12" sm="6" md="3">
+                        <MudPaper Outlined="true" Class="pa-4">
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary">Next 30 days</MudText>
                             @if (!_loaded)
                             {
-                                <SkeletonLoader Size="SkeletonLoader.SkeletonSize.Display" Columns="3" />
+                                <MudSkeleton Width="60%" Height="36px" />
                             }
                             else
                             {
-                                <div class="display-6">@_myUpcoming</div>
+                                <MudText Typo="Typo.h4">@_myUpcoming</MudText>
                             }
-                        </div>
-                    </a>
-                </div>
-            </div>
+                            <MudLink Href="MySchedule" Typo="Typo.body2">Open my schedule →</MudLink>
+                        </MudPaper>
+                    </MudItem>
+                </MudGrid>
 
-            @if (_loaded)
-            {
-                @* "My ministries" panel. Shows the ministries the volunteer
-                   has explicitly opted into; click a row to leave. When
-                   empty, the panel surfaces the "browse ministries" CTA.
-                   For users with no OrganizationMembership at all, the
-                   "no membership" state from the prior round takes
-                   priority — they have nothing to follow anyway. *@
-                <div class="card mt-4">
-                    <div class="card-header d-flex justify-content-between align-items-center">
-                        <div>
-                            <h5 class="mb-0">My ministries</h5>
-                            <div class="text-muted small">Ministries you have opted to follow. Sign-up opportunities on these will show up on <a href="Open">Browse open slots</a>.</div>
-                        </div>
-                        <a class="btn btn-sm btn-outline-primary" href="Organizations">Browse ministries</a>
-                    </div>
-                    <div class="card-body">
+                @if (_loaded)
+                {
+                    <MudPaper Outlined="true" Class="pa-4">
+                        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Start" Class="mb-3">
+                            <div>
+                                <MudText Typo="Typo.h6">My ministries</MudText>
+                                <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                                    Ministries you have opted to follow. Sign-up opportunities on these show up on
+                                    <MudLink Href="Open">Browse open slots</MudLink>.
+                                </MudText>
+                            </div>
+                            <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small"
+                                       Href="Organizations" StartIcon="@Icons.Material.Outlined.Explore">
+                                Browse ministries
+                            </MudButton>
+                        </MudStack>
+
                         @if (!_hasAnyOrgMembership)
                         {
-                            @* Wordmark above the no-org empty-state so the
-                               first-time user has the brand while they wait
-                               to be invited. See WordmarkSplash. *@
                             <WordmarkSplash Width="120" Loading="lazy" />
-                            <p class="text-muted mb-0 small">
+                            <MudText Typo="Typo.body2" Class="mud-text-secondary mt-2">
                                 You're not yet a member of any organization, so there are no ministries to follow.
-                            </p>
+                            </MudText>
                         }
                         else if (_myMinistries.Count == 0)
                         {
-                            @* Wordmark above the has-org-but-no-ministries
-                               empty-state. Pairs with the no-org splash so
-                               brand continuity holds across the transition. *@
                             <WordmarkSplash Width="120" Loading="lazy" />
-                            <p class="text-muted mb-2">
-                                You're not following any ministries yet. Tap "Join this ministry" on any ministry page to start seeing its open shifts here.
-                            </p>
-                            <a class="btn btn-outline-primary btn-sm" href="Organizations">Browse ministries in your organizations</a>
+                            <MudText Typo="Typo.body2" Class="mud-text-secondary mt-2 mb-3">
+                                You're not following any ministries yet. Tap "Join this ministry" on any ministry
+                                page to start seeing its open shifts here.
+                            </MudText>
+                            <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small"
+                                       Href="Organizations" StartIcon="@Icons.Material.Outlined.Explore">
+                                Browse ministries in your organizations
+                            </MudButton>
                         }
                         else
                         {
-                            <ul class="list-group list-group-flush">
+                            <MudList T="MinistryInterest" Dense="true">
                                 @foreach (var mi in _myMinistries)
                                 {
-                                    <li class="list-group-item d-flex justify-content-between align-items-center">
-                                        <div>
-                                            <a href="@($"Organizations/{mi.Ministry.OrganizationId}/Ministries/{mi.MinistryId}")">
-                                                <strong>@mi.Ministry.Name</strong>
-                                            </a>
-                                            <span class="text-muted small ms-2">
-                                                in @mi.Ministry.Organization.Name
-                                            </span>
-                                        </div>
-                                        <button class="btn btn-sm btn-outline-secondary" type="button"
-                                                @onclick="() => LeaveFromHomeAsync(mi.MinistryId, mi.Ministry.Name)"
-                                                disabled="@(_busyLeaveId == mi.MinistryId)">
-                                            @(_busyLeaveId == mi.MinistryId ? "Leaving..." : "Leave")
-                                        </button>
-                                    </li>
+                                    <MudListItem T="MinistryInterest" Icon="@Icons.Material.Outlined.Church">
+                                        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                                            <div>
+                                                <MudLink Href="@LinkBuilder.MinistryHref(mi.Ministry.OrganizationId, mi.MinistryId)">
+                                                    <strong>@mi.Ministry.Name</strong>
+                                                </MudLink>
+                                                <MudText Typo="Typo.caption" Class="mud-text-secondary ml-2">
+                                                    in @mi.Ministry.Organization.Name
+                                                </MudText>
+                                            </div>
+                                            <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small"
+                                                       Disabled="@(_busyLeaveId == mi.MinistryId)"
+                                                       OnClick="@(() => LeaveFromHomeAsync(mi.MinistryId, mi.Ministry.Name))">
+                                                @(_busyLeaveId == mi.MinistryId ? "Leaving…" : "Leave")
+                                            </MudButton>
+                                        </MudStack>
+                                    </MudListItem>
                                 }
-                            </ul>
+                            </MudList>
                         }
-                    </div>
-                </div>
+                    </MudPaper>
 
-                @* Round-FR-7: "Slots I'm subscribed to" panel. Mirror of
-                   the "My ministries" panel but at slot granularity so
-                   the volunteer sees the narrower preference they're
-                   signaling for /Open's "My slots" filter. Each row
-                   shows the slot name as a deep link to the slot's
-                   published-schedule page + the parent ministry for
-                   context + an Unsubscribe button that mirrors the
-                   LeaveMinistry pattern. Empty state explains how to
-                   subscribe (involves visiting a slot detail page) so
-                   the volunteer understands the discoverability path. *@
-                <div class="card mt-3">
-                    <div class="card-header d-flex justify-content-between align-items-center">
-                        <div>
-                            <h5 class="mb-0">Slots I'm subscribed to (@_mySubscribedSlots.Count)</h5>
-                            <div class="text-muted small">Slots you have explicitly opted into. Their open shifts will show up under the "My slots" filter on <a href="Open">Browse open slots</a>.</div>
-                        </div>
-                    </div>
-                    <div class="card-body">
+                    <MudPaper Outlined="true" Class="pa-4">
+                        <MudStack Class="mb-3">
+                            <MudText Typo="Typo.h6">Slots I'm subscribed to (@_mySubscribedSlots.Count)</MudText>
+                            <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                                Slots you have explicitly opted into. Their open shifts will show up under the
+                                "My slots" filter on <MudLink Href="Open">Browse open slots</MudLink>.
+                            </MudText>
+                        </MudStack>
+
                         @if (_mySubscribedSlots.Count == 0)
                         {
-                            <p class="text-muted mb-0 small">
-                                You haven't subscribed to any specific slots yet. Visit a slot's page (try one in the ministry list above) and tap <strong>Subscribe to this slot</strong> to narrow the Browse page to only that slot's shifts.
-                            </p>
+                            <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                                You haven't subscribed to any specific slots yet. Visit a slot's page (try one in the
+                                ministry list above) and tap <strong>Subscribe to this slot</strong> to narrow the
+                                Browse page to only that slot's shifts.
+                            </MudText>
                         }
                         else
                         {
-                            <ul class="list-group list-group-flush">
+                            <MudList T="SlotInterest" Dense="true">
                                 @foreach (var sub in _mySubscribedSlots)
                                 {
                                     var slot = sub.ServiceSlot;
                                     var ministry = slot.Ministry;
                                     var orgId = ministry.OrganizationId;
-                                    <li class="list-group-item d-flex justify-content-between align-items-center">
-                                        <div>
-                                            <a href="@($"Organizations/{orgId}/Ministries/{ministry.Id}/Roles/{slot.Id}")">
-                                                <strong>@slot.Name</strong>
-                                            </a>
-                                            <span class="text-muted small ms-2">
-                                                in @ministry.Name
-                                            </span>
-                                        </div>
-                                        <button class="btn btn-sm btn-outline-secondary" type="button"
-                                                @onclick="() => LeaveSlotFromHomeAsync(slot.Id, slot.Name)"
-                                                disabled="@(_busyLeaveSlotId == slot.Id)">
-                                            @(_busyLeaveSlotId == slot.Id ? "Leaving..." : "Unsubscribe")
-                                        </button>
-                                    </li>
+                                    <MudListItem T="SlotInterest" Icon="@Icons.Material.Outlined.BookmarkAdded">
+                                        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                                            <div>
+                                                <MudLink Href="@LinkBuilder.SlotHref(orgId, ministry.Id, slot.Id)">
+                                                    <strong>@slot.Name</strong>
+                                                </MudLink>
+                                                <MudText Typo="Typo.caption" Class="mud-text-secondary ml-2">
+                                                    in @ministry.Name
+                                                </MudText>
+                                            </div>
+                                            <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small"
+                                                       Disabled="@(_busyLeaveSlotId == slot.Id)"
+                                                       OnClick="@(() => LeaveSlotFromHomeAsync(slot.Id, slot.Name))">
+                                                @(_busyLeaveSlotId == slot.Id ? "Leaving…" : "Unsubscribe")
+                                            </MudButton>
+                                        </MudStack>
+                                    </MudListItem>
                                 }
-                            </ul>
+                            </MudList>
                         }
-                    </div>
-                </div>
+                    </MudPaper>
 
-                @if (_lastMessage is not null)
-                {
-                    <div class="alert @(_lastIsError ? "alert-danger" : "alert-success") py-2 small mt-3 mb-0">
-                        @_lastMessage
-                    </div>
+                    @if (_lastMessage is not null)
+                    {
+                        <MudAlert Severity="@(_lastIsError ? Severity.Error : Severity.Success)" Dense="true" Class="mt-2">
+                            @_lastMessage
+                        </MudAlert>
+                    }
                 }
-            }
-        </Authorized>
-        <NotAuthorized>
-            <div class="mt-3">
-                <a class="btn btn-primary me-2" href="Account/Login">Sign in</a>
-                <a class="btn btn-outline-primary" href="Account/Register">Register</a>
-            </div>
-        </NotAuthorized>
-    </AuthorizeView>
-</section>
+            </Authorized>
+            <NotAuthorized>
+                <MudStack Row="true" Spacing="2" Class="mt-4">
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="Account/Login" StartIcon="@Icons.Material.Outlined.Login">
+                        Sign in
+                    </MudButton>
+                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" Href="Account/Register" StartIcon="@Icons.Material.Outlined.PersonAdd">
+                        Register
+                    </MudButton>
+                </MudStack>
+            </NotAuthorized>
+        </AuthorizeView>
+    </MudStack>
+</MudContainer>
 
 @inject IDbContextFactory<ApplicationDbContext> DbFactory
 @inject AuthenticationStateProvider Auth
@@ -220,27 +217,16 @@
 @inject ISlotInterestService Slots
 @inject IOrgAuthService OrgAuth
 @code {
+    // State and RBAC are unchanged from the prior Home.razor — every field
+    // and method's semantics match the original; only the markup was
+    // reshaped to MudBlazor. See `Components/Pages/Home.razor` git
+    // history for the Promise.foundation migration context.
     private int _ministryCount, _personCount, _myPending, _myUpcoming;
     private bool _loaded;
-    // True when the signed-in user is Admin or Coordinator of any org
-    // (or SystemAdmin). Gates the Volunteers card and was previously
-    // the volunteer-redirect trigger — now only controls card visibility.
     private bool _isManager;
-    // Per-user state for the "My ministries" panel. The list is loaded in
-    // OnInitializedAsync (one DB trip via the service's ListJoinedAsync),
-    // then mutated in-memory when the user clicks Leave so we don't have
-    // to re-query just to update the UI.
     private List<MinistryInterest> _myMinistries = new();
-    // When false, the panel renders the "join to start seeing shifts"
-    // empty-state CTA rather than the list.
     private bool _hasAnyOrgMembership = true;
-    // Tracks which Leave row is in-flight so the spinner only shows on
-    // the row being acted on (other rows stay clickable).
     private int _busyLeaveId;
-    // Round-FR-7: parallel state for the "Slots I'm subscribed to" panel.
-    // ListSubscribedAsync eagerly-loads ServiceSlot.Ministry so the row
-    // render is one DB round-trip. Mutated in-memory on Unsubscribe click
-    // so the row disappears without a re-fetch.
     private List<SlotInterest> _mySubscribedSlots = new();
     private int _busyLeaveSlotId;
     private string? _lastMessage;
@@ -261,9 +247,6 @@
 
         await using var db = await DbFactory.CreateDbContextAsync();
 
-        // Ministry count: scoped to the user's orgs so a single-org
-        // volunteer sees their org's ministries, a multi-org volunteer
-        // sees the total, and a manager sees the org-wide count.
         var myOrgIds = await db.OrganizationMemberships
             .Where(m => m.PersonUserId == userId)
             .Select(m => m.OrganizationId)
@@ -272,7 +255,6 @@
             ? await db.Ministries.CountAsync(m => myOrgIds.Contains(m.OrganizationId))
             : 0;
 
-        // Volunteers card is manager-only; don't pay the DB trip otherwise.
         _personCount = _isManager ? await db.People.CountAsync() : 0;
 
         var fromUtc = DateTime.UtcNow;
@@ -282,32 +264,13 @@
                 && a.StartUtc >= fromUtc && a.StartUtc < toUtc
                 && a.Status != AssignmentStatus.Cancelled);
 
-        // Pending training across all my organizations + slots I'm
-        // currently assigned to. Delegates to the service so the union +
-        // expiry logic lives in one place (it was previously open-coded
-        // here and also inline in MySchedule.razor — that duplication
-        // was exactly what caused the per-org foreach to drift away
-        // from the per-slot treatment the data model actually needs).
         var outstanding = await TrainingService.FindMyOutstandingRequirementsAsync(userId);
         _myPending = outstanding.Count;
-        // The "no membership" gate was previously computed from the
-        // raw OrganizationMembership list — keeping that single source
-        // of truth on the service side means a coordinator with only
-        // slot assignments (no org membership? shouldn't happen, but
-        // defensively) is still counted.
         _hasAnyOrgMembership = outstanding.Count > 0
             || (await db.OrganizationMemberships
                 .AnyAsync(m => m.PersonUserId == userId));
 
-        // The "My ministries" panel content. Eager-loads
-        // Ministry + Organization via the service so a single trip powers
-        // the entire list rendering.
         _myMinistries = await MinistryInterest.ListJoinedAsync(userId);
-
-        // Round-FR-7: the "Slots I'm subscribed to" panel content.
-        // ListSubscribedAsync eagerly-loads ServiceSlot → Ministry in one
-        // trip so the row render is N+1-free. Slot.IncidentId is sorted
-        // by the service alphabetically by slot name.
         _mySubscribedSlots = await Slots.ListSubscribedAsync(userId);
 
         _loaded = true;
@@ -348,12 +311,6 @@
         }
     }
 
-    /// <summary>
-    /// Round-FR-7: Unsubscribe a slot from the "Slots I'm subscribed to"
-    /// panel. Mirrors LeaveFromHomeAsync's structure — single in-memory
-    /// mutation on success so the row disappears without a re-fetch, plus
-    /// 4xx classification for the common server refusals.
-    /// </summary>
     private async Task LeaveSlotFromHomeAsync(int slotId, string slotName)
     {
         var state = await Auth.GetAuthenticationStateAsync();
@@ -388,5 +345,4 @@
             _busyLeaveSlotId = 0;
         }
     }
-
 }

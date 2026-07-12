@@ -5,7 +5,16 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <base href="/" />
-    <link rel="stylesheet" href="@Assets["lib/bootstrap/dist/css/bootstrap.min.css"]" />
+    <link rel="stylesheet" href="_content/MudBlazor/MudBlazor.min.css" />
+    @* Phase 5 — Bootstrap removal: the Bootstrap CSS link is gone.
+       The lib/bootstrap directory was deleted from wwwroot/. Any
+       remaining Bootstrap utility classes are now served from scoped
+       CSS files (Components/Account/Shared/AccountLayout.razor.css for
+       the static-SSR identity forms, Components/Shared/AssignmentCalendar.razor.css
+       for the calendar pills, Components/Shared/GameDayCalendar.razor.css
+       for the list-group equivalents). MudBlazor's utility classes
+       (pa-*, ma-*, d-flex, align-center, ms-*, me-*, etc.) cover the
+       rest of the app. *@
     <link rel="stylesheet" href="@Assets["app.css"]" />
     <link rel="stylesheet" href="@Assets["ServantSync.styles.css"]" />
     <link rel="stylesheet" href="@Assets["css/snake.css"]" />
@@ -30,6 +39,7 @@
 
 <body>
     <Routes />
+    <script src="_content/MudBlazor/MudBlazor.min.js"></script>
     <script src="_framework/blazor.web.js"></script>
 </body>
 

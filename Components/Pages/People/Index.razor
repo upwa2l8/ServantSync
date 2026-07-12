@@ -4,19 +4,13 @@
 
 <PageTitle>Volunteers</PageTitle>
 
-<nav aria-label="breadcrumb" class="mb-2">
-    <ol class="breadcrumb mb-0">
-        <li class="breadcrumb-item"><a href="">Home</a></li>
-        <li class="breadcrumb-item active" aria-current="page">Volunteers</li>
-    </ol>
-</nav>
+<MudBreadcrumbs Items="_crumbs" Class="mb-2 px-0" />
 
-<h1>Volunteers</h1>
+<MudText Typo="Typo.h4" Class="mb-2">Volunteers</MudText>
 
 @* Privacy model: the global /People listing visibility is tier-scoped
    (single source of truth via OrgAuthService). Round-AW wires SystemAdmin
-   to the global-acccess tier:
-
+   to the global-access tier:
      - SystemAdmin: sees every Person across every org. Strictly
        visibility-only — they cannot edit other orgs' rosters without
        being OrganizationRole.Admin of those orgs.
@@ -24,57 +18,68 @@
        OrganizationMembership in an org they Admin (the existing
        gate; below this comment).
      - Everyone else: "no access" panel.
-
    The filtered query below mirrors the user's requirement that
    volunteers shouldn't see other volunteers' information
-   cross-org. The org-scoped Members tab on /Organizations/{Id} is the
-   org-intra list; /People is the global directory for managers +
-   sysadmins only. *@
+   cross-org. *@
 
 @if (_loaded == false)
 {
-    <p><em>Loading…</em></p>
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
 }
 else if (!_isAdmin)
 {
-    <div class="alert alert-secondary">
-        <h6 class="mb-2">No access</h6>
-        <p class="mb-0 small">
-            The global volunteer list is only visible to organization administrators.
-            You can find your co-volunteers on the
-            <a href="Organizations">Organizations</a> page &mdash; open any
-            organization you're a member of, then the <strong>Members</strong> tab.
-        </p>
-    </div>
+    <MudPaper Outlined="true" Class="pa-4">
+        <MudStack Spacing="2">
+            <MudText Typo="Typo.h6">No access</MudText>
+            <MudText Typo="Typo.body2">
+                The global volunteer list is only visible to organization administrators.
+                You can find your co-volunteers on the
+                <MudLink Href="Organizations">Organizations</MudLink> page &mdash; open any
+                organization you're a member of, then the <strong>Members</strong> tab.
+            </MudText>
+        </MudStack>
+    </MudPaper>
 }
 else
 {
-    <input class="form-control mb-3" placeholder="Search by name…" @bind="_filter" @bind:event="oninput" />
+    <MudTextField T="string"
+                  Value="_filter"
+                  ValueChanged="v => _filter = v ?? string.Empty"
+                  Immediate="true"
+                  Placeholder="Search by name…"
+                  Adornment="Adornment.Start"
+                  AdornmentIcon="@Icons.Material.Outlined.Search"
+                  Class="mb-3"
+                  Style="max-width:480px" />
 
     @if (_people is null)
     {
-        <p><em>Loading…</em></p>
+        <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
     }
     else if (!_people.Any())
     {
-        <div class="alert alert-info">No volunteers registered.</div>
+        <MudAlert Severity="Severity.Info">No volunteers registered.</MudAlert>
     }
     else
     {
-        <div class="list-group">
-            @foreach (var p in Filtered)
-            {
-                <a class="list-group-item list-group-item-action" href="@($"People/{p.UserId}")">
-                    <div class="d-flex justify-content-between">
-                        <div>
-                            <strong>@p.DisplayName</strong>
-                            <div class="text-muted small">@p.Email</div>
-                        </div>
-                        <span class="badge bg-secondary">@p.MembershipCount memberships</span>
-                    </div>
-                </a>
-            }
-        </div>
+        <MudPaper Outlined="true">
+            <MudList T="PersonRow" Dense="true">
+                @foreach (var p in Filtered)
+                {
+                    <MudListItem T="PersonRow" Href="@LinkBuilder.PersonHref(p.UserId)" Icon="@Icons.Material.Outlined.Person">
+                        <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                            <div>
+                                <strong>@p.DisplayName</strong>
+                                <MudText Typo="Typo.caption" Class="mud-text-secondary">@p.Email</MudText>
+                            </div>
+                            <MudChip T="string" Size="Size.Small" Color="Color.Default">
+                                @p.MembershipCount memberships
+                            </MudChip>
+                        </MudStack>
+                    </MudListItem>
+                }
+            </MudList>
+        </MudPaper>
     }
 }
 
@@ -86,13 +91,15 @@ else
     private string _filter = "";
     // Round-AW tier flags: _isAdmin still gates the "no access" panel
     // shape but _isSystemAdmin gets its own OR-branch in the visibility
-    // condition. The two are tracked separately so the markup's
-    // descriptions can be tier-appropriate (SystemAdmin sees the global
-    // directory; OrgAdmin sees the org-scoped directory; non-managers
-    // see the no-access panel).
+    // condition.
     private bool _isAdmin;
     private bool _isSystemAdmin;
     private bool? _loaded;
+    private List<BreadcrumbItem> _crumbs = new()
+    {
+        new BreadcrumbItem("Home", href: ""),
+        new BreadcrumbItem("Volunteers", href: null, disabled: true),
+    };
 
     protected override async Task OnInitializedAsync()
     {
@@ -103,26 +110,16 @@ else
             _loaded = true;
             return;
         }
-        // Round-AW: SystemAdmin gets the global pass; OrgAdmin stays
-        // bounded by the existing IsAnyOrgAdminAsync gate. The two are
-        // OR'd on the gate but the QUERY branches so SystemAdmin sees
-        // every Person and an OrgAdmin sees the scoped set.
         var isSysAdmin = await OrgAuth.IsSystemAdminAsync(userId);
         _isAdmin = await OrgAuth.IsAnyOrgAdminAsync(userId);
         _isSystemAdmin = isSysAdmin;
 
-        // Only fetch the listing when the gate passes; otherwise leave _people
-        // null so the "no access" panel renders without an unneeded DB call.
         if (_isAdmin || _isSystemAdmin)
         {
             await using var db = await DbFactory.CreateDbContextAsync();
             var query = db.People.AsNoTracking();
             if (!_isSystemAdmin)
             {
-                // OrgAdmin path: only Persons who hold a current membership
-                // in an org they Admin. The Memberships.Any() filter is
-                // SQL-side so EF translates to one IN-clause over a sub-
-                // query; no per-row round-trip.
                 var myOrgIds = await db.OrganizationMemberships
                     .Where(m => m.PersonUserId == userId && m.Role == OrganizationRole.Admin)
                     .Select(m => m.OrganizationId).ToListAsync();

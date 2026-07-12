@@ -5,76 +5,85 @@
 
 <PageTitle>@(_isNew ? "New organization" : $"Edit · {_model.Name}")</PageTitle>
 
-<nav aria-label="breadcrumb" class="mb-2">
-    <ol class="breadcrumb mb-0">
-        <li class="breadcrumb-item"><a href="">Home</a></li>
-        <li class="breadcrumb-item"><a href="Organizations">Organizations</a></li>
-        @if (_isNew)
-        {
-            <li class="breadcrumb-item active" aria-current="page">New organization</li>
-        }
-        else
-        {
-            <li class="breadcrumb-item"><a href="@($"Organizations/{Id}")">@_model.Name</a></li>
-            <li class="breadcrumb-item active" aria-current="page">Edit</li>
-        }
-    </ol>
-</nav>
+<MudBreadcrumbs Items="BreadcrumbItems" Class="mb-2 px-0" />
 
-<h1>@(_isNew ? "New organization" : "Edit organization")</h1>
+<MudText Typo="Typo.h4" Class="mb-2">@(_isNew ? "New organization" : "Edit organization")</MudText>
 <StatusMessage Message="@_message" IsError="@_isError" />
 
 <EditForm Model="_model" OnValidSubmit="Save" FormName="org">
     <DataAnnotationsValidator />
     <ValidationSummary />
 
-    <div class="form-floating mb-3">
-        <InputText id="name" class="form-control" @bind-Value="_model.Name" />
-        <label for="name">Name</label>
-    </div>
-    <div class="form-floating mb-3">
-        <InputTextArea id="desc" class="form-control" style="height: 7rem" @bind-Value="_model.Description" />
-        <label for="desc">Description</label>
-    </div>
-    <div class="form-floating mb-3">
-        <InputText id="addr" class="form-control" @bind-Value="_model.Address" />
-        <label for="addr">Address</label>
-    </div>
-    <div class="form-floating mb-3">
-        <InputText id="email" class="form-control" @bind-Value="_model.ContactEmail" />
-        <label for="email">Contact email</label>
-    </div>
-    <div class="form-floating mb-3">
-        <InputText id="phone" class="form-control" @bind-Value="_model.ContactPhone" />
-        <label for="phone">Contact phone</label>
-    </div>
-    <div class="form-floating mb-3">
-        @* Round-AV: per-org IANA timezone picker. The empty default option
-           maps to Organization.TimeZoneId = null on save, which preserves
-           the round-N behavior (fall back to the user's browser zone).
-           IanaTimeZoneAttribute catches any id that isn't a known IANA on
-           the form's DataAnnotationsValidator pass; the curated
-           TimeZoneOptions list ensures the dropdown never offers an id
-           the server can't resolve. Group labels partition the option
-           list so an admin in a non-US locale (e.g. Auckland, São Paulo)
-           can find their zone without scrolling a flat 30-item list. *@
-        <InputSelect id="tz" class="form-select" @bind-Value="_model.TimeZoneId">
-            <option value="">Use browser default (recommended)</option>
-            @foreach (var group in TimeZoneOptions.ByRegion())
-            {
-                <optgroup label="@group.Key">
-                    @foreach (var opt in group)
-                    {
-                        <option value="@opt.IanaId">@opt.DisplayName</option>
-                    }
-                </optgroup>
-            }
-        </InputSelect>
-        <label for="tz">Timezone</label>
-    </div>
+    <MudTextField T="string"
+                  Label="Name"
+                  @bind-Value="_model.Name"
+                  Variant="Variant.Outlined"
+                  Margin="Margin.Dense"
+                  Class="mb-3"
+                  Required="true"
+                  RequiredError="Name is required" />
+    <MudTextField T="string"
+                  Label="Description"
+                  @bind-Value="_model.Description"
+                  Lines="4"
+                  Variant="Variant.Outlined"
+                  Margin="Margin.Dense"
+                  Class="mb-3" />
+    <MudTextField T="string"
+                  Label="Address"
+                  @bind-Value="_model.Address"
+                  Variant="Variant.Outlined"
+                  Margin="Margin.Dense"
+                  Class="mb-3" />
+    <MudTextField T="string"
+                  Label="Contact email"
+                  InputType="InputType.Email"
+                  @bind-Value="_model.ContactEmail"
+                  Variant="Variant.Outlined"
+                  Margin="Margin.Dense"
+                  Class="mb-3" />
+    <MudTextField T="string"
+                  Label="Contact phone"
+                  @bind-Value="_model.ContactPhone"
+                  Variant="Variant.Outlined"
+                  Margin="Margin.Dense"
+                  Class="mb-3" />
 
-    <button type="submit" class="btn btn-primary" disabled="@(!_canSubmit)">Save</button>
-    <a class="btn btn-outline-secondary ms-2" href="Organizations">Cancel</a>
+    @* Round-AV: per-org IANA timezone picker. The empty default option
+       maps to Organization.TimeZoneId = null on save, which preserves
+       the round-N behavior (fall back to the user's browser zone).
+       IanaTimeZoneAttribute catches any id that isn't a known IANA on
+       the form's DataAnnotationsValidator pass; the curated
+       TimeZoneOptions list ensures the dropdown never offers an id
+       the server can't resolve. Group labels partition the option
+       list so an admin in a non-US locale (e.g. Auckland, São Paulo)
+       can find their zone without scrolling a flat 30-item list. *@
+    <MudSelect T="string"
+               @bind-Value="_model.TimeZoneId"
+               Label="Timezone"
+               Variant="Variant.Outlined"
+               Margin="Margin.Dense"
+               Class="mb-3">
+        <MudSelectItem T="string" Value="@("")">Use browser default (recommended)</MudSelectItem>
+        @foreach (var group in TimeZoneOptions.ByRegion())
+        {
+            <MudSelectItem T="string" Disabled="true" Value="@($"__group__{group.Key}")">— @group.Key —</MudSelectItem>
+            @foreach (var opt in group)
+            {
+                <MudSelectItem T="string" Value="@opt.IanaId">@opt.DisplayName</MudSelectItem>
+            }
+        }
+    </MudSelect>
+
+    <MudStack Row="true" Spacing="2">
+        <MudButton ButtonType="ButtonType.Submit"
+                   Color="Color.Primary"
+                   Variant="Variant.Filled"
+                   Disabled="@(!_canSubmit)">Save</MudButton>
+        <MudButton Href="Organizations"
+                   Color="Color.Default"
+                   Variant="Variant.Outlined">Cancel</MudButton>
+    </MudStack>
 </EditForm>
 
 @inject IDbContextFactory<ApplicationDbContext> DbFactory
@@ -96,6 +105,27 @@
     private bool _isError;
     private bool _canSubmit;
     private string? _userId;
+
+    // Breadcrumb items for MudBreadcrumbs. The last item is the current
+    // page (no href, disabled). Built from the route param + isNew flag
+    // so it stays in sync whether the user is creating or editing an org.
+    private List<BreadcrumbItem> BreadcrumbItems
+    {
+        get
+        {
+            var items = new List<BreadcrumbItem>
+            {
+                new BreadcrumbItem("Home", href: ""),
+                new BreadcrumbItem("Organizations", href: "Organizations"),
+            };
+            if (!_isNew)
+            {
+                items.Add(new BreadcrumbItem(_model.Name, href: $"Organizations/{Id}"));
+            }
+            items.Add(new BreadcrumbItem(_isNew ? "New organization" : "Edit", href: null, disabled: true));
+            return items;
+        }
+    }
 
     protected override async Task OnInitializedAsync()
     {

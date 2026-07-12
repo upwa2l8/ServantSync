@@ -4,91 +4,104 @@
 
 <PageTitle>System administrators</PageTitle>
 
-<nav aria-label="breadcrumb" class="mb-2">
-    <ol class="breadcrumb mb-0">
-        <li class="breadcrumb-item"><a href="">Home</a></li>
-        <li class="breadcrumb-item active" aria-current="page">System admin</li>
-    </ol>
-</nav>
+<MudBreadcrumbs Items="@BreadcrumbItems" Class="mb-2" />
 
 @if (_loading)
 {
-    <p><em>Loading…</em></p>
+    <MudText><em>Loading…</em></MudText>
 }
 else if (!_canView)
 {
-    <div class="alert alert-danger">
+    <MudAlert Severity="Severity.Error">
         <strong>Access denied.</strong> Only SystemAdmins can view this page.
-    </div>
+    </MudAlert>
 }
 else
 {
-    <h1>System administrators</h1>
-    <p class="text-muted">Round-BC: grant or revoke the SystemAdmin role. Every attempt is logged on the audit log below.</p>
+    <MudText Typo="Typo.h4">System administrators</MudText>
+    <MudText Typo="Typo.body2" Class="mud-text-secondary">Round-BC: grant or revoke the SystemAdmin role. Every attempt is logged on the audit log below.</MudText>
 
     <StatusMessage Message="@_message" IsError="@_isError" />
 
-    <div class="row g-3 mb-4">
-        <div class="col-md-6">
-            <div class="card shadow-sm">
-                <div class="card-header"><h5 class="mb-0">Current SystemAdmins (@_admins.Count)</h5></div>
-                <ul class="list-group list-group-flush">
+    <MudGrid Spacing="3" Class="mb-4">
+        <MudItem xs="12" md="6">
+            <MudCard Outlined="true" Class="shadow-sm">
+                <MudCardHeader>
+                    <MudText Typo="Typo.h6">Current SystemAdmins (@_admins.Count)</MudText>
+                </MudCardHeader>
+                <MudList T="SystemAdminRow" Dense="true">
                     @if (_admins.Count == 0)
                     {
-                        <li class="list-group-item text-muted">Nobody holds the SystemAdmin role.</li>
+                        <MudListItem>
+                            <MudText Typo="Typo.body2" Class="mud-text-secondary">Nobody holds the SystemAdmin role.</MudText>
+                        </MudListItem>
                     }
                     else
                     {
                         @foreach (var a in _admins)
                         {
-                            <li class="list-group-item d-flex justify-content-between align-items-center">
-                                <div>
-                                    <strong>@a.DisplayName</strong>
-                                    <div class="text-muted small">@a.Email · granted @FormatTimestamp(a.GrantedUtc)</div>
-                                </div>
-                                @* Cannot revoke self — disabled button when this row IS the caller. The
-                                   page-markup guard mirrors the service's SelfRevokeRefused result so the
-                                   click never even leaves the page in the self-revoke attempt. *@
-                                @if (a.UserId == _userId)
-                                {
-                                    <button class="btn btn-sm btn-outline-secondary" disabled title="You can't revoke yourself — ask another SystemAdmin to revoke you.">Revoke (self)</button>
-                                }
-                                else
-                                {
-                                    <button class="btn btn-sm btn-outline-danger" @onclick="() => RevokeAsync(a.UserId)" disabled="@_busy">Revoke</button>
-                                }
-                            </li>
+                            <MudListItem>
+                                <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                                    <div>
+                                        <strong>@a.DisplayName</strong>
+                                        <MudText Typo="Typo.caption" Class="mud-text-secondary">@a.Email · granted @FormatTimestamp(a.GrantedUtc)</MudText>
+                                    </div>
+                                    @* Cannot revoke self — disabled button when this row IS the caller. The
+                                       page-markup guard mirrors the service's SelfRevokeRefused result so the
+                                       click never even leaves the page in the self-revoke attempt. *@
+                                    @if (a.UserId == _userId)
+                                    {
+                                        <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small" Disabled="true"
+                                                   title="You can't revoke yourself — ask another SystemAdmin to revoke you.">Revoke (self)</MudButton>
+                                    }
+                                    else
+                                    {
+                                        <MudButton Variant="Variant.Outlined" Color="Color.Error" Size="Size.Small" OnClick="() => RevokeAsync(a.UserId)" Disabled="@_busy">Revoke</MudButton>
+                                    }
+                                </MudStack>
+                            </MudListItem>
                         }
                     }
-                </ul>
-            </div>
-        </div>
-        <div class="col-md-6">
-            <div class="card shadow-sm">
-                <div class="card-header"><h5 class="mb-0">Grant SystemAdmin to a user</h5></div>
-                <div class="card-body">
-                    <p class="text-muted small mb-2">Enter the user's email — we'll look up their Identity row and grant the role.</p>
-                    <div class="input-group">
-                        <input class="form-control" placeholder="user@example.com" @bind="_grantEmail" />
-                        <button class="btn btn-primary" @onclick="GrantByEmailAsync" disabled="@(_busy || string.IsNullOrWhiteSpace(_grantEmail))">Grant</button>
-                    </div>
+                </MudList>
+            </MudCard>
+        </MudItem>
+        <MudItem xs="12" md="6">
+            <MudCard Outlined="true" Class="shadow-sm">
+                <MudCardHeader>
+                    <MudText Typo="Typo.h6">Grant SystemAdmin to a user</MudText>
+                </MudCardHeader>
+                <MudCardContent>
+                    <MudText Typo="Typo.body2" Class="mud-text-secondary mb-2">Enter the user's email — we'll look up their Identity row and grant the role.</MudText>
+                    <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+                        <MudTextField T="string" @bind-Value="_grantEmail" Placeholder="user@example.com" Variant="Variant.Outlined" Margin="Margin.Dense" Class="flex-grow-1" />
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="GrantByEmailAsync" Disabled="@(_busy || string.IsNullOrWhiteSpace(_grantEmail))">Grant</MudButton>
+                    </MudStack>
                     @if (_grantTarget is not null)
                     {
-                        <div class="mt-2 text-muted small">Resolved: <strong>@_grantTarget.DisplayName</strong> (@_grantTarget.UserId)</div>
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary mt-2">Resolved: <strong>@_grantTarget.DisplayName</strong> (@_grantTarget.UserId)</MudText>
                     }
-                </div>
-            </div>
-        </div>
-    </div>
+                </MudCardContent>
+            </MudCard>
+        </MudItem>
+    </MudGrid>
 
-    <h3>Recent audit log</h3>
-    <p class="text-muted small">Last @_audits.Count grant/revoke attempts across all SystemAdmin actors. Newest first.</p>
-    <table class="table table-sm">
-        <thead><tr><th>When (UTC)</th><th>Actor</th><th>Action</th><th>Target</th><th>Result</th><th>Reason</th></tr></thead>
+    <MudText Typo="Typo.h5">Recent audit log</MudText>
+    <MudText Typo="Typo.caption" Class="mud-text-secondary">Last @_audits.Count grant/revoke attempts across all SystemAdmin actors. Newest first.</MudText>
+    <MudSimpleTable Hover="true" Dense="true" Bordered="false">
+        <thead>
+            <tr>
+                <th>When (UTC)</th>
+                <th>Actor</th>
+                <th>Action</th>
+                <th>Target</th>
+                <th>Result</th>
+                <th>Reason</th>
+            </tr>
+        </thead>
         <tbody>
             @foreach (var a in _audits)
             {
-                <tr class="@((a.Success ? "" : "table-warning"))">
+                <tr class="@((a.Success ? "" : "mud-table-row-warning"))">
                     <td><LocalTime Utc="@a.TimestampUtc" Format="yyyy-MM-dd HH:mm:ss" /></td>
                     <td>@a.ActorDisplayName</td>
                     <td>@(a.Action == SystemAdminAuditAction.Grant ? "Grant" : "Revoke")</td>
@@ -99,10 +112,14 @@ else
             }
             @if (_audits.Count == 0)
             {
-                <tr><td colspan="6" class="text-muted text-center">No audit rows yet — make a grant / revoke to populate this list.</td></tr>
+                <tr>
+                    <td colspan="6">
+                        <MudText Typo="Typo.body2" Class="mud-text-secondary text-center">No audit rows yet — make a grant / revoke to populate this list.</MudText>
+                    </td>
+                </tr>
             }
         </tbody>
-    </table>
+    </MudSimpleTable>
 }
 
 @inject IDbContextFactory<ApplicationDbContext> DbFactory
@@ -121,6 +138,14 @@ else
     private List<SystemAdminAuditRow> _audits = new();
     private string _grantEmail = "";
     private SystemAdminRow? _grantTarget;
+
+    // Breadcrumb items for MudBreadcrumbs. The last item is the current
+    // page (no href, disabled).
+    private List<BreadcrumbItem> BreadcrumbItems => new()
+    {
+        new BreadcrumbItem("Home", href: LinkBuilder.HomeHref()),
+        new BreadcrumbItem("System admin", href: null, disabled: true)
+    };
 
     protected override async Task OnInitializedAsync()
     {

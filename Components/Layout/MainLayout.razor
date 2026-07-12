@@ -1,42 +1,75 @@
-@* Per .NET 9 Blazor: this layout intentionally does NOT carry a
-   `@rendermode` directive. Putting one here triggers
+@* New MainLayout: replaces the dark-gradient sidebar / topbar shell with a
+   MudAppBar + collapsible MudDrawer shell, all bound to the brand theme
+   (ServantSyncTheme.Build inside MudProviders). Layout itself stays a
+   LayoutComponentBase WITHOUT @rendermode, per the .NET 9 Blazor
+   Body-is-a-RenderFragment-can't-cross-rendermode-boundary constraint
+   documented in Components/Routes.razor. The providers component below
+   (<MudProviders />) holds the InteractiveServer boundary.
 
-       System.InvalidOperationException:
-        Cannot pass the parameter 'Body' to component 'MainLayout'
-        with rendermode 'InteractiveServerRenderMode'. This is
-        because the parameter is of the delegate type 'Microsoft.
-        AspNetCore.Components.RenderFragment', which is arbitrary
-        code and cannot be serialized.
-
-   The framework tries to serialize the layout's parameters for
-   streaming-SSR and `@Body` is a `RenderFragment` that captures
-   the parent render context — it can't be serialized across the
-   wire. The cascade therefore comes from each PAGE's own
-   `@rendermode InteractiveServer` directive instead, so any page
-   routed through this layout that needs interactivity must opt in
-   explicitly. See `Components/Routes.razor` for the canonical
-   pattern and the per-page opt-out note. *@
+   Phase 5 — Bootstrap removal: the prior class="d-flex align-items-center
+   text-decoration-none" Bootstrap flex utilities are replaced with the
+   MudBlazor-compatible d-flex + align-center utilities (align-items-center
+   is the Bootstrap name; MudBlazor / Material use align-center). The
+   class="ml-2" Bootstrap-specific margin utility is replaced with the
+   spacing token ms-2 (margin-inline-start: 0.5rem) which works in
+   both MudBlazor and standard CSS. The pa-6 utility on the main
+   container is a MudBlazor spacing token. *@
 @inherits LayoutComponentBase
 
-<div class="page">
-    <div class="sidebar">
-        <NavMenu />
-    </div>
+<MudProviders />
 
-    <main>
-        <div class="top-row px-4">
-            <a href="https://learn.microsoft.com/aspnet/core/" target="_blank">About</a>
-        </div>
+<MudLayout>
+    <MudAppBar Elevation="0"
+               Color="Color.Dark"
+               Dense="false">
+        <MudIconButton Icon="@Icons.Material.Filled.Menu"
+                       Color="Color.Inherit"
+                       Edge="Edge.Start"
+                       OnClick="@ToggleDrawer"
+                       aria-label="Toggle navigation drawer" />
+        <a href="" aria-label="ServantSync home" class="d-flex align-center text-decoration-none">
+            <img src="@Assets["img/servantsync-mark.svg"]"
+                 alt="ServantSync"
+                 width="32" height="32"
+                 style="border-radius:6px;background:rgba(255,255,255,0.06);padding:2px;" />
+            <span class="ms-2"
+                  style="color:#ffffff;font-weight:700;letter-spacing:-0.3px;font-size:1.05rem;">
+                ServantSync
+            </span>
+        </a>
+        <MudSpacer />
+        <MudIconButton Icon="@Icons.Material.Outlined.AccountCircle"
+                       Color="Color.Inherit"
+                       Href="Account/Manage"
+                       aria-label="Account" />
+    </MudAppBar>
 
-        <article class="content px-4">
+    <MudDrawer @bind-Open="_drawerOpen"
+               Anchor="Anchor.Start"
+               Elevation="1"
+               Variant="DrawerVariant.Mini"
+               OpenMiniOnHover="true"
+               ClipMode="DrawerClipMode.Always">
+        <NavMenu OnDrawerLinkClicked="CloseDrawer" />
+    </MudDrawer>
+
+    <MudMainContent>
+        <div class="ss-main-container pa-6">
             <TimeZoneInitializer />
             @Body
-        </article>
-    </main>
-</div>
+        </div>
+    </MudMainContent>
+</MudLayout>
 
 <div id="blazor-error-ui" data-nosnippet>
     An unhandled error has occurred.
     <a href="." class="reload">Reload</a>
     <span class="dismiss">🗙</span>
 </div>
+
+@code {
+    private bool _drawerOpen = true;
+
+    private void ToggleDrawer() => _drawerOpen = !_drawerOpen;
+    private void CloseDrawer() => _drawerOpen = false;
+}

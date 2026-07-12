@@ -41,11 +41,14 @@ public class DateRangeChipsTests : TestContext
             .Add(p => p.FromUtc, from)
             .Add(p => p.ToUtc, to));
 
-        // The "14 days" button should carry btn-primary (the active class);
-        // the others should be btn-outline-primary.
-        Assert.Contains("btn btn-primary\"", cut.Markup.Replace("\r", "").Replace("\n", ""));
-        // Sanity: the string "14 days" appears in the markup.
-        Assert.Contains("14 days", cut.Markup);
+        // The "14 days" button should be the active preset. After the
+        // Phase-4 MudBlazor migration, the active button is a <MudButton>
+        // with Variant.Filled + Color.Primary, which renders with the
+        // "mud-button-filled" class (the other presets are Filled=false,
+        // i.e. outlined). The original test checked for the Bootstrap
+        // class string "btn btn-primary" which no longer exists.
+        var fourteenDayButton = cut.FindAll("button").Single(b => b.TextContent.Trim() == "14 days");
+        Assert.Contains("mud-button-filled", fourteenDayButton.ClassName);
     }
 
     [Fact]

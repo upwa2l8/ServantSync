@@ -4,33 +4,30 @@
 
 <PageTitle>Standings · @(_ministry?.Name ?? "League")</PageTitle>
 
-<nav aria-label="breadcrumb" class="mb-2">
-    <ol class="breadcrumb mb-0">
-        <li class="breadcrumb-item"><a href="">Home</a></li>
-        <li class="breadcrumb-item"><a href="Leagues">Leagues</a></li>
-        <li class="breadcrumb-item"><a href="@($"Leagues/{MinistryId}")">@(_ministry?.Name ?? $"League #{MinistryId}")</a></li>
-        <li class="breadcrumb-item active" aria-current="page">Standings</li>
-    </ol>
-</nav>
+<MudBreadcrumbs Items="@BreadcrumbItems" Class="mb-2" />
 
-<div class="d-flex justify-content-between align-items-center mb-3">
+<MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-3 flex-wrap gap-2">
     <div>
-        <h1 class="mb-0">Standings</h1>
-        <div class="text-muted">@_ministry?.Organization?.Name · @_ministry?.Name</div>
+        <MudText Typo="Typo.h4">Standings</MudText>
+        <MudText Typo="Typo.body2" Class="mud-text-secondary">@_ministry?.Organization?.Name · @_ministry?.Name</MudText>
     </div>
-    <a class="btn btn-outline-secondary" href="@($"Leagues/{MinistryId}")">Back to league</a>
-</div>
+    <MudButton Variant="Variant.Outlined" Color="Color.Default" Href="@LinkBuilder.LeagueHref(MinistryId)">Back to league</MudButton>
+</MudStack>
 
 @if (_rows is null)
 {
-    <p><em>Loading…</em></p>
+    <MudText><em>Loading…</em></MudText>
 }
 else if (!_rows.Any())
 {
-    <div class="alert alert-info">No teams in this league yet.</div>
+    <MudAlert Severity="Severity.Info">No teams in this league yet.</MudAlert>
 }
 else
 {
+    @* Raw HTML table kept for simplicity (no sorting/filtering needed).
+       Bootstrap CSS is still loaded for the Phase 3 components, so the
+       table-striped + table-hover classes still work. When Phase 4
+       removes Bootstrap CSS, migrate to <MudTable>. *@
     <div class="table-responsive">
         <table class="table table-striped table-hover">
             <thead>
@@ -53,7 +50,7 @@ else
                     var r = _rows[i];
                     <tr class="@(i == 0 ? "table-success" : "")">
                         <td>@(i + 1)</td>
-                        <td><a href="@($"Teams/{r.TeamId}")">@r.TeamName</a></td>
+                        <td><a href="@LinkBuilder.TeamHref(r.TeamId)">@r.TeamName</a></td>
                         <td class="text-end">@r.Played</td>
                         <td class="text-end">@r.Wins</td>
                         <td class="text-end">@r.Draws</td>
@@ -67,11 +64,11 @@ else
             </tbody>
         </table>
     </div>
-    <p class="text-muted small">
+    <MudText Typo="Typo.caption" Class="mud-text-secondary">
         Points: 3 per win, 1 per draw, 0 per loss. Tiebreakers: goal difference,
         goals scored, then team name. Only games that were actually played are
         counted.
-    </p>
+    </MudText>
 }
 
 @inject IDbContextFactory<ApplicationDbContext> DbFactory
@@ -80,6 +77,17 @@ else
     [Parameter] public int MinistryId { get; set; }
     private Ministry? _ministry;
     private List<TeamStanding>? _rows;
+
+    // Breadcrumb items for MudBreadcrumbs. The last item is the current
+    // page (no href, disabled). Built from the route param so it stays
+    // in sync if the user navigates between leagues.
+    private List<BreadcrumbItem> BreadcrumbItems => new()
+    {
+        new BreadcrumbItem("Home", href: LinkBuilder.HomeHref()),
+        new BreadcrumbItem("Leagues", href: LinkBuilder.LeaguesHref()),
+        new BreadcrumbItem(_ministry?.Name ?? $"League #{MinistryId}", href: LinkBuilder.LeagueHref(MinistryId)),
+        new BreadcrumbItem("Standings", href: null, disabled: true)
+    };
 
     protected override async Task OnInitializedAsync()
     {

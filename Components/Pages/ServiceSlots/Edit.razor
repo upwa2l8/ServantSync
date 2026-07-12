@@ -5,90 +5,105 @@
 
 <PageTitle>@(_isNew ? "New service slot" : "Edit slot")</PageTitle>
 
-<nav aria-label="breadcrumb" class="mb-2">
-    <ol class="breadcrumb mb-0">
-        <li class="breadcrumb-item"><a href="">Home</a></li>
-        <li class="breadcrumb-item"><a href="Organizations">Organizations</a></li>
-        <li class="breadcrumb-item"><a href="@($"Organizations/{OrgId}")">Org #{OrgId}</a></li>
-        <li class="breadcrumb-item"><a href="@($"Organizations/{OrgId}/Ministries/{MinId}")">Ministry #{MinId}</a></li>
-        @if (_isNew)
-        {
-            <li class="breadcrumb-item active" aria-current="page">New slot</li>
-        }
-        else
-        {
-            <li class="breadcrumb-item"><a href="@($"Organizations/{OrgId}/Ministries/{MinId}/Roles/{Id}")">Slot #{Id}</a></li>
-            <li class="breadcrumb-item active" aria-current="page">Edit</li>
-        }
-    </ol>
-</nav>
+<MudBreadcrumbs Items="BreadcrumbItems" Class="mb-2 px-0" />
 
-<h1>@(_isNew ? "New service slot" : "Edit service slot")</h1>
+<MudText Typo="Typo.h4" Class="mb-2">@(_isNew ? "New service slot" : "Edit service slot")</MudText>
 <StatusMessage Message="@_message" IsError="@_isError" />
 
 <EditForm Model="_model" OnValidSubmit="Save" FormName="slot">
     <DataAnnotationsValidator />
     <ValidationSummary />
 
-    <div class="form-floating mb-3">
-        <InputText id="name" class="form-control" @bind-Value="_model.Name" />
-        <label for="name">Name</label>
-    </div>
-    <div class="form-floating mb-3">
-        <InputTextArea id="desc" class="form-control" style="height: 5rem" @bind-Value="_model.Description" />
-        <label for="desc">Description</label>
-    </div>
-    <div class="form-floating mb-3">
-        <InputText id="loc" class="form-control" @bind-Value="_model.Location" />
-        <label for="loc">Location</label>
-    </div>
-    <div class="row g-2 align-items-end">
-        <div class="col-md-4">
-            <label class="form-label">Default duration (minutes)</label>
-            <input class="form-control" type="number" min="0" step="15" @bind="_model.DefaultDurationMinutes" />
-        </div>
-        <div class="col-md-4">
-            <label class="form-label">Capacity (volunteers per occurrence)</label>
-            <input class="form-control" type="number" min="1" step="1" @bind="_model.Capacity"
-                   title="How many volunteers can sign up for a single time this slot runs. Default 1; bump to 3 for a referee slot that needs 3 per game." />
-            <div class="form-text">How many volunteers can serve per scheduled occurrence of this slot.</div>
-        </div>
-        <div class="col-md-4 form-check mb-2">
-            <input type="checkbox" class="form-check-input" id="active" @bind="_model.IsActive" />
-            <label class="form-check-label" for="active">Active (accepting volunteers)</label>
-        </div>
-    </div>
+    <MudTextField T="string"
+                  Label="Name"
+                  @bind-Value="_model.Name"
+                  Variant="Variant.Outlined"
+                  Margin="Margin.Dense"
+                  Class="mb-3"
+                  Required="true"
+                  RequiredError="Name is required" />
+    <MudTextField T="string"
+                  Label="Description"
+                  @bind-Value="_model.Description"
+                  Lines="3"
+                  Variant="Variant.Outlined"
+                  Margin="Margin.Dense"
+                  Class="mb-3" />
+    <MudTextField T="string"
+                  Label="Location"
+                  @bind-Value="_model.Location"
+                  Variant="Variant.Outlined"
+                  Margin="Margin.Dense"
+                  Class="mb-3" />
+    <MudGrid Spacing="2" AlignItems="Center" Class="mb-2">
+        <MudItem xs="12" sm="6" md="4">
+            <MudNumericField T="int"
+                             @bind-Value="_model.DefaultDurationMinutes"
+                             Label="Default duration (minutes)"
+                             Min="0"
+                             Step="15"
+                             Variant="Variant.Outlined"
+                             Margin="Margin.Dense" />
+        </MudItem>
+        <MudItem xs="12" sm="6" md="4">
+            <MudNumericField T="int"
+                             @bind-Value="_model.Capacity"
+                             Label="Capacity (volunteers per occurrence)"
+                             Min="1"
+                             Step="1"
+                             Variant="Variant.Outlined"
+                             Margin="Margin.Dense"
+                             Title="How many volunteers can sign up for a single time this slot runs. Default 1; bump to 3 for a referee slot that needs 3 per game." />
+            <MudText Typo="Typo.caption" Class="mud-text-secondary">How many volunteers can serve per scheduled occurrence of this slot.</MudText>
+        </MudItem>
+        <MudItem xs="12" md="4" Class="d-flex align-center">
+            <MudCheckBox T="bool" @bind-Value="_model.IsActive" Label="Active (accepting volunteers)" Color="Color.Primary" />
+        </MudItem>
+    </MudGrid>
 
-    <h5 class="mt-4">Coordinator</h5>
-    <p class="text-muted small">The slot coordinator can schedule shifts for this slot without being the ministry coordinator. Leave blank if the ministry coordinator handles this slot.</p>
-    <div class="row g-2">
-        <div class="col-md-6">
-            <label class="form-label">Coordinator</label>
-            <select class="form-select" @bind="_model.CoordinatorPersonUserId">
-                <option value="">— none —</option>
+    <MudText Typo="Typo.h6" Class="mt-4">Coordinator</MudText>
+    <MudText Typo="Typo.caption" Class="mud-text-secondary mb-2">
+        The slot coordinator can schedule shifts for this slot without being the ministry coordinator. Leave blank if the ministry coordinator handles this slot.
+    </MudText>
+    <MudGrid Spacing="2" Class="mb-2">
+        <MudItem xs="12" sm="6">
+            <MudSelect T="string"
+                       @bind-Value="_model.CoordinatorPersonUserId"
+                       Label="Coordinator"
+                       Variant="Variant.Outlined"
+                       Margin="Margin.Dense">
+                <MudSelectItem T="string" Value="@("")">— none —</MudSelectItem>
                 @foreach (var p in _members)
                 {
-                    <option value="@p.UserId">@p.DisplayName</option>
+                    <MudSelectItem T="string" Value="@p.UserId">@p.DisplayName</MudSelectItem>
                 }
-            </select>
-        </div>
-        <div class="col-md-6">
-            <div class="form-floating">
-                <InputText id="cemail" class="form-control" @bind-Value="_model.CoordinatorEmail" />
-                <label for="cemail">Coordinator email</label>
-            </div>
-        </div>
-    </div>
-    <div class="form-floating mt-2">
-        <InputText id="cphone" class="form-control" @bind-Value="_model.CoordinatorPhone" />
-        <label for="cphone">Coordinator phone</label>
-    </div>
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="6">
+            <MudTextField T="string"
+                          Label="Coordinator email"
+                          InputType="InputType.Email"
+                          @bind-Value="_model.CoordinatorEmail"
+                          Variant="Variant.Outlined"
+                          Margin="Margin.Dense" />
+        </MudItem>
+    </MudGrid>
+    <MudTextField T="string"
+                  Label="Coordinator phone"
+                  @bind-Value="_model.CoordinatorPhone"
+                  Variant="Variant.Outlined"
+                  Margin="Margin.Dense"
+                  Class="mb-3" />
 
-    <div class="mt-3">
-        <button class="btn btn-primary" type="submit" disabled="@(!_canSubmit)">Save</button>
-        <a class="btn btn-outline-secondary ms-2"
-           href="@(_isNew ? $"Organizations/{OrgId}/Ministries/{MinId}" : $"Organizations/{OrgId}/Ministries/{MinId}/Roles/{Id}")">Cancel</a>
-    </div>
+    <MudStack Row="true" Spacing="2" Class="mt-3">
+        <MudButton ButtonType="ButtonType.Submit"
+                   Color="Color.Primary"
+                   Variant="Variant.Filled"
+                   Disabled="@(!_canSubmit)">Save</MudButton>
+        <MudButton Href="@CancelHref"
+                   Color="Color.Default"
+                   Variant="Variant.Outlined">Cancel</MudButton>
+    </MudStack>
 </EditForm>
 
 @inject IDbContextFactory<ApplicationDbContext> DbFactory
@@ -141,6 +156,31 @@
     // gate the server also re-checks inside SlotManagementService.
     private bool _canSubmit => _isNew ? _canCreate : _canEdit;
     private string _userId = "";
+
+    // Breadcrumb items for MudBreadcrumbs. The last item is the current
+    // page (no href, disabled). Built from the route params + isNew flag
+    // so it stays in sync whether the user is creating or editing a slot.
+    private List<BreadcrumbItem> BreadcrumbItems
+    {
+        get
+        {
+            var items = new List<BreadcrumbItem>
+            {
+                new BreadcrumbItem("Home", href: ""),
+                new BreadcrumbItem("Organizations", href: "Organizations"),
+                new BreadcrumbItem($"Org #{OrgId}", href: $"Organizations/{OrgId}"),
+                new BreadcrumbItem($"Ministry #{MinId}", href: $"Organizations/{OrgId}/Ministries/{MinId}"),
+            };
+            if (!_isNew)
+            {
+                items.Add(new BreadcrumbItem($"Slot #{Id}", href: $"Organizations/{OrgId}/Ministries/{MinId}/Roles/{Id}"));
+            }
+            items.Add(new BreadcrumbItem(_isNew ? "New slot" : "Edit", href: null, disabled: true));
+            return items;
+        }
+    }
+
+    private string CancelHref => _isNew ? $"Organizations/{OrgId}/Ministries/{MinId}" : $"Organizations/{OrgId}/Ministries/{MinId}/Roles/{Id}";
 
     protected override async Task OnInitializedAsync()
     {

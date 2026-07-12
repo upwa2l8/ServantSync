@@ -1,34 +1,41 @@
 @* Shared date-range chip strip. Emits (fromUtc, toUtc) on user change.
    Parent owns the (FromUtc, ToUtc) state; this component manages the chip
-   selection and the custom date inputs visually. *@
+   selection and the custom date inputs visually.
 
-<div class="d-flex flex-wrap align-items-center gap-2 mb-3">
-    <span class="text-muted small me-1">Range:</span>
-    <div class="btn-group btn-group-sm" role="group" aria-label="Date range">
+   Migration note: the preset chips use <MudButtonGroup> + <MudButton>,
+   but the custom date inputs are kept as raw <input type="date">
+   elements. MudBlazor's date picker (MudDatePicker) requires a
+   MudPopoverProvider + full MudBlazor theme setup that's heavier than
+   this lightweight component warrants; the native <input type="date">
+   is well-supported across modern browsers and matches the original
+   UX. *@
+
+<MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2" Class="mb-3">
+    <MudText Typo="Typo.caption" Class="mud-text-secondary me-1">Range:</MudText>
+    <MudButtonGroup Variant="Variant.Outlined" Size="Size.Small">
         @foreach (var p in Presets)
         {
-            <button type="button"
-                    class="btn @(_mode == p.mode ? "btn-primary" : "btn-outline-primary")"
-                    @onclick="() => SetModeAsync(p.mode)">
+            <MudButton Color="@(_mode == p.mode ? Color.Primary : Color.Default)"
+                       Variant="@(_mode == p.mode ? Variant.Filled : Variant.Outlined)"
+                       OnClick="() => SetModeAsync(p.mode)">
                 @p.label
-            </button>
+            </MudButton>
         }
-    </div>
+    </MudButtonGroup>
     @if (_mode == RangeMode.Custom)
     {
-        <div class="d-flex align-items-center gap-2 ms-2 flex-wrap">
-            <label class="small text-muted mb-0">From</label>
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="ms-2" Wrap="Wrap.Wrap">
+            <MudText Typo="Typo.caption" Class="mud-text-secondary mb-0">From</MudText>
             <input type="date" class="form-control form-control-sm" style="width:160px"
                    value="@_customFrom.ToString("yyyy-MM-dd")"
                    @onchange="OnCustomFromChanged" />
-            <label class="small text-muted mb-0">to</label>
+            <MudText Typo="Typo.caption" Class="mud-text-secondary mb-0">to</MudText>
             <input type="date" class="form-control form-control-sm" style="width:160px"
                    value="@_customTo.ToString("yyyy-MM-dd")"
                    @onchange="OnCustomToChanged" />
-        </div>
+        </MudStack>
     }
-</div>
-
+</MudStack>
 @code {
     public enum RangeMode
     {

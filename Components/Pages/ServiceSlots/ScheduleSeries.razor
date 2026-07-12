@@ -1,83 +1,96 @@
 @page "/Organizations/{OrgId:int}/Ministries/{MinId:int}/Roles/{Id:int}/Series"
 @attribute [Authorize]
 @rendermode InteractiveServer
+@using ServantSync.Services
 
 <PageTitle>Schedule series · @(_slot?.Name ?? "Slot")</PageTitle>
 
-<nav aria-label="breadcrumb" class="mb-2">
-    <ol class="breadcrumb mb-0">
-        <li class="breadcrumb-item"><a href="">Home</a></li>
-        <li class="breadcrumb-item"><a href="Organizations">Organizations</a></li>
-        <li class="breadcrumb-item"><a href="@($"Organizations/{OrgId}")">Org #{OrgId}</a></li>
-        <li class="breadcrumb-item"><a href="@($"Organizations/{OrgId}/Ministries/{MinId}")">Ministry #{MinId}</a></li>
-        <li class="breadcrumb-item"><a href="@($"Organizations/{OrgId}/Ministries/{MinId}/Roles/{Id}")">@(_slot?.Name ?? $"Slot #{Id}")</a></li>
-        <li class="breadcrumb-item active" aria-current="page">Schedule series</li>
-    </ol>
-</nav>
+<MudBreadcrumbs Items="BreadcrumbItems" Class="mb-2 px-0" />
 
 @if (_slot is null)
 {
-    <p><em>Loading…</em></p>
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
 }
 else
 {
-    <h1>@_slot.Name</h1>
-    <div class="text-muted mb-3">@_slot.Description</div>
+    <MudText Typo="Typo.h4" Class="mb-0">@_slot.Name</MudText>
+    <MudText Typo="Typo.body2" Class="mud-text-secondary mb-3">@_slot.Description</MudText>
 
-    <h5>Create a weekly series</h5>
-    <p class="text-muted">
+    <MudText Typo="Typo.h6">Create a weekly series</MudText>
+    <MudText Typo="Typo.body2" Class="mud-text-secondary mb-3">
         Expands into one Assignment per matching weekday in the range. Occurrences that
         would conflict with another assignment, or where the volunteer lacks valid training,
         are skipped-with-reason — the rest are still created.
-    </p>
+    </MudText>
 
     <EditForm Model="_form" OnValidSubmit="Generate" FormName="series" Context="ctx">
-        <div class="row g-2 align-items-end">
-            <div class="col-md-4">
-                <label class="form-label">Volunteer</label>
-                <select class="form-select" @bind="_form.PersonUserId">
-                    <option value="">— pick person —</option>
+        <MudGrid Spacing="2" AlignItems="Center" Class="mb-2">
+            <MudItem xs="12" sm="6" md="4">
+                <MudSelect T="string"
+                           @bind-Value="_form.PersonUserId"
+                           Label="Volunteer"
+                           Variant="Variant.Outlined"
+                           Margin="Margin.Dense">
+                    <MudSelectItem T="string" Value="@("")">— pick person —</MudSelectItem>
                     @foreach (var p in _orgMembers)
                     {
-                        <option value="@p.UserId">@p.DisplayName</option>
+                        <MudSelectItem T="string" Value="@p.UserId">@p.DisplayName</MudSelectItem>
                     }
-                </select>
-            </div>
-            <div class="col-md-3">
-                <label class="form-label">Day of week</label>
-                <select class="form-select" @bind="_form.DayOfWeek">
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="6" sm="3" md="3">
+                <MudSelect T="DayOfWeek"
+                           @bind-Value="_form.DayOfWeek"
+                           Label="Day of week"
+                           Variant="Variant.Outlined"
+                           Margin="Margin.Dense">
                     @foreach (var d in Enum.GetValues<DayOfWeek>())
                     {
-                        <option value="@d">@d</option>
+                        <MudSelectItem T="DayOfWeek" Value="@d">@d</MudSelectItem>
                     }
-                </select>
-            </div>
-            <div class="col-md-2">
-                <label class="form-label">Start (local HH:mm)</label>
-                <InputText type="time" class="form-control" @bind-Value="_form.StartLocal" />
-            </div>
-            <div class="col-md-2">
-                <label class="form-label">Duration (min)</label>
-                <input class="form-control" type="number" min="0" step="15"
-                       @bind="_form.DurationMinutes" />
-            </div>
-            <div class="col-md-2">
-                <label class="form-label">First date</label>
-                <InputDate class="form-control" @bind-Value="_form.StartDate" />
-            </div>
-            <div class="col-md-2">
-                <label class="form-label">Last date (exclusive)</label>
-                <InputDate class="form-control" @bind-Value="_form.EndDate" />
-            </div>
-            <div class="col-md-3">
-                <label class="form-label">Time zone</label>
-                <select class="form-select" @bind="_form.TimeZoneId">
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="6" sm="3" md="2">
+                <MudTextField T="string"
+                              Label="Start (local HH:mm)"
+                              InputType="InputType.Time"
+                              @bind-Value="_form.StartLocal"
+                              Variant="Variant.Outlined"
+                              Margin="Margin.Dense" />
+            </MudItem>
+            <MudItem xs="6" sm="3" md="2">
+                <MudNumericField T="int"
+                                 @bind-Value="_form.DurationMinutes"
+                                 Label="Duration (min)"
+                                 Min="0"
+                                 Step="15"
+                                 Variant="Variant.Outlined"
+                                 Margin="Margin.Dense" />
+            </MudItem>
+            <MudItem xs="6" sm="3" md="2">
+                <MudDatePicker Label="First date"
+                               @bind-Date="_form.StartDate"
+                               Variant="Variant.Outlined"
+                               Margin="Margin.Dense" />
+            </MudItem>
+            <MudItem xs="6" sm="3" md="2">
+                <MudDatePicker Label="Last date (exclusive)"
+                               @bind-Date="_form.EndDate"
+                               Variant="Variant.Outlined"
+                               Margin="Margin.Dense" />
+            </MudItem>
+            <MudItem xs="12" sm="6" md="3">
+                <MudSelect T="string"
+                           @bind-Value="_form.TimeZoneId"
+                           Label="Time zone"
+                           Variant="Variant.Outlined"
+                           Margin="Margin.Dense">
                     @foreach (var tz in _timeZones)
                     {
-                        <option value="@tz.Id">@tz.DisplayName</option>
+                        <MudSelectItem T="string" Value="@tz.Id">@tz.DisplayName</MudSelectItem>
                     }
-                </select>
-                <div class="form-text">
+                </MudSelect>
+                <MudText Typo="Typo.caption" Class="mud-text-secondary mt-1">
                     @if (!string.IsNullOrEmpty(TzProvider.TimeZoneId))
                     {
                         <span>Detected from your browser: <code>@TzProvider.TimeZoneId</code></span>
@@ -86,55 +99,58 @@ else
                     {
                         <span>Browser timezone unavailable — using server default until you pick.</span>
                     }
-                </div>
-            </div>
-            <div class="col-md-12 mt-2">
-                <button class="btn btn-primary" disabled="@(_busy || !_canSchedule)">
+                </MudText>
+            </MudItem>
+            <MudItem xs="12" Class="mt-2">
+                <MudButton ButtonType="ButtonType.Submit"
+                           Color="Color.Primary"
+                           Variant="Variant.Filled"
+                           Disabled="@(_busy || !_canSchedule)">
                     @(_busy ? "Generating…" : (_canSchedule ? "Generate series" : "Coordinators only"))
-                </button>
-            </div>
-        </div>
+                </MudButton>
+            </MudItem>
+        </MudGrid>
     </EditForm>
 
     <StatusMessage Message="@_message" IsError="@_isError" />
 
     @if (_result is not null)
     {
-        <div class="row mt-4">
-            <div class="col-md-6">
-                <h6>Created (@_result.Created.Count)</h6>
+        <MudGrid Spacing="3" Class="mt-4">
+            <MudItem xs="12" md="6">
+                <MudText Typo="Typo.h6">Created (@_result.Created.Count)</MudText>
                 @if (!_result.Created.Any())
                 {
-                    <div class="alert alert-warning">No occurrences created (all skipped).</div>
+                    <MudAlert Severity="Severity.Warning">No occurrences created (all skipped).</MudAlert>
                 }
                 else
                 {
-                    <table class="table table-sm">
-                        <thead><tr><th>When (UTC)</th><th>Duration</th></tr></thead>
-                        <tbody>
-                            @foreach (var a in _result.Created.OrderBy(a => a.StartUtc))
-                            {
-                                <tr>
-                                    <td><LocalTime Utc="@a.StartUtc" /> – <LocalTime Utc="@a.EndUtc" /></td>
-                                    <td>@((a.EndUtc - a.StartUtc).TotalMinutes) min</td>
-                                </tr>
-                            }
-                        </tbody>
-                    </table>
+                    <MudPaper Outlined="true">
+                        <MudTable T="Assignment" Items="_result.Created.OrderBy(a => a.StartUtc)" Dense="true" Hover="true">
+                            <HeaderContent>
+                                <MudTh>When (UTC)</MudTh>
+                                <MudTh>Duration</MudTh>
+                            </HeaderContent>
+                            <RowTemplate>
+                                <MudTd><LocalTime Utc="@context.StartUtc" /> – <LocalTime Utc="@context.EndUtc" /></MudTd>
+                                <MudTd>@((context.EndUtc - context.StartUtc).TotalMinutes) min</MudTd>
+                            </RowTemplate>
+                        </MudTable>
+                    </MudPaper>
                 }
-            </div>
-            <div class="col-md-6">
-                <h6>Skipped (@_result.Skipped.Count)</h6>
+            </MudItem>
+            <MudItem xs="12" md="6">
+                <MudText Typo="Typo.h6">Skipped (@_result.Skipped.Count)</MudText>
                 @if (!_result.Skipped.Any())
                 {
-                    <div class="alert alert-success">All occurrences were scheduled.</div>
+                    <MudAlert Severity="Severity.Success">All occurrences were scheduled.</MudAlert>
                 }
                 else
                 {
-                    <ul class="list-group">
+                    <MudList T="ScheduleSeriesSkipped" Dense="true">
                         @foreach (var s in _result.Skipped.OrderBy(s => s.ProposedStartUtc))
                         {
-                            <li class="list-group-item">
+                            <MudListItem T="ScheduleSeriesSkipped">
                                 <strong><LocalTime Utc="@s.ProposedStartUtc" Format="ddd, MMM d h:mm tt" /></strong>
                                 <ul class="mb-0">
                                     @foreach (var r in s.Reasons)
@@ -142,21 +158,21 @@ else
                                         <li>@r</li>
                                     }
                                 </ul>
-                            </li>
+                            </MudListItem>
                         }
-                    </ul>
+                    </MudList>
                 }
-            </div>
+            </MudItem>
             @if (_result.CapReached)
             {
-                <div class="col-12 mt-2">
-                    <div class="alert alert-warning">
+                <MudItem xs="12" Class="mt-2">
+                    <MudAlert Severity="Severity.Warning">
                         Note: the series hit the safety cap of 500 occurrences. Split your range
                         into smaller chunks if you need more.
-                    </div>
-                </div>
+                    </MudAlert>
+                </MudItem>
             }
-        </div>
+        </MudGrid>
     }
 }
 
@@ -182,6 +198,26 @@ else
 
     private List<TimeZoneInfo> _timeZones = TimeZoneInfo.GetSystemTimeZones()
         .OrderBy(tz => tz.BaseUtcOffset).ThenBy(tz => tz.Id).ToList();
+
+    // Breadcrumb items for MudBreadcrumbs. The last item is the current
+    // page (no href, disabled). Built from the route params + loaded
+    // slot so it stays in sync with whatever slot the user is viewing.
+    private List<BreadcrumbItem> BreadcrumbItems
+    {
+        get
+        {
+            var items = new List<BreadcrumbItem>
+            {
+                new BreadcrumbItem("Home", href: ""),
+                new BreadcrumbItem("Organizations", href: "Organizations"),
+                new BreadcrumbItem($"Org #{OrgId}", href: $"Organizations/{OrgId}"),
+                new BreadcrumbItem($"Ministry #{MinId}", href: $"Organizations/{OrgId}/Ministries/{MinId}"),
+                new BreadcrumbItem(_slot?.Name ?? $"Slot #{Id}", href: $"Organizations/{OrgId}/Ministries/{MinId}/Roles/{Id}"),
+                new BreadcrumbItem("Schedule series", href: null, disabled: true),
+            };
+            return items;
+        }
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -237,6 +273,12 @@ else
                 _message = "Start time must be HH:mm.";
                 return;
             }
+            if (_form.StartDate is null || _form.EndDate is null)
+            {
+                _isError = true;
+                _message = "Pick both first and last dates.";
+                return;
+            }
             if (_form.EndDate <= _form.StartDate)
             {
                 _isError = true;
@@ -256,8 +298,8 @@ else
                 _form.DayOfWeek,
                 stime,
                 _form.DurationMinutes,
-                _form.StartDate.Date,
-                _form.EndDate.Date,
+                _form.StartDate.Value.Date,
+                _form.EndDate.Value.Date,
                 _form.TimeZoneId ?? TimeZoneInfo.Local.Id);
 
             _message = $"Series evaluated. Created {_result.Created.Count}, skipped {_result.Skipped.Count}."
@@ -280,8 +322,12 @@ else
         public DayOfWeek DayOfWeek { get; set; }
         public string StartLocal { get; set; } = "09:00";
         public int DurationMinutes { get; set; }
-        public DateTime StartDate { get; set; }
-        public DateTime EndDate { get; set; }
+        // MudDatePicker binds to DateTime? (nullable). Original used
+        // <InputDate> with non-nullable DateTime; nullable here matches
+        // the MudBlazor component contract and Generate() handles the
+        // null case explicitly.
+        public DateTime? StartDate { get; set; }
+        public DateTime? EndDate { get; set; }
         public string? TimeZoneId { get; set; }
     }
 }

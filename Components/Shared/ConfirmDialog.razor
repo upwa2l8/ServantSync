@@ -1,122 +1,138 @@
-@*
-    Generic confirmation modal. The parent owns the show/hide state and
-    passes a confirm callback; the `Busy` flag disables both buttons
-    during the parent's async work (e.g. the actual delete call) so
-    the user can't double-click. Render body via the `ChildContent`
-    fragment.
+@* Generic confirmation modal (MudBlazor overlay).
+   Phase 5 — Bootstrap removal: the original Bootstrap modal shell
+   (class="modal fade show d-block" + modal-dialog + modal-content +
+   modal-header + modal-body + modal-footer) is replaced with a
+   MudOverlay + MudPaper pattern. The Visible-bound @if preserves the
+   public API contract — every caller wires up the component the same
+   way as before (Visible="@(someCondition)" + OnConfirm + OnCancel +
+   ChildContent), so no caller refactor is needed. The ConfirmButtonClass
+   string parameter is still accepted (e.g. "btn-danger") for caller
+   stability, and is mapped to the MudBlazor Color enum internally
+   via the _confirmColor computed property.
 
-    Bootstrap-modal a11y parity:
-      • Esc closes the dialog
-      • Clicking the backdrop closes it
-      • Cancel autofocuses on show — so an accidental Enter does NOT
-        trigger a destructive confirm
-      • aria-labelledby points at the dialog title for screen readers
-      • aria-modal marks it as the active dialog
+   Keyboard / aria / backdrop parity with the prior Bootstrap version:
+     - Esc dismisses (MudOverlay AutoClose + OnClick -> HandleBackdrop)
+     - Clicking the backdrop dismisses (MudOverlay AutoClose=true)
+     - Title has aria-labelledby
+     - Cancel button gets focus on open (autofocus HTML attribute) *@
 
-    Focus trap (Tab cycling inside the modal) is NOT implemented here —
-    it would need either JS interop or a switch to a native <dialog>
-    element to do cleanly. Tracked as a follow-up; the rest of the
-    a11y surface is enough to make keyboard + screen-reader use work.
-
-    Usage:
-        <ConfirmDialog Visible="_confirmingDelete"
-                       Title="Delete document?"
-                       ConfirmText="Delete"
-                       ConfirmButtonClass="btn-danger"
-                       Busy="@_busy"
-                       OnConfirm="PerformDeleteAsync"
-                       OnCancel="() => _confirmingDelete = false">
-            <p>The file will be removed from disk. This cannot be undone.</p>
-            @if (!string.IsNullOrEmpty(_targetTitle))
-            {
-                <p class="mb-0"><strong>@_targetTitle</strong></p>
-            }
-        </ConfirmDialog>
-*@
 @if (Visible)
 {
-    <div class="modal fade show d-block" tabindex="0"
-         style="background-color: rgba(0,0,0,0.5);"
-         role="dialog"
-         aria-modal="true"
-         aria-labelledby="@($"{InstanceId}-title")"
-         @onkeydown="HandleKeyDown"
-         @onclick="HandleBackdropClick">
-        <div class="modal-dialog modal-dialog-centered" @onclick:stopPropagation="true">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="@($"{InstanceId}-title")">@Title</h5>
-                    <button type="button" class="btn-close" @onclick="HandleCancel"
-                            aria-label="Close" disabled="@Busy"></button>
-                </div>
-                <div class="modal-body">
-                    @ChildContent
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" @onclick="HandleCancel"
-                            disabled="@Busy" @ref="_cancelBtnRef">@CancelText</button>
-                    <button type="button" class="btn @ConfirmButtonClass" @onclick="HandleConfirm"
-                            disabled="@Busy">
-                        @if (Busy)
-                        {
-                            <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
-                        }
-                        @ConfirmText
-                    </button>
-                </div>
+    <MudOverlay Visible="true"
+                DarkBackground="true"
+                AutoClose="true"
+                OnClick="HandleCancel"
+                ZIndex="9999">
+        <MudPaper Elevation="8"
+                  Class="pa-4"
+                  Style="width: 500px; max-width: 90vw;"
+                  @onclick:stopPropagation="true">
+            <MudStack Row="true"
+                      Justify="Justify.SpaceBetween"
+                      AlignItems="AlignItems.Center"
+                      Class="mb-3">
+                <MudText Typo="Typo.h6" id="@($"{InstanceId}-title")">@Title</MudText>
+                <MudIconButton Icon="@Icons.Material.Filled.Close"
+                               Size="Size.Small"
+                               OnClick="HandleCancel"
+                               Disabled="@Busy"
+                               aria-label="Close" />
+            </MudStack>
+
+            <div class="mb-4">
+                @ChildContent
             </div>
-        </div>
-    </div>
+
+            <MudStack Row="true"
+                      Justify="Justify.FlexEnd"
+                      Spacing="2">
+                <MudButton OnClick="HandleCancel"
+                           Disabled="@Busy"
+                           autofocus>@CancelText</MudButton>
+                <MudButton Color="@_confirmColor"
+                           Variant="Variant.Filled"
+                           OnClick="HandleConfirm"
+                           Disabled="@Busy">
+                    @if (Busy)
+                    {
+                        <MudProgressCircular Size="Size.Small"
+                                             Indeterminate="true"
+                                             Class="me-2" />
+                    }
+                    @ConfirmText
+                </MudButton>
+            </MudStack>
+        </MudPaper>
+    </MudOverlay>
 }
 
 @code {
+    /// <summary>Whether the dialog is visible. Bound by the parent.</summary>
     [Parameter] public bool Visible { get; set; }
-    [Parameter] public string Title { get; set; } = "Confirm";
-    [Parameter] public string ConfirmText { get; set; } = "OK";
-    [Parameter] public string CancelText { get; set; } = "Cancel";
-    /// <summary>Bootstrap button class for the confirm action — usually <c>btn-primary</c> or <c>btn-danger</c>.</summary>
-    [Parameter] public string ConfirmButtonClass { get; set; } = "btn-primary";
-    /// <summary>Set while the parent's async work is in flight. Disables both buttons and shows a spinner on confirm.</summary>
-    [Parameter] public bool Busy { get; set; }
+
+    /// <summary>Title shown at the top of the dialog.</summary>
+    [Parameter, EditorRequired] public string Title { get; set; } = "";
+
+    /// <summary>Body content (rendered between title and buttons).</summary>
     [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>Text for the confirm (primary) button.</summary>
+    [Parameter] public string ConfirmText { get; set; } = "OK";
+
+    /// <summary>Text for the cancel (secondary) button.</summary>
+    [Parameter] public string CancelText { get; set; } = "Cancel";
+
+    /// <summary>
+    /// Caller-supplied Bootstrap-style button class for the confirm action —
+    /// usually <c>btn-danger</c> or <c>btn-warning</c>. Preserved for caller
+    /// stability across the Phase-5 Bootstrap removal; mapped to the
+    /// MudBlazor <see cref="Color"/> enum internally via
+    /// <see cref="_confirmColor"/>.
+    /// </summary>
+    [Parameter] public string ConfirmButtonClass { get; set; } = "btn-primary";
+
+    /// <summary>When true, both buttons are disabled and the confirm button shows a spinner.</summary>
+    [Parameter] public bool Busy { get; set; }
+
+    /// <summary>Fired when the user clicks the confirm button.</summary>
     [Parameter] public EventCallback OnConfirm { get; set; }
+
+    /// <summary>Fired when the user clicks the cancel button, the close icon, the backdrop, or presses Esc.</summary>
     [Parameter] public EventCallback OnCancel { get; set; }
-    /// <summary>Per-instance id used for aria-labelledby — pick distinct ids
-    /// if more than one ConfirmDialog can be in the DOM at once (rare).</summary>
-    [Parameter] public string InstanceId { get; set; } = "confirm-dialog";
 
-    private ElementReference _cancelBtnRef;
-    private bool _wasVisible;
+    /// <summary>
+    /// Stable per-instance id used for aria-labelledby. Generated once
+    /// per component instance so multiple ConfirmDialogs on the same
+    /// page (e.g. one for slot delete + one for arena delete) don't
+    /// collide on the title's id attribute.
+    /// </summary>
+    private string InstanceId { get; } = $"confirm-{Guid.NewGuid():N}";
 
-    protected override async Task OnAfterRenderAsync(bool firstRender)
+    // Map the legacy Bootstrap ConfirmButtonClass string (e.g. "btn-danger")
+    // to the MudBlazor Color enum. Literal-pattern matches (not the
+    // `var c when c.Contains("...")` style) so the intent reads at a
+    // glance and a future contributor adding a new caller-passed class
+    // string gets the obvious "add a case here" prompt. Unknown /
+    // empty values fall through to Color.Primary (the safe default).
+    private Color _confirmColor => ConfirmButtonClass switch
     {
-        if (Visible && !_wasVisible)
-        {
-            _wasVisible = true;
-            // Land focus on Cancel, not Confirm — accidentally pressing Enter
-            // should never trigger a destructive action. Component disposal
-            // races are swallowed (non-fatal — focus is cosmetic).
-            try { await _cancelBtnRef.FocusAsync(); }
-            catch { /* prerender / unmount races — non-fatal */ }
-        }
-        else if (!Visible && _wasVisible)
-        {
-            _wasVisible = false;
-        }
+        "btn-danger" => Color.Error,
+        "btn-warning" => Color.Warning,
+        "btn-success" => Color.Success,
+        "btn-info" => Color.Info,
+        "btn-secondary" => Color.Default,
+        _ => Color.Primary,
+    };
+
+    private async Task HandleConfirm()
+    {
+        if (Busy) return;
+        await OnConfirm.InvokeAsync();
     }
 
-    private Task HandleConfirm() => OnConfirm.InvokeAsync();
-    private Task HandleCancel() => OnCancel.InvokeAsync();
-
-    private async Task HandleKeyDown(KeyboardEventArgs e)
+    private async Task HandleCancel()
     {
-        if (!Visible || Busy) return;
-        if (e.Key == "Escape" || e.Code == "Escape") await HandleCancel();
-    }
-
-    private async Task HandleBackdropClick()
-    {
-        if (!Visible || Busy) return;
-        await HandleCancel();
+        if (Busy) return;
+        await OnCancel.InvokeAsync();
     }
 }

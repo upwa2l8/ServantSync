@@ -4,32 +4,25 @@
 
 <PageTitle>Schedule · @(_ministry?.Name ?? "League")</PageTitle>
 
-<nav aria-label="breadcrumb" class="mb-2">
-    <ol class="breadcrumb mb-0">
-        <li class="breadcrumb-item"><a href="">Home</a></li>
-        <li class="breadcrumb-item"><a href="Leagues">Leagues</a></li>
-        <li class="breadcrumb-item"><a href="@($"Leagues/{MinistryId}")">@(_ministry?.Name ?? $"League #{MinistryId}")</a></li>
-        <li class="breadcrumb-item active" aria-current="page">Schedule</li>
-    </ol>
-</nav>
+<MudBreadcrumbs Items="@BreadcrumbItems" Class="mb-2" />
 
-<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+<MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-3 flex-wrap gap-2">
     <div>
-        <h1 class="mb-0">Schedule</h1>
-        <div class="text-muted">@_ministry?.Organization?.Name · @_ministry?.Name</div>
+        <MudText Typo="Typo.h4">Schedule</MudText>
+        <MudText Typo="Typo.body2" Class="mud-text-secondary">@_ministry?.Organization?.Name · @_ministry?.Name</MudText>
     </div>
-    <div class="d-flex gap-2 flex-wrap">
-        <a class="btn btn-outline-secondary" href="@($"Leagues/{MinistryId}")">Back to league</a>
+    <MudStack Row="true" Spacing="2" Wrap="Wrap.Wrap">
+        <MudButton Variant="Variant.Outlined" Color="Color.Default" Href="@LinkBuilder.LeagueHref(MinistryId)">Back to league</MudButton>
         @if (_canManage)
         {
-            <a class="btn btn-primary" href="@($"Leagues/{MinistryId}/Games/New")">+ Schedule a game</a>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="@LinkBuilder.GameNewHref(MinistryId)">+ Schedule a game</MudButton>
         }
-    </div>
-</div>
+    </MudStack>
+</MudStack>
 
 @if (_events is null)
 {
-    <p><em>Loading…</em></p>
+    <MudText><em>Loading…</em></MudText>
 }
 else
 {
@@ -50,6 +43,17 @@ else
     private DateTime _fromUtc = DateTime.UtcNow;
     private DateTime _toUtc = DateTime.UtcNow.AddDays(14);
     private bool _canManage;
+
+    // Breadcrumb items for MudBreadcrumbs. The last item is the current
+    // page (no href, disabled). Built from the route param so it stays
+    // in sync if the user navigates between leagues.
+    private List<BreadcrumbItem> BreadcrumbItems => new()
+    {
+        new BreadcrumbItem("Home", href: LinkBuilder.HomeHref()),
+        new BreadcrumbItem("Leagues", href: LinkBuilder.LeaguesHref()),
+        new BreadcrumbItem(_ministry?.Name ?? $"League #{MinistryId}", href: LinkBuilder.LeagueHref(MinistryId)),
+        new BreadcrumbItem("Schedule", href: null, disabled: true)
+    };
 
     protected override async Task OnInitializedAsync()
     {
@@ -100,7 +104,7 @@ else
             Location = g.Arena.Name,
             Status = g.Status.ToString(),
             StatusColor = AssignmentStatusUi.ColorFor(g.Status),
-            Href = $"Games/{g.Id}",
+            Href = LinkBuilder.GameHref(g.Id),
             ArenaId = g.ArenaId,
         }));
         evs.AddRange(assignments.Select(a => new CalendarEvent
@@ -113,7 +117,7 @@ else
             Location = a.ServiceSlot.Location,
             Status = a.Status.ToString(),
             StatusColor = AssignmentStatusUi.ColorFor(a.Status),
-            Href = $"People/{a.PersonUserId}",
+            Href = LinkBuilder.PersonHref(a.PersonUserId),
         }));
         _events = evs.OrderBy(e => e.StartUtc).ToList();
 

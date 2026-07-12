@@ -4,35 +4,33 @@
 
 <PageTitle>Manage training</PageTitle>
 
-<nav aria-label="breadcrumb" class="mb-2">
-    <ol class="breadcrumb mb-0">
-        <li class="breadcrumb-item"><a href="">Home</a></li>
-        <li class="breadcrumb-item active" aria-current="page">Training catalog</li>
-    </ol>
-</nav>
+<MudBreadcrumbs Items="BreadcrumbItems" Class="mb-2 px-0" />
 
-<div class="d-flex justify-content-between align-items-center mb-3">
+<MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Start" Class="mb-3 flex-wrap" Spacing="2">
     <div>
-        <h1>Training catalog</h1>
-        <div class="text-muted small">
+        <MudText Typo="Typo.h4" Class="mb-0">Training catalog</MudText>
+        <MudText Typo="Typo.body2" Class="mud-text-secondary">
             Training content you administer. Since round N, training belongs to a single
             organization — this page shows the union of every catalog you Admin. Volunteers
             only ever see
             <em>their</em> outstanding requirements + history on the
-            <a href="Training">/Training</a> page; this is the org-admin edit surface.
-        </div>@if (_managedOrgNames.Count > 0)
-{
-    <div class="text-muted small mt-1">
-        <strong>Admin of:</strong>
-        @foreach (var name in _managedOrgNames)
+            <MudLink Href="Training">/Training</MudLink> page; this is the org-admin edit surface.
+        </MudText>
+        @if (_managedOrgNames.Count > 0)
         {
-            <span class="badge bg-secondary me-1">@name</span>
+            <MudStack Row="true" Spacing="1" Class="mt-1 flex-wrap">
+                <strong class="mud-text-secondary">Admin of:</strong>
+                @foreach (var name in _managedOrgNames)
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Default">@name</MudChip>
+                }
+            </MudStack>
         }
     </div>
-}
-</div>
-    <a class="btn btn-primary" href="Training/New">+ New training</a>
-</div>
+    <MudButton Href="@LinkBuilder.TrainingNewHref()"
+               Color="Color.Primary"
+               Variant="Variant.Filled">+ New training</MudButton>
+</MudStack>
 
 @* Round-FR-2 navbar surfacing addition: the in-person training
    sessions surface exists at /Organizations/{OrgId}/Training/Sessions,
@@ -45,97 +43,110 @@
    and the cross-org aggregate view has no meaningful lifecycle. *@
 @if (_managedOrgsFull.Count > 0 && _denyReason is null && _contents is not null)
 {
-    <div class="card mb-4 shadow-sm">
-        <div class="card-header d-flex justify-content-between align-items-center">
-            <h5 class="mb-0"><span class="bi bi-calendar2-event me-1" aria-hidden="true"></span>In-person training sessions</h5>
-            <span class="badge text-bg-light">@_managedOrgsFull.Count org@(_managedOrgsFull.Count == 1 ? "" : "s")</span>
-        </div>
-        <div class="card-body">
-            <p class="text-muted small mb-3">
+    <MudCard Outlined="true" Class="mb-4">
+        <MudCardHeader>
+            <CardHeaderContent>
+                <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                    <MudText Typo="Typo.h6">
+                        <MudIcon Icon="@Icons.Material.Outlined.CalendarMonth" Class="me-1" />
+                        In-person training sessions
+                    </MudText>
+                    <MudChip T="string" Size="Size.Small" Color="Color.Default">@_managedOrgsFull.Count org@(_managedOrgsFull.Count == 1 ? "" : "s")</MudChip>
+                </MudStack>
+            </CardHeaderContent>
+        </MudCardHeader>
+        <MudCardContent>
+            <MudText Typo="Typo.body2" Class="mud-text-secondary mb-3">
                 Schedule in-person training events for each organization you administer. Volunteers can sign up via the per-org sessions page or from their My Schedule page (after Frank-FR-2 came online earlier this was the only path that worked for managers, but it still lives here for full CRUD over each session).
-            </p>
-            <div class="row g-2">
+            </MudText>
+            <MudGrid Spacing="2">
                 @foreach (var orgRow in _managedOrgsFull)
                 {
-                    <div class="col-md-4">
-                        <a class="btn btn-outline-primary w-100"
-                           href="@($"Organizations/{orgRow.Id}/Training/Sessions")"
-                           title="Browse the upcoming + past in-person training sessions for @orgRow.Name.">
-                            @orgRow.Name &mdash; sessions &rarr;
-                        </a>
-                    </div>
+                    <MudItem xs="12" md="4">
+                        <MudButton Href="@LinkBuilder.OrganizationSessionsHref(orgRow.Id)"
+                                   Color="Color.Primary"
+                                   Variant="Variant.Outlined"
+                                   FullWidth="true"
+                                   title="@($"Browse the upcoming + past in-person training sessions for {orgRow.Name}.")">
+                            @orgRow.Name — sessions →
+                        </MudButton>
+                    </MudItem>
                 }
-            </div>
-        </div>
-    </div>
+            </MudGrid>
+        </MudCardContent>
+    </MudCard>
 }
 
 @if (_denyReason is not null)
 {
-    <div class="alert alert-warning">
-        @_denyReason <a href="Training">Back to my training</a>.
-    </div>
+    <MudAlert Severity="Severity.Warning">
+        @_denyReason <MudLink Href="Training">Back to my training</MudLink>.
+    </MudAlert>
 }
 else if (_contents is null)
 {
-    <p><em>Loading…</em></p>
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
 }
 else if (!_contents.Any())
 {
-    <div class="alert alert-info">
+    <MudAlert Severity="Severity.Info">
         You don't administer any catalog yet — start by creating training in one of the
         organizations you manage, or ask another admin to grant you Admin rights on their org.
-    </div>
+    </MudAlert>
 }
 else
 {
-    <div class="table-responsive">
-        <table class="table">
-            <thead>
-                <tr>
-                    <th>Organization</th>
-                    <th>Title</th><th>Format</th><th>Version</th><th>Required by</th><th></th>
-                </tr>
-            </thead>
-            <tbody>
-                @foreach (var c in _contents)
-                {
-                    <tr>
-                        <td>
-                            <a href="@($"Organizations/{c.OrganizationId}")">@c.OrganizationName</a>
-                        </td>
-                        <td>
-                            <a href="@($"Training/{c.Id}")">@c.Title</a>
-                            <div class="text-muted small">@c.Description</div>
-                        </td>
-                        <td><span class="badge bg-secondary">@c.Format</span></td>
-                        <td>v@c.Version</td>
-                        <td>
-                            @foreach (var r in c.Requirements)
+    <MudPaper Outlined="true">
+        <MudTable T="ContentRow" Items="_contents" Dense="true" Hover="true">
+            <HeaderContent>
+                <MudTh>Organization</MudTh>
+                <MudTh>Title</MudTh>
+                <MudTh>Format</MudTh>
+                <MudTh>Version</MudTh>
+                <MudTh>Required by</MudTh>
+                <MudTh Class="text-end"></MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd>
+                    <MudLink Href="@LinkBuilder.OrganizationHref(context.OrganizationId)">@context.OrganizationName</MudLink>
+                </MudTd>
+                <MudTd>
+                    <MudLink Href="@LinkBuilder.TrainingHref(context.Id)">@context.Title</MudLink>
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary">@context.Description</MudText>
+                </MudTd>
+                <MudTd><MudChip T="string" Size="Size.Small" Color="Color.Default">@context.Format</MudChip></MudTd>
+                <MudTd>v@context.Version</MudTd>
+                <MudTd>
+                    @foreach (var r in context.Requirements)
+                    {
+                        <div>
+                            @if (r.OrganizationId.HasValue)
                             {
-                                <div class="small">
-                                    @if (r.OrganizationId.HasValue)
-                                    {
-                                        <span class="badge bg-info text-dark">Org</span>
-                                        <a href="@($"Organizations/{r.OrganizationId}")">@r.OrganizationName</a>
-                                    }
-                                    else
-                                    {
-                                        <span class="badge bg-warning text-dark">Slot</span>
-                                        @r.SlotPath
-                                    }
-                                </div>
+                                <MudChip T="string" Size="Size.Small" Color="Color.Info">Org</MudChip>
+                                <MudLink Href="@LinkBuilder.OrganizationHref(r.OrganizationId.Value)">@r.OrganizationName</MudLink>
                             }
-                        </td>
-                        <td class="text-end">
-                            <a class="btn btn-sm btn-outline-secondary" href="@($"Training/{c.Id}/Edit")">Edit</a>
-                            <a class="btn btn-sm btn-primary" href="@($"Training/{c.Id}")">Take</a>
-                        </td>
-                    </tr>
-                }
-            </tbody>
-        </table>
-    </div>
+                            else
+                            {
+                                <MudChip T="string" Size="Size.Small" Color="Color.Warning">Slot</MudChip>
+                                @r.SlotPath
+                            }
+                        </div>
+                    }
+                </MudTd>
+                <MudTd Class="text-end">
+                    <MudButton Href="@LinkBuilder.TrainingEditHref(context.Id)"
+                               Color="Color.Default"
+                               Variant="Variant.Outlined"
+                               Size="Size.Small"
+                               Class="me-1">Edit</MudButton>
+                    <MudButton Href="@LinkBuilder.TrainingHref(context.Id)"
+                               Color="Color.Primary"
+                               Variant="Variant.Filled"
+                               Size="Size.Small">Take</MudButton>
+                </MudTd>
+            </RowTemplate>
+        </MudTable>
+    </MudPaper>
 }
 
 @inject ITrainingService TrainingService
@@ -157,6 +168,15 @@ else
     private List<ManagedOrg> _managedOrgsFull = new();
     private bool _authorized;
     private string? _denyReason;
+
+    // Breadcrumb items for MudBreadcrumbs. The last item is the current
+    // page (no href, disabled). Static for this page — no dynamic route
+    // params, no loaded data that affects the trail.
+    private List<BreadcrumbItem> BreadcrumbItems = new()
+    {
+        new BreadcrumbItem("Home", href: ""),
+        new BreadcrumbItem("Training catalog", href: null, disabled: true),
+    };
 
     protected override async Task OnInitializedAsync()
     {
