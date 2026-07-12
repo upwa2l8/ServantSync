@@ -240,3 +240,47 @@ The 120,112 ms exactly matches our new `CommandTimeout=120`. Our DbCommand timeo
 ## TL;DR for the next session's first response
 
 > "The 17th iteration shipped Round-ACA-1.17 (a 3-attempt retry-on-`MemoryBusy` with bumped `CommandTimeout` to 120s and `busy_timeout` to 60s); it's the right architecture and the retry-loop ran as designed on the most recent deploy, but the empirical evidence shows the Azure Files SMB file-handle LEASE is wedged for **120+ seconds** on this subscription — well above the 30–60 s window we used to size R1.17. Cold boot now costs 2–3 min instead of 30 s, but the migration will eventually succeed. We need to talk to the user about three viable paths forward: (A) swap to Azure SQL Free Tier, (B) move SQLite off SMB to a local `/tmp` path, (C) one-shot init container. Path A is the most durable; User wants documentation, not iteration. See HANDOFF.md + the Round-ACA-1.17 entry in STATUS.md."
+
+---
+
+## End-of-session status — 2026-07-12 (session wrap, user logging out)
+
+### What shipped this session
+
+1. **MudBlazor migration Phases 1–5** (commits `f75bafd` → `3d71dbb`):
+   - Phases 1–4: 11 + 5 + 18 = **34 surfaces** (pages + shared components) migrated from Bootstrap to MudBlazor, using a centralized `Components/Shared/LinkBuilder.cs` with 24 static `href` helpers.
+   - Phase 5: Bootstrap CSS removed (`wwwroot/lib/bootstrap/` deleted, link stripped from `App.razor`, Bootstrap-specific rules cleaned out of `app.css`). A ~250-line **Bootstrap compatibility parachute** was added to `app.css` using MudBlazor CSS variables (`--mud-palette-*`) to keep the remaining raw-HTML form pages and the AddStub/Stubs token-reveal modals visually correct.
+   - `ConfirmDialog.razor` migrated from Bootstrap modal shell to `MudOverlay` + `MudPaper`. Counter/Weather/Error scaffolded pages migrated to MudBlazor primitives. 7 MUD0002 warnings (Title= on MudButton/MudChip) fixed.
+2. **Dev SQL Server fix** (commit `4adec79`):
+   - The dev build in Visual Studio was hitting `Microsoft.Data.SqlClient.SqlException: Named Pipes Provider error 40` because `appsettings.json` carried a SQLite-format `Data Source=servantsync.db` connection string that got passed to the unconditional `UseSqlServer(...)` in `Program.cs`.
+   - Added local SQL Server (Windows auth, default MSSQLSERVER) connection string to `appsettings.Development.json`.
+   - Removed the dead SQLite-format `ConnectionStrings` blocks from `appsettings.json` and `appsettings.Production.sample.json`.
+   - Replaced the `?? "Data Source=servantsync.db"` SQLite fallback in `Program.cs` with a clear `InvalidOperationException` so a missing config fails fast with a diagnostic message instead of the named-pipes-error-40 the SQLite fallback produced.
+   - Updated HANDOFF.md (this section's predecessor: "Database provider — current state (post Round-Phase-5)") to document the dev/prod wiring.
+3. **Deployed to Azure production** (deploy run [#29052049176](https://github.com/upwa2l8/ServantSync/actions/runs/29052049176)):
+   - Fast-forward merged `chore/dev-prod-cleanup` → `main`, pushed `main`. The 4-commit lead (dev fix + Phase 5 + 2 DEPLOY.md doc commits) shipped together.
+   - **Latest revision**: `servantsync--0000050` (provisioningState=Succeeded). Image tag `4adec796` matches the dev-fix commit.
+   - **FQDN**: `https://servantsync.whiteisland-50fa2efd.eastus2.azurecontainerapps.io` — `/Account/Login` returns **200 OK**. Logs show `[FR-LOGIN-SENTINEL] validate_request_start` breadcrumbs, confirming the deployed code is the post-merge code (not stale).
+   - Recurring `AntiforgeryValidationException` in logs is the known pre-existing issue from the FR-LOGIN-SENTINEL investigation; it's harmless on the current Login flow (the explicit `antiforgery.ValidateRequestAsync(ctx)` passes, the failure is downstream — the round-AN WHY-comment block in `Program.cs` has the full triage).
+
+### Current state
+
+- **Production**: healthy, 200 OK on `/Account/Login`, image `4adec796` running.
+- **main branch**: at `4adec796` (matches deployed image).
+- **chore/dev-prod-cleanup**: deleted-equivalent (fast-forwarded into main; branch can be deleted if desired, or kept as a stale historical reference).
+- **Build**: 0 errors, 12 warnings (all pre-existing; no MUD0002).
+- **Tests**: 593 / 593 passing.
+- **Dev build**: blocked only on the running `ServantSync.exe` (PID 33252) that was holding the build output lock when the user last tried F5. Stop Debugging in VS (or `taskkill /F /PID 33252` from another shell) and the dev build will pick up the new `appsettings.Development.json` cleanly.
+
+### Outstanding followups (in priority order)
+
+1. **[SECURITY, MEDIUM]** Move the prod SQL password out of plaintext in `deploy/aca.servantsync.yaml` line 86 (`Password=SnowWhiteandthe7Dwarves!`) into an ACA secret via `az containerapp secret set`, then reference it via `secretRef:` like the SMTP password does. The TODO comment in the YAML flags this. ~10 min.
+2. **[LOW, deferred]** Phase 6: migrate the remaining raw-HTML form pages (Ministries/Signups, Leagues/Teams/New, ServiceSlots/Schedule, all 4 Organizations/Training/Sessions/*) to `MudTextField` + `MudSelect`, then delete the Bootstrap compatibility parachute from `wwwroot/app.css`. The user explicitly framed this as a future round during Phase 5.
+3. **[LOW, polish]** Symmetric `.modal.fade { opacity: 0; transition: opacity 0.15s linear; } .modal.fade.show { opacity: 1; }` rule in `app.css` so the AddStub/Stubs token-reveal dialog body fades in alongside the backdrop (only the backdrop fades today). ~1 min.
+4. **[LOW, optional]** Delete the merged `chore/dev-prod-cleanup` branch (now identical to main): `git push origin --delete chore/dev-prod-cleanup`. Cosmetic only.
+
+### What NOT to try next session
+
+- **Don't iterate on `busy_timeout` / `CommandTimeout` / `journal_mode` / `wal_mode` / `locking_mode`**. Path A (Azure SQL, already shipped to prod) is the durable fix; the SQLite + SMB lease problem is structurally behind us. The `SqliteBackupService` and `SqliteBusyTimeoutInterceptor` are still in the tree (used by tests + the old `/data` volume that still has the SQLite file) but are no longer on the production startup path.
+- **Don't merge `chore/dev-prod-cleanup` again** — it's already fast-forwarded into `main`. The branch can be deleted or left as a stale ref; a second merge will be a no-op.
+- **Don't enable `activeRevisionsMode: Multiple` in the YAML yet** — the YAML comment says it's safe to relax now that prod is on Azure SQL, but zero-downtime deploys via revision overlap is a separate piece of work (need a startup probe + graceful-shutdown hook). Save for a future round.
