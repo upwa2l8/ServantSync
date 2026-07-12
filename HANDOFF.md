@@ -61,6 +61,14 @@ The pattern: each round buys another 30–60 s of headroom or removes one false-
 - User has not yet published the post-deploy status: did attempt #2 succeed (lease cleared at some point in the wait)?, is FQDN serving 200 OK?, is there cold-start cost to every deploy that's noticeable? — **all unknown to this handoff writer**.
 - User has declared they want me to STOP iterating. They have asked for documentation; they have explicitly said *"another process will pick up tomorrow"*.
 
+### Database provider — current state (post Round-Phase-5)
+
+- **Local dev** runs against the user's local SQL Server (default `MSSQLSERVER` instance, Windows auth) via `appsettings.Development.json`: `Server=localhost;Database=ServantSync;Trusted_Connection=True;TrustServerCertificate=True;`. The file is committed (no secrets — Windows auth).
+- **Production** runs against Azure SQL via the `ConnectionStrings__DefaultConnection` env var on the Container App, per `deploy/aca.servantsync.yaml`. The secret-store wiring is unchanged from the ACA provisioning in SETUP.md.
+- **Program.cs** calls `opts.UseSqlServer(connectionString, sqlOpts => sqlOpts.EnableRetryOnFailure())` unconditionally and resolves the connection string via `builder.Configuration.GetConnectionString("DefaultConnection") ?? throw new InvalidOperationException(...)`. The previous `?? "Data Source=servantsync.db"` SQLite fallback was removed — a missing config now fails fast with a clear exception instead of the named-pipes-error-40 the SQLite fallback produced.
+- **`appsettings.json`** no longer carries a `ConnectionStrings` block (the SQLite-format placeholder was removed). **`appsettings.Production.sample.json`** likewise had its `ConnectionStrings` block removed; prod wiring is env-var-only, so a new contributor copying the sample no longer inherits the dead SQLite placeholder.
+- **Tests** still use SQLite (`SqliteTestBase` + `Microsoft.Data.Sqlite` package) — unaffected by the prod migration, since the test project is a separate assembly with its own `DbContext` configuration.
+
 ---
 
 ## 4 ranked escape paths for the next process

@@ -13,7 +13,10 @@ var builder = WebApplication.CreateBuilder(args);
 
 // ---- Database ----
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
-    ?? "Data Source=servantsync.db";
+    ?? throw new InvalidOperationException(
+        $"Connection string 'DefaultConnection' is not configured. " +
+        $"Set ConnectionStrings__DefaultConnection as an environment variable " +
+        $"(or add it to appsettings.{builder.Environment.EnvironmentName}.json) before running.");
 
 // Use the factory as the single source of truth for the DbContext configuration.
 // Don't ALSO call AddDbContext<T> with its own options-builder — that registers a
