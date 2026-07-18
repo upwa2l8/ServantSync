@@ -1,20 +1,25 @@
-@* New MainLayout: replaces the dark-gradient sidebar / topbar shell with a
-   MudAppBar + collapsible MudDrawer shell, all bound to the brand theme
-   (ServantSyncTheme.Build inside MudProviders). Layout itself stays a
-   LayoutComponentBase WITHOUT @rendermode, per the .NET 9 Blazor
-   Body-is-a-RenderFragment-can't-cross-rendermode-boundary constraint
-   documented in Components/Routes.razor. The providers component below
-   (<MudProviders />) holds the InteractiveServer boundary.
+@* MainLayout — "Cyber Chapel" dark shell.
+   MudAppBar + MudDrawer bound to the dark theme
+   (ServantSyncTheme.Build inside MudProviders). No @rendermode here
+   (Body can't cross the render-mode boundary — see Routes.razor).
 
-   Phase 5 — Bootstrap removal: the prior class="d-flex align-items-center
-   text-decoration-none" Bootstrap flex utilities are replaced with the
-   MudBlazor-compatible d-flex + align-center utilities (align-items-center
-   is the Bootstrap name; MudBlazor / Material use align-center). The
-   class="ml-2" Bootstrap-specific margin utility is replaced with the
-   spacing token ms-2 (margin-inline-start: 0.5rem) which works in
-   both MudBlazor and standard CSS. The pa-6 utility on the main
-   container is a MudBlazor spacing token. *@
+   Drawer setup:
+   • DrawerVariant.Responsive + Breakpoint.Sm means the drawer is
+     Persistent (always visible) at ≥600px and a Temporary overlay at
+     <600px. The viewport tracking is done by <MudBreakpointProvider />
+     inside MudProviders — without it MudDrawer.Breakpoint is silently
+     ignored and the drawer never switches modes on resize.
+   • OnLocationChanged closes the drawer on every route change, so the
+     mobile overlay clears after any nav (MudNavLink tap, Sign-out form
+     POST, redirect, etc.) without per-element OnClick wiring.
+   • OnAfterRenderAsync sets the initial _drawerOpen based on viewport,
+     so a 412px Pixel-9 visitor doesn't see the Temporary drawer
+     covering the content during the prerender → circuit-warm handoff. *@
 @inherits LayoutComponentBase
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@implements IDisposable
+@implements IAsyncDisposable
 
 <MudProviders />
 
@@ -31,9 +36,9 @@
             <img src="@Assets["img/servantsync-mark.svg"]"
                  alt="ServantSync"
                  width="32" height="32"
-                 style="border-radius:6px;background:rgba(255,255,255,0.06);padding:2px;" />
+                 style="border-radius:8px;background:rgba(167,139,250,0.12);padding:3px;" />
             <span class="ms-2"
-                  style="color:#ffffff;font-weight:700;letter-spacing:-0.3px;font-size:1.05rem;">
+                  style="color:#c4b5fd;font-weight:800;letter-spacing:-0.4px;font-size:1.1rem;">
                 ServantSync
             </span>
         </a>
@@ -46,18 +51,18 @@
 
     <MudDrawer @bind-Open="_drawerOpen"
                Anchor="Anchor.Start"
-               Elevation="1"
-               Variant="DrawerVariant.Mini"
-               OpenMiniOnHover="true"
-               ClipMode="DrawerClipMode.Always">
-        <NavMenu OnDrawerLinkClicked="CloseDrawer" />
+               Elevation="0"
+               Variant="DrawerVariant.Responsive"
+               ClipMode="DrawerClipMode.Always"
+               Breakpoint="Breakpoint.Sm">
+        <NavMenu />
     </MudDrawer>
 
     <MudMainContent>
-        <div class="ss-main-container pa-6">
+        <MudContainer MaxWidth="MaxWidth.Large" Class="ss-main-content pa-4">
             <TimeZoneInitializer />
             @Body
-        </div>
+        </MudContainer>
     </MudMainContent>
 </MudLayout>
 
@@ -68,8 +73,132 @@
 </div>
 
 @code {
+    // Drawer state. Initial value is true (desktop-friendly default);
+    // OnAfterRenderAsync below corrects it for mobile after the JS
+    // circuit warms up, and OnBreakpointChanged keeps it in sync
+    // when the viewport changes (device rotation, window resize).
     private bool _drawerOpen = true;
+    private bool _disposed;
+    private DotNetObjectReference<MainLayout>? _dotNetRef;
+
+    protected override void OnInitialized()
+    {
+        // Close the drawer on every route change. On a mobile viewport
+        // the Temporary overlay then lifts; on a desktop viewport the
+        // Persistent drawer ignores the toggle, so this is harmless.
+        // Covers paths that don't go through MudNavLink (Sign-out
+        // <form> POST, programmatic redirects, etc.).
+        Nav.LocationChanged += OnLocationChanged;
+    }
+
+    private void OnLocationChanged(object? sender, EventArgs e)
+    {
+        // Guard against the race where the subscription fires once
+        // more after Dispose (InvokeAsync would then throw on the
+        // released renderer).
+        if (_disposed) return;
+        if (_drawerOpen)
+        {
+            _drawerOpen = false;
+            InvokeAsync(StateHasChanged);
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        // RendererInfo.IsInteractive is false during the prerender
+        // pass; calling JS interop there would throw JSDisconnected.
+        // Wait until the SignalR circuit is live.
+        if (!RendererInfo.IsInteractive) return;
+
+        try
+        {
+            // Below Breakpoint.Sm (600px) the Responsive drawer is a
+            // Temporary overlay; if _drawerOpen is still true at first
+            // paint, mobile visitors see the drawer covering the
+            // content until MudBreakpointProvider hydrates. Detect
+            // the viewport up-front so the initial DOM is right.
+            var width = await JS.InvokeAsync<int>("eval", "window.innerWidth");
+            var isDesktop = width >= 600;
+            if (_drawerOpen != isDesktop)
+            {
+                _drawerOpen = isDesktop;
+                StateHasChanged();
+            }
+
+            // Subscribe to viewport changes so _drawerOpen stays in
+            // sync when the user rotates the device / resizes the
+            // browser window. ssWatchDrawer (wwwroot/js/livedrawer.js)
+            // debounces via requestAnimationFrame and only fires
+            // when the breakpoint actually crosses — not on every
+            // pixel of width change.
+            _dotNetRef ??= DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("ssWatchDrawer", _dotNetRef);
+        }
+        catch (JSException)
+        {
+            // Js interop returned an error. Either the script wasn't
+            // loaded or the browser refused the call. The desktop
+            // default is the safe fallback here.
+        }
+        catch (JSDisconnectedException)
+        {
+            // Circuit dropped mid-call. Skip silently.
+        }
+    }
 
     private void ToggleDrawer() => _drawerOpen = !_drawerOpen;
-    private void CloseDrawer() => _drawerOpen = false;
+
+    // JS callback for the resize watcher (wwwroot/js/livedrawer.js).
+    // `isDesktop` is true when the viewport width is >= 600px.
+    [JSInvokable]
+    public void OnBreakpointChanged(bool isDesktop)
+    {
+        if (_disposed) return;
+        if (_drawerOpen == isDesktop) return;
+        _drawerOpen = isDesktop;
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        _disposed = true;
+        Nav.LocationChanged -= OnLocationChanged;
+        // The real cleanup happens in DisposeAsync, which the
+        // framework prefers when both interfaces are implemented.
+        // This sync Dispose handles the rare path where the host
+        // only calls sync Dispose. We deliberately do NOT fire-
+        // and-forget the JS unwatch here — see DisposeAsync for
+        // the ordered path.
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _disposed = true;
+        Nav.LocationChanged -= OnLocationChanged;
+        if (_dotNetRef is not null)
+        {
+            try
+            {
+                // Await the unwatch so the JS resize listener is
+                // detached BEFORE we release the DotNetObjectReference.
+                // Tightens order: any pending invokeMethodAsync has
+                // time to either land or be rejected before the
+                // runtime disposes the proxy.
+                await JS.InvokeVoidAsync("ssUnwatchDrawer", _dotNetRef);
+            }
+            catch (JSException)
+            {
+                // JS module threw. Listener will be GC'd when the
+                // DotNetObjectReference proxy is released.
+            }
+            catch (JSDisconnectedException)
+            {
+                // Circuit already torn down. Safe to ignore.
+            }
+            _dotNetRef.Dispose();
+            _dotNetRef = null;
+        }
+    }
 }

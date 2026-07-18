@@ -142,8 +142,6 @@
     private bool _manageExpanded = true;
     private ILogger _log = null!;
 
-    [Parameter] public EventCallback OnDrawerLinkClicked { get; set; }
-
     protected override async Task OnInitializedAsync()
     {
         _log = LoggerFactory.CreateLogger("ServantSync.Components.NavMenu");
@@ -177,18 +175,6 @@
         _isAdmin = await OrgAuth.IsAnyOrgAdminAsync(userId) || _isSystemAdmin;
         _isTrainingManager = await OrgAuth.IsAnyTrainingManagerAsync(userId) || _isSystemAdmin;
         _isSlotCoordinator = await OrgAuth.IsAnySlotCoordinatorAsync(userId);
-    }
-
-    // MudNavLink has its own click handler we can subscribe to; we use it to
-    // collapse the drawer on mobile after a tap. (Mini-variant drawer
-    // already auto-collapses on navigation; this is the policy belt over
-    // the framework's suspenders.)
-    private async Task HandleNavClick()
-    {
-        if (OnDrawerLinkClicked.HasDelegate)
-        {
-            await OnDrawerLinkClicked.InvokeAsync();
-        }
     }
 
     public void Dispose()

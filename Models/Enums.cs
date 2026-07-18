@@ -217,6 +217,20 @@ public enum TrainingDueSoonSort
 /// DO NOT trigger auto-subscribe — only self-sign-ups through /Open do,
 /// so coordinators can't pollute volunteer preferences.
 /// </summary>
+/// <summary>
+/// Round-FR-4: lifecycle state of a <see cref="FeatureRequest"/>.
+/// Drives the triage badge color on /SystemAdmin/FeatureRequests.
+/// </summary>
+public enum FeatureRequestStatus
+{
+    New = 0,
+    UnderReview = 1,
+    Planned = 2,
+    Completed = 3,
+    Declined = 4,
+    Duplicate = 5,
+}
+
 public enum SlotInterestSource
 {
     /// <summary>Volunteer clicked the Subscribe button.</summary>

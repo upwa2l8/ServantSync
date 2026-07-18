@@ -1,4 +1,4 @@
-@* MudBlazor provider island.
+@* MudBlazor provider island — "Cyber Chapel" dark theme.
 
    WHY A SEPARATE COMPONENT WITH @rendermode HERE.
    MudBlazor's MudThemeProvider + MudPopoverProvider + MudDialogProvider +
@@ -15,12 +15,13 @@
    non-interactive pages (Login, Register) keep working as static SSR
    because the providers themselves only matter for interactive fragments.
 
-   Theme: <see cref="ServantSyncTheme.Build"/> maps MudTheme to the
-   BRANDING.md color tokens — Primary=indigo (#3730a3), Secondary=violet,
-   Tertiary=purple, Warning=amber, Error=rose, AppbarBackground=#1f1f2e. *@
+   IsDarkMode="true" forces the dark palette from ServantSyncTheme.Build().
+   Both PaletteLight and PaletteDark in the theme are identical dark
+   schemes so static-SSR Account pages don't flash a white background. *@
 @rendermode InteractiveServer
 
-<MudThemeProvider Theme="_theme" />
+<MudBreakpointProvider />
+<MudThemeProvider Theme="_theme" IsDarkMode="true" />
 <MudPopoverProvider />
 <MudDialogProvider />
 <MudSnackbarProvider />

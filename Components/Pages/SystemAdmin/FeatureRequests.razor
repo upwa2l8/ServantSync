@@ -1,0 +1,239 @@
+@page "/SystemAdmin/FeatureRequests"
+@attribute [Authorize]
+@rendermode InteractiveServer
+
+<PageTitle>Feature request triage</PageTitle>
+
+<MudBreadcrumbs Items="_crumbs" Class="mb-2" />
+
+@if (_loading)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else if (!_canView)
+{
+    <MudAlert Severity="Severity.Error">
+        <strong>Access denied.</strong> Only SystemAdmins can view this page.
+    </MudAlert>
+}
+else
+{
+    <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-3">
+        <div>
+            <MudText Typo="Typo.h4">Feature requests</MudText>
+            <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                @_requests.Count total · @_newCount new
+            </MudText>
+        </div>
+        <MudButtonGroup Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small">
+            <MudButton Variant="@(_filter == null ? Variant.Filled : Variant.Outlined)"
+                       OnClick="() => _filter = null">All</MudButton>
+            <MudButton Variant="@(_filter == FeatureRequestStatus.New ? Variant.Filled : Variant.Outlined)"
+                       OnClick="() => _filter = FeatureRequestStatus.New">New</MudButton>
+            <MudButton Variant="@(_filter == FeatureRequestStatus.UnderReview ? Variant.Filled : Variant.Outlined)"
+                       OnClick="() => _filter = FeatureRequestStatus.UnderReview">Under review</MudButton>
+            <MudButton Variant="@(_filter == FeatureRequestStatus.Planned ? Variant.Filled : Variant.Outlined)"
+                       OnClick="() => _filter = FeatureRequestStatus.Planned">Planned</MudButton>
+            <MudButton Variant="@(_filter == FeatureRequestStatus.Completed ? Variant.Filled : Variant.Outlined)"
+                       OnClick="() => _filter = FeatureRequestStatus.Completed">Completed</MudButton>
+            <MudButton Variant="@(_filter == FeatureRequestStatus.Declined ? Variant.Filled : Variant.Outlined)"
+                       OnClick="() => _filter = FeatureRequestStatus.Declined">Declined</MudButton>
+        </MudButtonGroup>
+    </MudStack>
+
+    @if (_message is not null)
+    {
+        <MudAlert Severity="Severity.Success" Dense="true" ShowCloseIcon="true"
+                  CloseIconClicked="() => _message = null" Class="mb-3">
+            @_message
+        </MudAlert>
+    }
+
+    var filtered = _filter.HasValue ? _requests.Where(r => r.Status == _filter.Value).ToList() : _requests;
+
+    @if (filtered.Count == 0)
+    {
+        <MudAlert Severity="Severity.Info" Class="mt-2">
+            No feature requests @( _filter.HasValue ? $"with status {_filter.Value}" : "" ).
+        </MudAlert>
+    }
+    else
+    {
+        @foreach (var fr in filtered)
+        {
+            <MudPaper Outlined="true" Class="mb-3 pa-4">
+                <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Start" Class="mb-2">
+                    <div>
+                        <MudText Typo="Typo.h6" Class="mb-0">@fr.Title</MudText>
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                            Submitted <LocalTime Utc="@fr.CreatedUtc" Format="MMM d, yyyy h:mm tt" />
+                            @if (!string.IsNullOrEmpty(fr.SubmitterName))
+                            {
+                                <text> by @fr.SubmitterName</text>
+                            }
+                            @if (!string.IsNullOrEmpty(fr.SubmitterEmail))
+                            {
+                                <text> (@fr.SubmitterEmail)</text>
+                            }
+                            @if (!string.IsNullOrEmpty(fr.SubmitterIp))
+                            {
+                                <text> · @fr.SubmitterIp</text>
+                            }
+                        </MudText>
+                    </div>
+                    <MudChip T="string" Size="Size.Small" Color="@StatusColor(fr.Status)">
+                        @fr.Status
+                    </MudChip>
+                </MudStack>
+
+                <MudText Typo="Typo.body1" Class="mb-3">@fr.Description</MudText>
+
+                @if (!string.IsNullOrEmpty(fr.TriageNotes))
+                {
+                    <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">
+                        <strong>Triage notes:</strong> @fr.TriageNotes
+                    </MudAlert>
+                }
+
+                @if (!string.IsNullOrEmpty(fr.LinkedSpec))
+                {
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary mb-2">
+                        Linked spec: <strong>@fr.LinkedSpec</strong>
+                    </MudText>
+                }
+
+                @* Triage form — inline expand/collapse per row. *@
+                @if (_editingId == fr.Id)
+                {
+                    <MudCard Outlined="true" Class="mt-2">
+                        <MudCardContent>
+                            <MudStack Spacing="2">
+                                <MudSelect T="FeatureRequestStatus" @bind-Value="_editStatus"
+                                           Label="Status" Variant="Variant.Outlined" Dense="true" Margin="Margin.Dense">
+                                    @foreach (var s in Enum.GetValues<FeatureRequestStatus>())
+                                    {
+                                        <MudSelectItem Value="@s">@s</MudSelectItem>
+                                    }
+                                </MudSelect>
+                                <MudTextField T="string" @bind-Value="_editNotes"
+                                              Label="Triage notes" Variant="Variant.Outlined" Lines="2"
+                                              MaxLength="4000" Margin="Margin.Dense" />
+                                <MudTextField T="string" @bind-Value="_editSpec"
+                                              Label="Linked PLAN.md spec (optional)" Variant="Variant.Outlined"
+                                              MaxLength="200" Margin="Margin.Dense"
+                                              Placeholder="e.g. Round-FR-2" />
+                                <MudStack Row="true" Spacing="2">
+                                    <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                                               Disabled="@_busy" OnClick="() => SaveTriageAsync(fr.Id)">
+                                        @(_busy ? "Saving…" : "Save")
+                                    </MudButton>
+                                    <MudButton Variant="Variant.Outlined" Color="Color.Default"
+                                               OnClick="CancelEdit">Cancel</MudButton>
+                                </MudStack>
+                            </MudStack>
+                        </MudCardContent>
+                    </MudCard>
+                }
+                else
+                {
+                    <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small"
+                               OnClick="() => StartEdit(fr)">
+                        Triage
+                    </MudButton>
+                }
+            </MudPaper>
+        }
+    }
+}
+
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject IOrgAuthService OrgAuth
+@inject IFeatureRequestService FeatureReqSvc
+@inject AuthenticationStateProvider Auth
+@code {
+    private bool _loading = true;
+    private bool _canView;
+    private bool _busy;
+    private string? _message;
+    private string _userId = "";
+    private List<FeatureRequestRow> _requests = new();
+    private FeatureRequestStatus? _filter;
+
+    // Inline triage form state.
+    private int? _editingId;
+    private FeatureRequestStatus _editStatus;
+    private string? _editNotes;
+    private string? _editSpec;
+
+    private int _newCount => _requests.Count(r => r.Status == FeatureRequestStatus.New);
+
+    private List<BreadcrumbItem> _crumbs => new()
+    {
+        new BreadcrumbItem("Home", href: ""),
+        new BreadcrumbItem("System admin", href: "SystemAdmin"),
+        new BreadcrumbItem("Feature requests", href: null, disabled: true),
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await Auth.GetAuthenticationStateAsync();
+        _userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
+        _canView = !string.IsNullOrEmpty(_userId) && await OrgAuth.IsSystemAdminAsync(_userId);
+        if (!_canView)
+        {
+            _loading = false;
+            return;
+        }
+        await ReloadAsync();
+        _loading = false;
+    }
+
+    private async Task ReloadAsync()
+    {
+        _requests = (await FeatureReqSvc.ListAllAsync()).ToList();
+    }
+
+    private void StartEdit(FeatureRequestRow fr)
+    {
+        _editingId = fr.Id;
+        _editStatus = fr.Status;
+        _editNotes = fr.TriageNotes;
+        _editSpec = fr.LinkedSpec;
+    }
+
+    private void CancelEdit()
+    {
+        _editingId = null;
+    }
+
+    private async Task SaveTriageAsync(int featureRequestId)
+    {
+        _busy = true;
+        try
+        {
+            var ok = await FeatureReqSvc.TriageAsync(
+                featureRequestId, _editStatus, _editNotes, _editSpec, _userId);
+            if (ok)
+            {
+                _message = "Triage updated.";
+                _editingId = null;
+                await ReloadAsync();
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private static Color StatusColor(FeatureRequestStatus status) => status switch
+    {
+        FeatureRequestStatus.New => Color.Warning,
+        FeatureRequestStatus.UnderReview => Color.Info,
+        FeatureRequestStatus.Planned => Color.Primary,
+        FeatureRequestStatus.Completed => Color.Success,
+        FeatureRequestStatus.Declined => Color.Error,
+        FeatureRequestStatus.Duplicate => Color.Default,
+        _ => Color.Default,
+    };
+}

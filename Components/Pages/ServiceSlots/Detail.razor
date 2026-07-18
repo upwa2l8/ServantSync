@@ -44,6 +44,16 @@ else
                                Href="@LinkBuilder.SlotSeriesHref(OrgId, MinId, Id)">
                         Schedule series
                     </MudButton>
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                        <MudSwitch T="bool" @bind-Value="_showNames" Color="Color.Primary"
+                                   Label="Show volunteer names" Dense="true" Size="Size.Small" />
+                        <MudMenu Label="Print calendar" Variant="Variant.Outlined"
+                                 Color="Color.Default" StartIcon="@Icons.Material.Outlined.Print">
+                            <MudMenuItem Href="@($"/Organizations/{OrgId}/Ministries/{MinId}/Roles/{Id}/Calendar.pdf?scope=month{_namesQs}")">Month</MudMenuItem>
+                            <MudMenuItem Href="@($"/Organizations/{OrgId}/Ministries/{MinId}/Roles/{Id}/Calendar.pdf?scope=week{_namesQs}")">Week</MudMenuItem>
+                            <MudMenuItem Href="@($"/Organizations/{OrgId}/Ministries/{MinId}/Roles/{Id}/Calendar.pdf?scope=day{_namesQs}")">Day</MudMenuItem>
+                        </MudMenu>
+                    </MudStack>
                 </MudStack>
             }
             @* Round-FR-7: per-volunteer Subscribe toggle. Anyone in the parent
@@ -392,6 +402,8 @@ else
     // pages — `MudBreadcrumbs` is the MudBlazor equivalent of the old
     // <ol class="breadcrumb"> block. Slot #N is appended after the
     // slot row is loaded (when the title becomes known).
+    private bool _showNames;
+    private string _namesQs => _showNames ? "&names=true" : "";
     private List<BreadcrumbItem> _crumbs = new();
 
     protected override async Task OnInitializedAsync()

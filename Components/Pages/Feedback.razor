@@ -1,0 +1,148 @@
+@page "/Feedback"
+@rendermode InteractiveServer
+@attribute [AllowAnonymous]
+
+<PageTitle>Feature request</PageTitle>
+
+<MudBreadcrumbs Items="_crumbs" Class="mb-2 px-0" />
+
+<MudText Typo="Typo.h4" Class="mb-1">Feature request</MudText>
+<MudText Typo="Typo.body1" Class="mud-text-secondary mb-4">
+    Have an idea to make ServantSync better? Submit it here and the
+    product team will review it. All requests are welcome — big or small.
+</MudText>
+
+@if (_submitted)
+{
+    <MudAlert Severity="Severity.Success" Class="mb-4">
+        <strong>Thanks!</strong> Your feature request has been submitted. The team will review it soon.
+    </MudAlert>
+}
+else
+{
+    @if (_error is not null)
+    {
+        <MudAlert Severity="Severity.Error" ShowCloseIcon="true" CloseIconClicked="() => _error = null" Class="mb-3">
+            @_error
+        </MudAlert>
+    }
+
+    <MudCard Outlined="true" Class="mb-4">
+        <MudCardContent>
+            <EditForm Model="@_model" OnValidSubmit="SubmitAsync" FormName="feedback-form">
+                <DataAnnotationsValidator />
+
+                <MudTextField T="string" @bind-Value="_model.Title"
+                              Label="Title" Variant="Variant.Outlined" Margin="Margin.Dense"
+                              Required="true" MaxLength="200" Class="mb-3"
+                              Placeholder="e.g. Add recurring schedule templates" />
+
+                <MudTextField T="string" @bind-Value="_model.Description"
+                              Label="Describe your idea" Variant="Variant.Outlined"
+                              Required="true" MaxLength="4000" Lines="5" Class="mb-3"
+                              Placeholder="Tell us what you'd like to see and why it matters to you." />
+
+                <MudStack Row="true" Spacing="3" Class="mb-3">
+                    <MudTextField T="string" @bind-Value="_model.SubmitterName"
+                                  Label="Your name (optional)" Variant="Variant.Outlined"
+                                  Margin="Margin.Dense" MaxLength="200" Class="flex-grow-1" />
+                    <MudTextField T="string" @bind-Value="_model.SubmitterEmail"
+                                  Label="Email (optional, for follow-up)" Variant="Variant.Outlined"
+                                  Margin="Margin.Dense" MaxLength="320" InputType="InputType.Email"
+                                  Class="flex-grow-1" />
+                </MudStack>
+
+                @* Honeypot field — hidden from real users via CSS; bots fill it in. *@
+                <div style="position:absolute;left:-9999px" aria-hidden="true">
+                    <label for="website">Website</label>
+                    <InputText id="website" @bind-Value="_model.Honeypot" autocomplete="off" />
+                </div>
+
+                <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled"
+                           Color="Color.Primary" Disabled="@_busy"
+                           StartIcon="@Icons.Material.Outlined.Send">
+                    @(_busy ? "Submitting…" : "Submit request")
+                </MudButton>
+            </EditForm>
+        </MudCardContent>
+    </MudCard>
+}
+
+@inject IFeatureRequestService FeatureRequests
+@inject AuthenticationStateProvider Auth
+@inject IHttpContextAccessor HttpContextAccessor
+@code {
+    [SupplyParameterFromForm]
+    private FeedbackModel _model { get; set; } = new();
+    private bool _busy;
+    private bool _submitted;
+    private string? _error;
+
+    private List<BreadcrumbItem> _crumbs = new()
+    {
+        new BreadcrumbItem("Home", href: ""),
+        new BreadcrumbItem("Feature request", href: null, disabled: true),
+    };
+
+    private async Task SubmitAsync()
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            var state = await Auth.GetAuthenticationStateAsync();
+            var userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            var ip = HttpContextAccessor.HttpContext?.Connection?.RemoteIpAddress?.ToString();
+
+            var (result, message) = await FeatureRequests.SubmitAsync(
+                _model.Title ?? "",
+                _model.Description ?? "",
+                _model.SubmitterName,
+                _model.SubmitterEmail,
+                userId,
+                ip,
+                _model.Honeypot);
+
+            switch (result)
+            {
+                case FeatureRequestSubmitResult.Success:
+                    _submitted = true;
+                    break;
+                case FeatureRequestSubmitResult.RateLimited:
+                    _error = message ?? "You've submitted too many requests recently. Please try again later.";
+                    break;
+                case FeatureRequestSubmitResult.HoneypotFailed:
+                    // Silently pretend success — don't tip off bots.
+                    _submitted = true;
+                    break;
+                case FeatureRequestSubmitResult.ValidationError:
+                    _error = message ?? "Please fill in both the title and description.";
+                    break;
+            }
+        }
+        catch
+        {
+            _error = "Something went wrong. Please try again.";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private sealed class FeedbackModel
+    {
+        [SupplyParameterFromForm]
+        [Required(ErrorMessage = "Title is required.")]
+        public string? Title { get; set; }
+        [SupplyParameterFromForm]
+        [Required(ErrorMessage = "Description is required.")]
+        public string? Description { get; set; }
+        [SupplyParameterFromForm]
+        public string? SubmitterName { get; set; }
+        [SupplyParameterFromForm]
+        public string? SubmitterEmail { get; set; }
+        [SupplyParameterFromForm]
+        public string? Honeypot { get; set; }
+    }
+}

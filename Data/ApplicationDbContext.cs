@@ -52,6 +52,8 @@ public class ApplicationDbContext : IdentityDbContext<IdentityUser>
     // application convention (no service updates a row, no routine
     // purges). See Services/SystemAdminManagementService.cs.
     public DbSet<SystemAdminGrantAudit> SystemAdminGrantAudits => Set<SystemAdminGrantAudit>();
+    // Round-FR-4: public feature request triage queue.
+    public DbSet<FeatureRequest> FeatureRequests => Set<FeatureRequest>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -499,6 +501,14 @@ public class ApplicationDbContext : IdentityDbContext<IdentityUser>
         {
             b.HasIndex(a => a.TimestampUtc);
             b.Property(a => a.Reason).HasMaxLength(80);
+        });
+
+        // ---- FeatureRequest (Round-FR-4) ----
+        modelBuilder.Entity<FeatureRequest>(b =>
+        {
+            b.HasIndex(f => f.CreatedUtc);
+            b.HasIndex(f => f.Status);
+            b.HasIndex(f => f.SubmitterIp);
         });
     }
 }

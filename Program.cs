@@ -8,6 +8,7 @@ using ServantSync.Components;
 using ServantSync.Data;
 using ServantSync.Models;
 using ServantSync.Services;
+using ServantSync.Services.CalendarPdf;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -187,6 +188,14 @@ builder.Services.AddScoped<ICoordinatorAssignmentsService, CoordinatorAssignment
 builder.Services.AddScoped<IPdfPageCountHealer, PdfPageCountHealer>();
 builder.Services.AddScoped<UserTimeZoneProvider>();
 builder.Services.AddScoped<DatabaseSeeder>();
+// Round-FR-1: per-slot printable calendar PDF with QR codes.
+// ICalendarPdfBuilder is library-agnostic (QuestPDF today; swap to
+// PdfSharpCore by replacing the single implementation class).
+// IQrCodeBuilder wraps QRCoder behind a test seam.
+builder.Services.AddScoped<ICalendarPdfBuilder, QuestPdfCalendarPdfBuilder>();
+builder.Services.AddScoped<IQrCodeBuilder, QrCodeBuilder>();
+// Round-FR-4: public feature request form + SystemAdmin triage queue.
+builder.Services.AddScoped<IFeatureRequestService, FeatureRequestService>();
 
 // ---- Background / hosted services ----
 // Azure SQL Database has built-in automated backups (7-day retention on
@@ -589,6 +598,80 @@ app.MapGet("/slots/{slotId:int}/documents/{docId:int}/download", async (
         System.IO.File.OpenRead(filePath),
         contentType: doc.ContentType ?? "application/octet-stream",
         fileDownloadName: doc.OriginalFileName);
+}).RequireAuthorization();
+
+// Round-FR-1: per-slot printable calendar PDF with QR codes.
+app.MapGet("/Organizations/{orgId:int}/Ministries/{minId:int}/Roles/{slotId:int}/Calendar.pdf",
+async (int orgId, int minId, int slotId, HttpContext ctx,
+    IDbContextFactory<ApplicationDbContext> dbFactory,
+    IOrgAuthService orgAuth,
+    ICalendarPdfBuilder pdfBuilder,
+    IQrCodeBuilder qrBuilder) =>
+{
+    var userId = ctx.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+    if (string.IsNullOrEmpty(userId)) return Results.Unauthorized();
+    if (!await orgAuth.CanManageSlotAsync(userId, slotId)) return Results.Forbid();
+    await using var db = await dbFactory.CreateDbContextAsync();
+    var slot = await db.ServiceSlots
+        .Include(s => s.Ministry).ThenInclude(m => m.Organization)
+        .Include(s => s.Assignments).ThenInclude(a => a.Person)
+        .FirstOrDefaultAsync(s => s.Id == slotId && s.MinistryId == minId && s.Ministry.OrganizationId == orgId);
+    if (slot is null) return Results.NotFound();
+    var scope = ctx.Request.Query["scope"].ToString();
+    if (string.IsNullOrEmpty(scope)) scope = "month";
+    var tzParam = ctx.Request.Query["tz"].ToString();
+    var orgTz = slot.Ministry.Organization.TimeZoneId;
+    var tz = ServantSync.Components.Shared.TimeZoneResolver.Resolve(tzParam, orgTz);
+    DateTime startDate;
+    if (DateTime.TryParse(ctx.Request.Query["start"], out var parsed))
+        startDate = parsed;
+    else
+        startDate = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tz);
+    var (fromUtc, toUtc) = ServantSync.Services.CalendarPdf.CalendarScope.GetRange(scope, startDate, tz);
+    var occurrences = await db.SlotOccurrences
+        .Where(o => o.ServiceSlotId == slotId && o.StartUtc >= fromUtc && o.StartUtc < toUtc)
+        .OrderBy(o => o.StartUtc).ToListAsync();
+    var assignedIds = occurrences.Select(o => o.StartUtc).ToList();
+    var assignments = await db.Assignments
+        .Include(a => a.Person)
+        .Where(a => a.ServiceSlotId == slotId && assignedIds.Contains(a.StartUtc)
+            && a.Status != AssignmentStatus.Cancelled)
+        .ToListAsync();
+    var assignDict = assignments.ToDictionary(a => a.StartUtc);
+    var calendarOccs = occurrences.Select(o =>
+    {
+        bool hasAssign = assignDict.TryGetValue(o.StartUtc, out var assign);
+        return new ServantSync.Services.CalendarPdf.CalendarOccurrence
+        {
+            Id = o.Id, StartUtc = o.StartUtc, EndUtc = o.EndUtc,
+            AssignedVolunteerName = hasAssign ? assign!.Person.DisplayName : null,
+        };
+    }).ToList();
+    var regToken = slot.Ministry.Organization.RegistrationToken;
+    string? orgJoinUrl = null;
+    if (!string.IsNullOrEmpty(regToken))
+    {
+        var baseUri = $"{ctx.Request.Scheme}://{ctx.Request.Host}{ctx.Request.PathBase}";
+        orgJoinUrl = $"{baseUri}/Account/Register?token={regToken}";
+    }        var showNames = string.Equals(ctx.Request.Query["names"].ToString(), "true", StringComparison.OrdinalIgnoreCase);
+    var request = new ServantSync.Services.CalendarPdf.CalendarPdfRequest
+    {
+        OrganizationName = slot.Ministry.Organization.Name,
+        SlotName = slot.Name, SlotLocation = slot.Location,
+        TimeZoneDisplayName = tz.DisplayName, Scope = scope,
+        StartDate = startDate, GeneratedUtc = DateTime.UtcNow,
+        OrgJoinUrl = orgJoinUrl,
+        BaseUri = $"{ctx.Request.Scheme}://{ctx.Request.Host}{ctx.Request.PathBase}",
+        ShowVolunteerNames = showNames,
+        Occurrences = calendarOccs,
+    };
+    var ms = new MemoryStream();
+    await pdfBuilder.BuildAsync(request, qrBuilder, ms);
+    ms.Position = 0;
+    var slug = System.Text.RegularExpressions.Regex.Replace(slot.Name.ToLowerInvariant(), "[^a-z0-9]+", "-").Trim('-');
+    var orgSlug = System.Text.RegularExpressions.Regex.Replace(slot.Ministry.Organization.Name.ToLowerInvariant(), "[^a-z0-9]+", "-").Trim('-');
+    return Results.File(ms.ToArray(), "application/pdf",
+        $"servantsync-calendar-{orgSlug}-{slug}-{scope}-{startDate:yyyy-MM-dd}.pdf");
 }).RequireAuthorization();
 
 // Apply pending migrations, then seed sample data if the database is empty.

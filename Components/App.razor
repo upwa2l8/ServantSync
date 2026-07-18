@@ -3,8 +3,14 @@
 
 <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <base href="/" />
+    @* Inter font — loaded from Google Fonts with swap for no FOUT.
+       The 'Inter Variable' axis font covers 100–900 weight in one file.
+       display=swap ensures text remains visible during webfont load. *@
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..800&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="_content/MudBlazor/MudBlazor.min.css" />
     @* Phase 5 — Bootstrap removal: the Bootstrap CSS link is gone.
        The lib/bootstrap directory was deleted from wwwroot/. Any
@@ -32,8 +38,15 @@
        seam against the dark navbar on first paint. *@
     <link rel="icon" type="image/svg+xml" href="@Assets["img/servantsync-mark.svg"]" />
     <link rel="apple-touch-icon" sizes="180x180" href="@Assets["img/apple-touch-icon.png"]" />
-    <meta name="theme-color" content="#1f1f2e" />
+    <meta name="theme-color" content="#0d0d1f" />
     <script src="js/snake.js" defer></script>
+    @* Round-CHAPEL-DRAWER-1: live resize watcher for the responsive
+       MudDrawer.  MainLayout.razor invokes window.ssWatchDrawer with
+       a DotNetObjectReference; the watcher posts OnBreakpointChanged
+       (desktop vs mobile) when the viewport crosses 600px so the
+       drawer's _drawerOpen state stays in sync on device rotation
+       or window resize. *@
+    <script src="js/livedrawer.js" defer></script>
     <HeadOutlet />
 </head>
 

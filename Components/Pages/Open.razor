@@ -128,13 +128,22 @@ else if (!_openShifts.Any())
         Nothing open @EmptyMessageSuffix(). Check back later, or ask a coordinator to queue a shift for a slot you care about.
     </MudAlert>
 }
+
+@* Round-FR-1: "already filled" disambiguation when the user arrives
+   via a per-occurrence QR code that points to a now-filled shift. *@
+@if (_occChecked && _targetAlreadyFilled && OccurrenceId.HasValue)
+{
+    <MudAlert Severity="Severity.Warning" Class="mb-3">
+        <strong>This shift has already been filled.</strong> Pick another shift from the list below, or check back later for new openings.
+    </MudAlert>
+}
 else
 {
     <MudGrid Spacing="3">
         @foreach (var s in _openShifts)
         {
             <MudItem xs="12" md="6">
-                <MudPaper Outlined="true" Class="pa-4 h-100 d-flex flex-column">
+                <MudPaper id="@($"occ-{s.OccurrenceId}")" Outlined="true" Class="@($"pa-4 h-100 d-flex flex-column{(OccurrenceId.HasValue && s.OccurrenceId == OccurrenceId.Value ? " border-2 border-primary" : "")}")">
                     <MudText Typo="Typo.h6" Class="mb-1">@s.SlotName</MudText>
                     <MudText Typo="Typo.caption" Class="mud-text-secondary mb-2">
                         <MudLink Href="@LinkBuilder.OrganizationHref(s.OrganizationId)">@s.MinistryName</MudLink>
@@ -238,7 +247,10 @@ else
 @inject ISlotInterestService Slots
 @inject AuthenticationStateProvider Auth
 @inject UserTimeZoneProvider TzProvider
+@inject IJSRuntime JS
 @code {
+    [SupplyParameterFromQuery(Name = "occ")] public int? OccurrenceId { get; set; }
+
     // Round-FR-7: 3-way filter mode. Default on first paint is
     // AllSlots; the first Reload after auth-resolved flips it to the
     // most-populated preference set (slots first, then ministries) so
@@ -304,7 +316,31 @@ else
         new BreadcrumbItem("Browse open slots", href: null, disabled: true),
     };
 
-    protected override async Task OnInitializedAsync() => await Reload();
+    // True once we've checked whether the ?occ= deep-linked shift is
+    // already filled (for the "already filled" disambiguation banner).
+    private bool _occChecked;
+    private OpenSlotOccurrenceView? _targetOccurrence;
+    private bool _targetAlreadyFilled;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Reload();
+
+        // Round-FR-1: if the user arrived via a per-occurrence QR code
+        // (/Open?occ=<id>), find the matching shift in the loaded list.
+        // If it's already filled, show a disambiguation banner instead
+        // of the normal sign-up button.
+        if (OccurrenceId.HasValue && _openShifts.Count > 0)
+        {
+            _targetOccurrence = _openShifts.FirstOrDefault(s => s.OccurrenceId == OccurrenceId.Value);
+            _targetAlreadyFilled = _targetOccurrence is null;
+            _occChecked = true;
+            if (_targetOccurrence is not null)
+            {
+                await ScrollToOccurrenceAsync(OccurrenceId.Value);
+            }
+        }
+    }
 
     private async Task SetFilterMode(OpenSlotFilterMode mode)
     {
@@ -703,4 +739,29 @@ else
     }
 
     private record SignupResult(int Id, bool Succeeded, string Message);
+
+    /// <summary>
+    /// Scroll the matching occurrence card into view after a
+    /// deep-link load (/Open?occ=<id>). Uses
+    /// JSInterop to call document.getElementById and
+    /// element.scrollIntoView. Wrapped in a try/catch because
+    /// the element may not exist yet on the first render cycle
+    /// (e.g., during prerender or if the card is filtered out).
+    /// </summary>
+    private async Task ScrollToOccurrenceAsync(int occurrenceId)
+    {
+        if (!RendererInfo.IsInteractive) return;
+
+        try
+        {
+            // Small delay to let MudGrid render the cards into the DOM.
+            await Task.Delay(100);
+            await JS.InvokeVoidAsync("eval",
+                $"document.getElementById('occ-{occurrenceId}')?.scrollIntoView({{ behavior: 'smooth', block: 'center' }})");
+        }
+        catch (InvalidOperationException)
+        {
+            // JS interop unavailable during prerender — safe to ignore.
+        }
+    }
 }
