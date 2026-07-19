@@ -31,6 +31,13 @@ public enum TrainingFormat
     Video = 0,
     Slideshow = 1,
     Pdf = 2,
+    /// <summary>
+    /// Round-FR-8: instructor-led, materials handed out in class.
+    /// No online file — volunteers must attend a scheduled session.
+    /// The Take page renders a session-list card instead of a viewer;
+    /// self-completion is blocked (coordinator manual-mark only).
+    /// </summary>
+    InPerson = 3,
 }
 
 /// <summary>

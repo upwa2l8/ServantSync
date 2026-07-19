@@ -303,6 +303,15 @@ public class TrainingService : ITrainingService
                 snapshot.IsEligible = true;
                 return snapshot;
 
+            case TrainingFormat.InPerson:
+                // Round-FR-8: in-person training has no online engagement.
+                // Volunteers must attend a scheduled session; a coordinator
+                // marks completion via MarkSingleCompleteAsync or
+                // MarkAttendeesCompleteAsync. Self-completion is blocked.
+                snapshot.IsEligible = false;
+                snapshot.Reason = "This training must be completed in person. Sign up for a scheduled session below.";
+                return snapshot;
+
             case TrainingFormat.Slideshow:
             default:
                 // Best-effort: dwell timer against the admin-entered

@@ -35,9 +35,10 @@ public class TrainingContent
     /// For <see cref="TrainingFormat.Video"/>: an embed URL (YouTube/Vimeo).
     /// For PDF / slideshow: a relative path under <c>wwwroot/uploads/training/</c>,
     /// or an absolute URL.
+    /// Null for <see cref="TrainingFormat.InPerson"/> (no online file).
     /// </summary>
-    [Required, StringLength(600)]
-    public string FilePathOrUrl { get; set; } = null!;
+    [StringLength(600)]
+    public string? FilePathOrUrl { get; set; }
 
     /// <summary>Optional metadata shown alongside the training.</summary>
     public TimeSpan? EstimatedDuration { get; set; }

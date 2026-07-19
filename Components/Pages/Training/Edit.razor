@@ -119,40 +119,50 @@
             </MudItem>
         </MudGrid>
 
-        <div class="mt-3">
-            <MudText Typo="Typo.subtitle2" Class="mb-2">Source</MudText>
-            <MudButtonGroup Color="Color.Primary" Variant="Variant.Outlined" Class="mb-2">
-                <MudButton OnClick="@(() => _source = "url")"
-                           Variant="@(_source == "url" ? Variant.Filled : Variant.Outlined)">Use URL</MudButton>
-                <MudButton OnClick="@(() => _source = "upload")"
-                           Variant="@(_source == "upload" ? Variant.Filled : Variant.Outlined)">Upload file</MudButton>
-            </MudButtonGroup>
+        @* Round-FR-8: InPerson format has no online source — hide the Source section entirely. *@
+        @if (_model.Format != TrainingFormat.InPerson)
+        {
+            <div class="mt-3">
+                <MudText Typo="Typo.subtitle2" Class="mb-2">Source</MudText>
+                <MudButtonGroup Color="Color.Primary" Variant="Variant.Outlined" Class="mb-2">
+                    <MudButton OnClick="@(() => _source = "url")"
+                               Variant="@(_source == "url" ? Variant.Filled : Variant.Outlined)">Use URL</MudButton>
+                    <MudButton OnClick="@(() => _source = "upload")"
+                               Variant="@(_source == "upload" ? Variant.Filled : Variant.Outlined)">Upload file</MudButton>
+                </MudButtonGroup>
 
-            @if (_source == "url")
-            {
-                <MudTextField T="string"
-                              Label="URL (YouTube/Vimeo/Drive/etc.)"
-                              @bind-Value="_model.FilePathOrUrl"
-                              Variant="Variant.Outlined"
-                              Margin="Margin.Dense"
-                              Class="mb-3" />
-            }
-            else
-            {
-                <InputFile OnChange="HandleUpload" class="form-control mb-2" accept="video/*,application/pdf" />
-                @if (_uploading)
+                @if (_source == "url")
                 {
-                    <MudText Typo="Typo.caption" Class="mud-text-secondary">Uploading…</MudText>
+                    <MudTextField T="string"
+                                  Label="URL (YouTube/Vimeo/Drive/etc.)"
+                                  @bind-Value="_model.FilePathOrUrl"
+                                  Variant="Variant.Outlined"
+                                  Margin="Margin.Dense"
+                                  Class="mb-3" />
                 }
-                else if (!string.IsNullOrEmpty(_uploadedPath))
+                else
                 {
-                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mt-1">
-                        <MudText Typo="Typo.caption" Color="Color.Success">Uploaded: @_uploadedPath</MudText>
-                        <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => _model.FilePathOrUrl = _uploadedPath!)">Use this</MudButton>
-                    </MudStack>
+                    <InputFile OnChange="HandleUpload" class="form-control mb-2" accept="video/*,application/pdf" />
+                    @if (_uploading)
+                    {
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary">Uploading…</MudText>
+                    }
+                    else if (!string.IsNullOrEmpty(_uploadedPath))
+                    {
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mt-1">
+                            <MudText Typo="Typo.caption" Color="Color.Success">Uploaded: @_uploadedPath</MudText>
+                            <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => _model.FilePathOrUrl = _uploadedPath!)">Use this</MudButton>
+                        </MudStack>
+                    }
                 }
-            }
-        </div>
+            </div>
+        }
+        else
+        {
+            <MudAlert Severity="Severity.Info" Dense="true" Class="mt-3">
+                In-person trainings have no online source. Volunteers will see a list of scheduled sessions instead of a viewer.
+            </MudAlert>
+        }
 
         <MudStack Row="true" Spacing="2" Class="mt-3">
             <MudButton ButtonType="ButtonType.Submit"
@@ -422,7 +432,7 @@
         existing.Title = _model.Title;
         existing.Description = _model.Description;
         existing.Format = _model.Format;
-        existing.FilePathOrUrl = _model.FilePathOrUrl;
+        existing.FilePathOrUrl = _model.Format == TrainingFormat.InPerson ? null : _model.FilePathOrUrl;
         existing.EstimatedDuration = _model.DurationMinutes.HasValue
             ? TimeSpan.FromMinutes(_model.DurationMinutes.Value) : null;
         // Refresh TotalPageCount from the latest PDF if the admin
@@ -442,7 +452,7 @@
         [Required, StringLength(200)] public string Title { get; set; } = "";
         [StringLength(2000)] public string? Description { get; set; }
         public TrainingFormat Format { get; set; }
-        [Required, StringLength(600)] public string FilePathOrUrl { get; set; } = "";
+        [StringLength(600)] public string? FilePathOrUrl { get; set; }
         public int? DurationMinutes { get; set; }
         // [Required] isn't enough — 0 is a valid int. Add a Range so the
         // form-side validator rejects "pick an org" (0) before reaching

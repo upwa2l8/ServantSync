@@ -114,6 +114,47 @@ else
                 }
                 break;
 
+            case TrainingFormat.InPerson:
+                // Round-FR-8: no online viewer — render a session-list card
+                // showing upcoming scheduled sessions linked to this content.
+                // Volunteers can sign up directly from here.
+                <div class="mb-3">
+                    @if (_upcomingSessions.Count == 0)
+                    {
+                        <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">
+                            No upcoming sessions scheduled. Check back later or ask your coordinator.
+                        </MudAlert>
+                    }
+                    else
+                    {
+                        <MudText Typo="Typo.subtitle2" Class="mb-2">Upcoming Sessions</MudText>
+                        @foreach (var session in _upcomingSessions)
+                        {
+                            <MudPaper Outlined="true" Class="pa-3 mb-2">
+                                <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                                    <div>
+                                        <MudText Typo="Typo.body1"><strong>@session.Title</strong></MudText>
+                                        <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                                            @session.StartUtc.ToString("MMM dd, yyyy h:mm tt") - @session.EndUtc.ToString("h:mm tt")
+                                        </MudText>
+                                        <MudText Typo="Typo.caption" Class="mud-text-secondary">@session.Location</MudText>
+                                        @if (session.MaxAttendees.HasValue)
+                                        {
+                                            <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                                                @session.Attendees.Count / @session.MaxAttendees attendees
+                                            </MudText>
+                                        }
+                                    </div>
+                                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" Href=$"/Training/Sessions/{session.SessionId}">
+                                        Sign Up
+                                    </MudButton>
+                                </MudStack>
+                            </MudPaper>
+                        }
+                    }
+                </div>
+                break;
+
             case TrainingFormat.Slideshow:
             default:
                 // Slideshow / external URL — best-effort timer only.
@@ -292,6 +333,9 @@ else
 
     private async Task MountViewerAsync()
     {
+        // Round-FR-8: InPerson content has no online viewer — skip mount.
+        if (_content!.Format == TrainingFormat.InPerson) return;
+
         try
         {
             if (_dotNetRef is null)
@@ -451,6 +495,19 @@ else
                 // (Admin or Coordinator of the content's org). The
                 // service re-gates server-side; the load is just the
                 // dropdown options.
+                // Round-FR-8: for InPerson content, load upcoming sessions linked to this content.
+                if (_content.Format == TrainingFormat.InPerson)
+                {
+                    _upcomingSessions = await db.TrainingSessions
+                        .Where(s => s.TrainingContentId == _content.Id
+                            && s.Status == TrainingSessionStatus.Scheduled
+                            && s.StartUtc >= DateTime.UtcNow)
+                        .OrderBy(s => s.StartUtc)
+                        .Include(s => s.Attendees)
+                        .AsNoTracking()
+                        .ToListAsync();
+                }
+
                 _canMarkManually = await OrgAuth.CanManageOrgAsync(userId, _content.OrganizationId);
                 if (_canMarkManually)
                 {
@@ -523,6 +580,7 @@ else
         TrainingFormat.Video => e.ActualDurationSec > 0
             ? $"{(int)(100.0 * e.HighestWatchedSec / e.ActualDurationSec)}% watched"
             : "Video",
+        TrainingFormat.InPerson => "In-person only",
         _ => $"{e.DwellSec}s elapsed",
     };
 
@@ -603,6 +661,9 @@ else
     // themselves. The completed completion row carries the
     // audit-trail source (CoordinatorManualSingle) + the marker's
     // user id + the note.
+
+    // Round-FR-8: upcoming TrainingSession rows linked to this InPerson content.
+    private List<TrainingSession> _upcomingSessions = new();
 
     private bool _canMarkManually;
     private string _manualUserId = "";
