@@ -1,59 +1,82 @@
 // ─────────────────────────────────────────────────────────────────────
-// ServantSync — responsive drawer resize watcher.
-// Reports viewport breakpoint crossings (>= 600px desktop, <600px
-// mobile) to the .NET callback so the Razor layout's _drawerOpen
-// state stays in sync if the user rotates the device or resizes the
-// window. Uses Debounce via requestAnimationFrame to coalesce resize
-// bursts into a single callback per frame, and only fires when the
-// breakpoint actually changes (not on every pixel of pixel-width
-// change).
+// ServantSync — responsive drawer toggle + resize watcher.
 //
-// Wired by Components/Layout/MainLayout.razor's OnAfterRenderAsync,
-// which captures a DotNetObjectReference and passes it here. The
-// matching [JSInvokable] method OnBreakpointChanged(bool isDesktop)
-// receives the state.
+// The drawer is a plain <aside> controlled by the .ss-drawer-open
+// CSS class on <body>.  No Blazor interop needed — works in static
+// SSR before the SignalR circuit warms up.
+//
+// • ssToggleDrawer() — called by the hamburger <button onclick>.
+//   Toggles .ss-drawer-open on <body>.
+// • ssCloseDrawer() — called by MainLayout.OnLocationChanged to
+//   close the drawer on mobile after navigation.
+// • ssWatchDrawer() — (legacy, kept for compat) no-op now since
+//   resize watching is handled by the pure-JS approach below.
+// • Resize watcher auto-adds/removes .ss-drawer-open when the
+//   viewport crosses the 600px breakpoint.
 // ─────────────────────────────────────────────────────────────────────
 (function () {
     'use strict';
 
-    const BREAKPOINT_PX = 600; // matches DrawerVariant.Responsive + Breakpoint.Sm in MainLayout.razor
-    // Map of DotNetObjectReference -> bound resize handler. Used both
-    // for idempotency (ssWatchDrawer refuses to subscribe twice for
-    // the same ref) and for cleanup (ssUnwatchDrawer reads from this
-    // single source of truth instead of stashing a property on the
-    // DotNetObjectReference object itself).
-    const handlers = new Map();
+    var BREAKPOINT_PX = 600;
 
-    function makeHandler(dotnetRef) {
-        let lastIsDesktop = window.innerWidth >= BREAKPOINT_PX;
-        let pending = false;
-        return function () {
-            if (pending) return;
-            pending = true;
-            requestAnimationFrame(function () {
-                pending = false;
-                const isDesktop = window.innerWidth >= BREAKPOINT_PX;
-                if (isDesktop === lastIsDesktop) return;
-                lastIsDesktop = isDesktop;
-                dotnetRef.invokeMethodAsync('OnBreakpointChanged', isDesktop)
-                    .catch(function () { /* circuit dropped; safe to ignore */ });
-            });
-        };
+    function isDesktop() {
+        return window.innerWidth >= BREAKPOINT_PX;
     }
 
-    window.ssWatchDrawer = function (dotnetRef) {
-        if (!dotnetRef || handlers.has(dotnetRef)) return;
-        const handler = makeHandler(dotnetRef);
-        handlers.set(dotnetRef, handler);
-        window.addEventListener('resize', handler);
+    function syncDrawerState() {
+        if (isDesktop()) {
+            document.body.classList.add('ss-drawer-open');
+        } else {
+            document.body.classList.remove('ss-drawer-open');
+        }
+    }
+
+    // Initial sync — runs immediately when the script loads (before
+    // DOMContentLoaded is over, so the <body> element exists).
+    syncDrawerState();
+
+    // ── Hamburger toggle ────────────────────────────────────────────
+    window.ssToggleDrawer = function () {
+        document.body.classList.toggle('ss-drawer-open');
     };
 
-    window.ssUnwatchDrawer = function (dotnetRef) {
-        if (!dotnetRef) return;
-        const handler = handlers.get(dotnetRef);
-        if (handler) {
-            window.removeEventListener('resize', handler);
-            handlers.delete(dotnetRef);
+    // ── Close drawer (called from MainLayout after navigation) ──────
+    window.ssCloseDrawer = function () {
+        if (!isDesktop()) {
+            document.body.classList.remove('ss-drawer-open');
         }
     };
+
+    // ── Mobile overlay click-to-close ──────────────────────────────
+    // The CSS ::after pseudo-element on body.ss-drawer-open acts as
+    // the overlay.  We listen on document and close if the click
+    // landed on the overlay (i.e. the body itself, not the drawer).
+    document.addEventListener('click', function (e) {
+        if (!document.body.classList.contains('ss-drawer-open')) return;
+        // Only handle mobile; desktop doesn't have the overlay.
+        if (isDesktop()) return;
+        // If the click is inside the drawer or on the hamburger, bail.
+        var drawer = document.querySelector('.ss-drawer');
+        if (drawer && drawer.contains(e.target)) return;
+        if (e.target.closest('.mud-icon-button')) return;
+        // Click landed on the overlay or main content — close.
+        document.body.classList.remove('ss-drawer-open');
+    });
+
+    // ── Resize watcher ──────────────────────────────────────────────
+    // Debounce via requestAnimationFrame so rapid resize bursts
+    // (device rotation, window snap) coalesce into one state sync.
+    var pending = false;
+    window.addEventListener('resize', function () {
+        if (pending) return;
+        pending = true;
+        requestAnimationFrame(function () {
+            pending = false;
+            syncDrawerState();
+        });
+    });
+
+    // ── Legacy stubs (called from OnAfterRenderAsync, now no-ops) ───
+    window.ssWatchDrawer = function () { };
+    window.ssUnwatchDrawer = function () { };
 })();

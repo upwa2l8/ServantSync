@@ -243,11 +243,61 @@ h1:focus {
     box-shadow: 0 1px 20px rgba(167,139,250,0.06);
 }
 
-/* ── Drawer styling ─────────────────────────────────────────────── */
-.mud-drawer {
-    border-right: 1px solid rgba(255,255,255,0.06) !important;
+/* ── Custom Drawer (replaces MudDrawer) ──────────────────────── */
+/* Pure CSS toggle via .ss-drawer-open class on <body>. */
+.ss-drawer {
+    position: fixed;
+    top: 56px; /* below AppBar */
+    left: 0;
+    bottom: 0;
+    width: 260px;
+    background: var(--mud-palette-drawer-background);
+    border-right: 1px solid rgba(255,255,255,0.06);
+    z-index: 1200;
+    overflow-y: auto;
+    transform: translateX(-100%);
+    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
-.mud-drawer .mud-nav-link.active {
+/* Open state */
+body.ss-drawer-open .ss-drawer {
+    transform: translateX(0);
+}
+/* Desktop: drawer visible by default via CSS media query. */
+@media (min-width: 601px) {
+    .ss-drawer {
+        transform: translateX(0);
+    }
+    body:not(.ss-drawer-open) .ss-drawer {
+        transform: translateX(-100%);
+    }
+}
+/* Main content shifts when drawer is open on desktop */
+@media (min-width: 601px) {
+    body.ss-drawer-open .mud-main-content {
+        margin-left: 260px;
+        transition: margin-left 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    body:not(.ss-drawer-open) .mud-main-content {
+        margin-left: 0;
+        transition: margin-left 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+}
+/* Mobile: overlay when drawer is open */
+@media (max-width: 600px) {
+    body.ss-drawer-open::after {
+        content: '';
+        position: fixed;
+        top: 56px;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0,0,0,0.4);
+        z-index: 1199;
+        cursor: pointer;
+    }
+}
+/* Nav link styling inside custom drawer */
+.ss-drawer .mud-nav-link.active {
     background: rgba(167,139,250,0.12) !important;
     box-shadow: inset 3px 0 0 var(--mud-palette-primary) !important;
     border-radius: 0 8px 8px 0 !important;
@@ -327,9 +377,7 @@ h1:focus {
     border-radius: 16px !important;
     overflow: hidden;
 }
-.mud-overlay-dark {
-    backdrop-filter: blur(4px);
-}
+
 
 /* ── MudTable subtle stripes ────────────────────────────────────── */
 .mud-table-striped tbody tr:nth-child(odd) {
