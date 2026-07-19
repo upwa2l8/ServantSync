@@ -29,6 +29,34 @@
                   Variant="Variant.Outlined"
                   Margin="Margin.Dense"
                   Class="mb-3" />
+
+    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="3" Class="mb-3">
+        <MudText Typo="Typo.body2" Class="mud-text-secondary">Icon:</MudText>
+        <MudIcon Icon="@(_model.Icon ?? SlotIcons.Default)" Size="Size.Medium" Color="Color.Primary" />
+        <MudSelect T="string"
+                   @bind-Value="_model.Icon"
+                   Label="Slot icon"
+                   Variant="Variant.Outlined"
+                   Margin="Margin.Dense"
+                   Dense="true"
+                   Style="max-width: 320px;">
+            <MudSelectItem T="string" Value="@((string?)null)">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                    <MudIcon Icon="@SlotIcons.Default" Size="Size.Small" />
+                    <span>Default (Role)</span>
+                </MudStack>
+            </MudSelectItem>
+            @foreach (var opt in SlotIcons.All)
+            {
+                <MudSelectItem T="string" Value="@opt.Value">
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                        <MudIcon Icon="@opt.Value" Size="Size.Small" />
+                        <span>@opt.Label</span>
+                    </MudStack>
+                </MudSelectItem>
+            }
+        </MudSelect>
+    </MudStack>
     <MudTextField T="string"
                   Label="Location"
                   @bind-Value="_model.Location"
@@ -239,6 +267,7 @@
             Name = slot.Name,
             Description = slot.Description,
             Location = slot.Location,
+            Icon = slot.Icon,
             DefaultDurationMinutes = slot.DefaultDurationMinutes ?? 0,
             IsActive = slot.IsActive,
             Capacity = slot.Capacity,
@@ -275,7 +304,8 @@
             capacity: _model.Capacity,
             coordinatorPersonUserId: _model.CoordinatorPersonUserId,
             coordinatorEmail: _model.CoordinatorEmail,
-            coordinatorPhone: _model.CoordinatorPhone);
+            coordinatorPhone: _model.CoordinatorPhone,
+            icon: _model.Icon);
 
         switch (result)
         {
@@ -301,6 +331,7 @@
         [Required, StringLength(160)] public string Name { get; set; } = "";
         [StringLength(2000)] public string? Description { get; set; }
         [StringLength(200)] public string? Location { get; set; }
+        [StringLength(80)] public string? Icon { get; set; }
         public int DefaultDurationMinutes { get; set; }
         public bool IsActive { get; set; } = true;
         // Capacity defaults to 1 in the C# initializer (matches the DB column

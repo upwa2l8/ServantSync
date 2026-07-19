@@ -63,5 +63,6 @@ public interface ISlotManagementService
         string? coordinatorPersonUserId,
         string? coordinatorEmail,
         string? coordinatorPhone,
+        string? icon = null,
         CancellationToken ct = default);
 }

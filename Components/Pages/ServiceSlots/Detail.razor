@@ -14,7 +14,10 @@ else
 {
     <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Start" Class="mb-3" Spacing="2">
         <div>
-            <MudText Typo="Typo.h4" Class="mb-0 gradient-text">@_slot.Name</MudText>
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                <MudIcon Icon="@(_slot.Icon ?? SlotIcons.Default)" Size="Size.Large" Color="Color.Primary" />
+                <MudText Typo="Typo.h4" Class="mb-0 gradient-text">@_slot.Name</MudText>
+            </MudStack>
             <MudText Typo="Typo.body2" Class="mud-text-secondary">@_slot.Description</MudText>
             @if (!string.IsNullOrWhiteSpace(_slot.Location))
             {

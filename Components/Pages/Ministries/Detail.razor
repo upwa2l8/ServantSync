@@ -151,12 +151,11 @@ else
     }
     else
     {
-        <MudList T="ServiceSlot">
-            @foreach (var s in _ministry.ServiceSlots.OrderBy(s => s.Name))
-            {
-                <MudListItem>
-                    <MudStack Row="true" Justify="Justify.SpaceBetween">
-                        <MudLink Href="@LinkBuilder.SlotHref(OrgId, Id, s.Id)">@s.Name</MudLink>
+        <MudList T="ServiceSlot">                    @foreach (var s in _ministry.ServiceSlots.OrderBy(s => s.Name))
+                    {
+                        <MudListItem Icon="@(s.Icon ?? SlotIcons.Default)">
+                            <MudStack Row="true" Justify="Justify.SpaceBetween">
+                                <MudLink Href="@LinkBuilder.SlotHref(OrgId, Id, s.Id)">@s.Name</MudLink>
                         <MudChip T="string" Size="Size.Small" Color="Color.Default">@s.Assignments.Count scheduled</MudChip>
                     </MudStack>
                     @if (!string.IsNullOrWhiteSpace(s.Description))

@@ -34,6 +34,7 @@ public class SlotManagementService : ISlotManagementService
         string? coordinatorPersonUserId,
         string? coordinatorEmail,
         string? coordinatorPhone,
+        string? icon = null,
         CancellationToken ct = default)
     {
         // Input validation: empty caller or empty name → PermissionDenied
@@ -121,6 +122,7 @@ public class SlotManagementService : ISlotManagementService
             existing.CoordinatorPersonUserId = normalizedCoordinator;
             existing.CoordinatorEmail = coordinatorEmail;
             existing.CoordinatorPhone = coordinatorPhone;
+            existing.Icon = icon;
             await db.SaveChangesAsync(ct);
             return SlotUpsertResult.Saved;
         }
@@ -145,6 +147,7 @@ public class SlotManagementService : ISlotManagementService
             CoordinatorPersonUserId = normalizedCoordinator,
             CoordinatorEmail = coordinatorEmail,
             CoordinatorPhone = coordinatorPhone,
+            Icon = icon,
         });
         await db.SaveChangesAsync(ct);
         return SlotUpsertResult.Saved;

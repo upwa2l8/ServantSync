@@ -52,6 +52,14 @@ public class ServiceSlot
     [StringLength(40)]
     public string? CoordinatorPhone { get; set; }
 
+    /// <summary>
+    /// MudBlazor Material icon constant (e.g. "Icons.Material.Outlined.MusicNote").
+    /// Set via the icon picker on the ServiceSlot Edit page. Null falls back to
+    /// MinistryIcons.Default at render time.
+    /// </summary>
+    [StringLength(80)]
+    public string? Icon { get; set; }
+
     /// <summary>Opportunity-specific training that volunteers must complete before scheduling.</summary>
     public ICollection<TrainingRequirement> TrainingRequirements { get; set; } = new List<TrainingRequirement>();
 
