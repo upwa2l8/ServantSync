@@ -13,7 +13,7 @@
 }
 else
 {
-    <MudText Typo="Typo.h4" Class="mb-0">@_slot.Name</MudText>
+    <MudText Typo="Typo.h4" Class="mb-0 gradient-text">@_slot.Name</MudText>
     <MudText Typo="Typo.body2" Class="mud-text-secondary mb-3">@_slot.Description</MudText>
 
     <MudText Typo="Typo.h6">Create a weekly series</MudText>
@@ -125,7 +125,7 @@ else
                 }
                 else
                 {
-                    <MudPaper Outlined="true">
+                    <MudPaper Outlined="true" Class="glass-card">
                         <MudTable T="Assignment" Items="_result.Created.OrderBy(a => a.StartUtc)" Dense="true" Hover="true">
                             <HeaderContent>
                                 <MudTh>When (UTC)</MudTh>

@@ -14,7 +14,7 @@ else
 {
     <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-3 flex-wrap" Spacing="2">
         <div>
-            <MudText Typo="Typo.h4" Class="mb-0">@_team.Name</MudText>
+            <MudText Typo="Typo.h4" Class="mb-0 gradient-text">@_team.Name</MudText>
             <MudText Typo="Typo.body2" Class="mud-text-secondary">
                 <MudLink Href="@LinkBuilder.LeagueHref(_team.MinistryId)">@_team.Ministry?.Name</MudLink>
                 · @_team.Ministry?.Organization?.Name
@@ -52,7 +52,7 @@ else
 
     <MudGrid Spacing="3">
         <MudItem xs="12" md="6">
-            <MudCard Outlined="true">
+            <MudCard Outlined="true" Class="glass-card">
                 <MudCardHeader>
                     <CardHeaderContent>
                         <MudText Typo="Typo.h6">Roster</MudText>
@@ -104,7 +104,7 @@ else
         </MudItem>
 
         <MudItem xs="12" md="6">
-            <MudCard Outlined="true">
+            <MudCard Outlined="true" Class="glass-card">
                 <MudCardHeader>
                     <CardHeaderContent>
                         <MudText Typo="Typo.h6">Upcoming games</MudText>
@@ -136,7 +136,7 @@ else
                 </MudCardContent>
             </MudCard>
 
-            <MudCard Outlined="true" Class="mt-3">
+            <MudCard Outlined="true" Class="glass-card mt-3">
                 <MudCardHeader>
                     <CardHeaderContent>
                         <MudText Typo="Typo.h6">Recent results</MudText>

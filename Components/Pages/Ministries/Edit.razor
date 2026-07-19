@@ -7,7 +7,7 @@
 
 <MudBreadcrumbs Items="BreadcrumbItems" Class="mb-2 px-0" />
 
-<MudText Typo="Typo.h4" Class="mb-2">@(_isNew ? "New ministry" : "Edit ministry")</MudText>
+<MudText Typo="Typo.h4" Class="mb-2 gradient-text">@(_isNew ? "New ministry" : "Edit ministry")</MudText>
 <StatusMessage Message="@_message" IsError="@_isError" />
 
 <EditForm Model="_model" OnValidSubmit="Save" FormName="min">
@@ -29,6 +29,34 @@
                   Variant="Variant.Outlined"
                   Margin="Margin.Dense"
                   Class="mb-3" />
+
+    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="3" Class="mb-3">
+        <MudText Typo="Typo.body2" Class="mud-text-secondary">Icon:</MudText>
+        <MudIcon Icon="@(_model.Icon ?? MinistryIcons.Default)" Size="Size.Medium" Color="Color.Primary" />
+        <MudSelect T="string"
+                   @bind-Value="_model.Icon"
+                   Label="Ministry icon"
+                   Variant="Variant.Outlined"
+                   Margin="Margin.Dense"
+                   Dense="true"
+                   Style="max-width: 320px;">
+            <MudSelectItem T="string" Value="@((string?)null)">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                    <MudIcon Icon="@MinistryIcons.Default" Size="Size.Small" />
+                    <span>Default (Church)</span>
+                </MudStack>
+            </MudSelectItem>
+            @foreach (var opt in MinistryIcons.All)
+            {
+                <MudSelectItem T="string" Value="@opt.Value">
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                        <MudIcon Icon="@opt.Value" Size="Size.Small" />
+                        <span>@opt.Label</span>
+                    </MudStack>
+                </MudSelectItem>
+            }
+        </MudSelect>
+    </MudStack>
 
     <MudGrid Spacing="2" Class="mb-2">
         <MudItem xs="12" md="6">
@@ -161,6 +189,7 @@
             CoordinatorPersonUserId = min.CoordinatorPersonUserId,
             CoordinatorEmail = min.CoordinatorEmail,
             CoordinatorPhone = min.CoordinatorPhone,
+            Icon = min.Icon,
         };
     }
 
@@ -186,7 +215,8 @@
             description: _model.Description,
             coordinatorPersonUserId: _model.CoordinatorPersonUserId,
             coordinatorEmail: _model.CoordinatorEmail,
-            coordinatorPhone: _model.CoordinatorPhone);
+            coordinatorPhone: _model.CoordinatorPhone,
+            icon: _model.Icon);
 
         switch (result)
         {
@@ -211,5 +241,6 @@
         public string? CoordinatorPersonUserId { get; set; }
         [StringLength(120), EmailAddress] public string? CoordinatorEmail { get; set; }
         [StringLength(40)] public string? CoordinatorPhone { get; set; }
+        [StringLength(80)] public string? Icon { get; set; }
     }
 }

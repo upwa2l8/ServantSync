@@ -7,7 +7,7 @@
 <MudBreadcrumbs Items="_crumbs" Class="mb-2 px-0" />
 
 <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-3">
-    <MudText Typo="Typo.h4">Organizations</MudText>
+    <MudText Typo="Typo.h4" Class="gradient-text">Organizations</MudText>
     @* Round-AZ: the "+ New organization" affordance widens to either
        OrgAdmin (existing) OR SystemAdmin. The OR matches the actual
        capability of OrganizationService.CreateOrgAsync — the service
@@ -35,7 +35,7 @@ else if (!_orgs.Any())
        because they ARE the authoritative bootstrap-Admin identity role
        and can use the +New affordance to spin up the first tenant. A
        non-SysAdmin signed-in user keeps the "ask an admin" copy. *@
-    <MudPaper Outlined="true" Class="pa-4">
+    <MudPaper Outlined="true" Class="glass-card pa-4">
         <MudStack Spacing="2">
             @if (_isSystemAdmin)
             {
@@ -54,7 +54,7 @@ else if (!_orgs.Any())
 }
 else
 {
-    <MudPaper Outlined="true">
+    <MudPaper Outlined="true" Class="glass-card">
         <MudTable Items="_orgs" Hover="true" Striped="true" Dense="false" Elevation="0">
             <HeaderContent>
                 <MudTh>Name</MudTh>

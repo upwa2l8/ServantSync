@@ -8,7 +8,7 @@
 
 <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Start" Class="mb-3">
     <div>
-        <MudText Typo="Typo.h4">My training</MudText>
+        <MudText Typo="Typo.h4" Class="gradient-text">My training</MudText>
         <MudText Typo="Typo.body2" Class="mud-text-secondary">
             The training this database requires <em>you</em> to take, plus your
             personal training history. Required training comes from the organizations
@@ -30,7 +30,7 @@
 else
 {
     @* ---- Action needed ---- *@
-    <MudPaper Outlined="true" Class="mb-4">
+    <MudPaper Outlined="true" Class="glass-card mb-4">
         <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="px-4 py-3">
             <div>
                 <MudText Typo="Typo.h6" Class="mb-0">Action needed</MudText>
@@ -87,7 +87,7 @@ else
     </MudPaper>
 
     @* ---- My history ---- *@
-    <MudPaper Outlined="true">
+    <MudPaper Outlined="true" Class="glass-card">
         <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="px-4 py-3">
             <div>
                 <MudText Typo="Typo.h6" Class="mb-0">My history</MudText>

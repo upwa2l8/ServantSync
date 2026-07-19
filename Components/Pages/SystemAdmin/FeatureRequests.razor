@@ -20,7 +20,7 @@ else
 {
     <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-3">
         <div>
-            <MudText Typo="Typo.h4">Feature requests</MudText>
+            <MudText Typo="Typo.h4" Class="gradient-text">Feature requests</MudText>
             <MudText Typo="Typo.body2" Class="mud-text-secondary">
                 @_requests.Count total · @_newCount new
             </MudText>
@@ -61,7 +61,7 @@ else
     {
         @foreach (var fr in filtered)
         {
-            <MudPaper Outlined="true" Class="mb-3 pa-4">
+            <MudPaper Outlined="true" Class="glass-card mb-3 pa-4">
                 <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Start" Class="mb-2">
                     <div>
                         <MudText Typo="Typo.h6" Class="mb-0">@fr.Title</MudText>
@@ -105,7 +105,7 @@ else
                 @* Triage form — inline expand/collapse per row. *@
                 @if (_editingId == fr.Id)
                 {
-                    <MudCard Outlined="true" Class="mt-2">
+                    <MudCard Outlined="true" Class="glass-card mt-2">
                         <MudCardContent>
                             <MudStack Spacing="2">
                                 <MudSelect T="FeatureRequestStatus" @bind-Value="_editStatus"

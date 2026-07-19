@@ -6,18 +6,21 @@
    variables to flow and popovers / dialogs / snackbars to mount.
 
    MainLayout itself CANNOT carry @rendermode (Body is a RenderFragment that
-   can't be serialized across the rendermode boundary — see the full
-   explanation in `Components/Routes.razor`). But a *child* component of a
-   non-interactive layout CAN carry @rendermode, so this component sits
-   inside MainLayout and acts as the single "everything interactive needs
-   to mount below this line" anchor. Pages that opt into
-   `@rendermode InteractiveServer` get their own circuit anyway, and
-   non-interactive pages (Login, Register) keep working as static SSR
+   can't be serialized across the rendermode boundary — see Routes.razor).
+   But a *child* component of a non-interactive layout CAN carry @rendermode,
+   so this component sits inside MainLayout and acts as the single
+   "everything interactive needs to mount below this line" anchor.  Pages
+   that opt into `@rendermode InteractiveServer` get their own circuit anyway,
+   and non-interactive pages (Login, Register) keep working as static SSR
    because the providers themselves only matter for interactive fragments.
 
    IsDarkMode="true" forces the dark palette from ServantSyncTheme.Build().
    Both PaletteLight and PaletteDark in the theme are identical dark
-   schemes so static-SSR Account pages don't flash a white background. *@
+   schemes so static-SSR Account pages don't flash a white background.
+
+   The navigation drawer is a custom <aside> controlled by pure CSS/JS
+   (livedrawer.js + app.css), not MudDrawer, because MudDrawer's internal
+   state machine can't be toggled from JavaScript in static SSR. *@
 @rendermode InteractiveServer
 
 <MudBreakpointProvider />

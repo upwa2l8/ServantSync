@@ -7,7 +7,7 @@
 <MudContainer MaxWidth="MaxWidth.Large" Class="pb-8">
     <MudStack Spacing="4">
         <div>
-            <MudText Typo="Typo.h3">Welcome to ServantSync</MudText>
+            <MudText Typo="Typo.h3" Class="gradient-text">Welcome to ServantSync</MudText>
             <MudText Typo="Typo.body1" Class="mud-text-secondary">
                 A volunteer database that handles org memberships, ministry sign-ups,
                 training (video, slideshow, or PDF), and conflict-free scheduling.
@@ -18,7 +18,7 @@
             <Authorized>
                 <MudGrid Spacing="3">
                     <MudItem xs="12" sm="6" md="3">
-                        <MudPaper Outlined="true" Class="pa-4">
+                        <MudPaper Outlined="true" Class="stat-card neon-glow">
                             <MudText Typo="Typo.caption" Class="mud-text-secondary">Ministries available</MudText>
                             @if (!_loaded)
                             {
@@ -34,7 +34,7 @@
                     @if (_isManager)
                     {
                         <MudItem xs="12" sm="6" md="3">
-                            <MudPaper Outlined="true" Class="pa-4">
+                            <MudPaper Outlined="true" Class="stat-card neon-glow">
                                 <MudText Typo="Typo.caption" Class="mud-text-secondary">Volunteers</MudText>
                                 @if (!_loaded)
                                 {
@@ -49,7 +49,7 @@
                         </MudItem>
                     }
                     <MudItem xs="12" sm="6" md="3">
-                        <MudPaper Outlined="true" Class="pa-4">
+                        <MudPaper Outlined="true" Class="stat-card neon-glow">
                             <MudText Typo="Typo.caption" Class="mud-text-secondary">My pending training</MudText>
                             @if (!_loaded)
                             {
@@ -63,7 +63,7 @@
                         </MudPaper>
                     </MudItem>
                     <MudItem xs="12" sm="6" md="3">
-                        <MudPaper Outlined="true" Class="pa-4">
+                        <MudPaper Outlined="true" Class="stat-card neon-glow">
                             <MudText Typo="Typo.caption" Class="mud-text-secondary">Next 30 days</MudText>
                             @if (!_loaded)
                             {
@@ -80,10 +80,10 @@
 
                 @if (_loaded)
                 {
-                    <MudPaper Outlined="true" Class="pa-4">
+                    <MudPaper Outlined="true" Class="glass-card pa-4">
                         <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Start" Class="mb-3">
                             <div>
-                                <MudText Typo="Typo.h6">My ministries</MudText>
+                                <MudText Typo="Typo.h6" Class="gradient-text">My ministries</MudText>
                                 <MudText Typo="Typo.body2" Class="mud-text-secondary">
                                     Ministries you have opted to follow. Sign-up opportunities on these show up on
                                     <MudLink Href="Open">Browse open slots</MudLink>.
@@ -119,7 +119,7 @@
                             <MudList T="MinistryInterest" Dense="true">
                                 @foreach (var mi in _myMinistries)
                                 {
-                                    <MudListItem T="MinistryInterest" Icon="@Icons.Material.Outlined.Church">
+                                    <MudListItem T="MinistryInterest" Icon="@(mi.Ministry.Icon ?? MinistryIcons.Default)">
                                         <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
                                             <div>
                                                 <MudLink Href="@LinkBuilder.MinistryHref(mi.Ministry.OrganizationId, mi.MinistryId)">
@@ -141,9 +141,9 @@
                         }
                     </MudPaper>
 
-                    <MudPaper Outlined="true" Class="pa-4">
+                    <MudPaper Outlined="true" Class="glass-card pa-4">
                         <MudStack Class="mb-3">
-                            <MudText Typo="Typo.h6">Slots I'm subscribed to (@_mySubscribedSlots.Count)</MudText>
+                            <MudText Typo="Typo.h6" Class="gradient-text">Slots I'm subscribed to (@_mySubscribedSlots.Count)</MudText>
                             <MudText Typo="Typo.body2" Class="mud-text-secondary">
                                 Slots you have explicitly opted into. Their open shifts will show up under the
                                 "My slots" filter on <MudLink Href="Open">Browse open slots</MudLink>.

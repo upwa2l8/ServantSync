@@ -6,7 +6,7 @@
 
 <MudBreadcrumbs Items="_crumbs" Class="mb-2 px-0" />
 
-<MudText Typo="Typo.h4" Class="mb-1">Feature request</MudText>
+<MudText Typo="Typo.h4" Class="mb-1 gradient-text">Feature request</MudText>
 <MudText Typo="Typo.body1" Class="mud-text-secondary mb-4">
     Have an idea to make ServantSync better? Submit it here and the
     product team will review it. All requests are welcome — big or small.
@@ -27,7 +27,7 @@ else
         </MudAlert>
     }
 
-    <MudCard Outlined="true" Class="mb-4">
+    <MudCard Outlined="true" Class="glass-card mb-4">
         <MudCardContent>
             <EditForm Model="@_model" OnValidSubmit="SubmitAsync" FormName="feedback-form">
                 <DataAnnotationsValidator />

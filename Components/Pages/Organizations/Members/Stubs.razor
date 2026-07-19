@@ -48,7 +48,7 @@ else
     </nav>
 
     <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-3">
-        <MudText Typo="Typo.h4">Stub members (@(_stubs?.Count ?? 0))</MudText>
+        <MudText Typo="Typo.h4" Class="gradient-text">Stub members (@(_stubs?.Count ?? 0))</MudText>
         <MudStack Row="true" Spacing="1">
             <MudButton Href="@LinkBuilder.OrganizationMemberAddStubHref(Id)"
                        Color="Color.Primary"
@@ -81,7 +81,7 @@ else
     }
     else
     {
-        <MudPaper Outlined="true">
+        <MudPaper Outlined="true" Class="glass-card">
             <MudTable T="StubListItem" Items="_stubs" Dense="true" Hover="true">
                 <HeaderContent>
                     <MudTh>Name</MudTh>

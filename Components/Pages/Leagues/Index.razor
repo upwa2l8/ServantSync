@@ -4,9 +4,7 @@
 
 <PageTitle>Leagues</PageTitle>
 
-<MudBreadcrumbs Items="_crumbs" Class="mb-2 px-0" />
-
-<MudText Typo="Typo.h4" Class="mb-2">Leagues</MudText>
+<MudBreadcrumbs Items="_crumbs" Class="mb-2 px-0" />    <MudText Typo="Typo.h4" Class="mb-2 gradient-text">Leagues</MudText>
 <MudText Typo="Typo.body2" Class="mud-text-secondary mb-4">
     @if (_isSystemAdmin)
     {
@@ -37,7 +35,7 @@ else if (!_rows.Any())
 }
 else
 {
-    <MudPaper Outlined="true">
+    <MudPaper Outlined="true" Class="glass-card">
         <MudTable Items="_rows" Hover="true" Striped="true" Dense="false" Elevation="0">
             <HeaderContent>
                 <MudTh>League</MudTh>

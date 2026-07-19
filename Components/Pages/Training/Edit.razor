@@ -7,7 +7,7 @@
 
 <MudBreadcrumbs Items="BreadcrumbItems" Class="mb-2 px-0" />
 
-<MudText Typo="Typo.h4" Class="mb-2">@(_isNew ? "New training content" : "Edit training content")</MudText>
+<MudText Typo="Typo.h4" Class="mb-2 gradient-text">@(_isNew ? "New training content" : "Edit training content")</MudText>
 <StatusMessage Message="@_message" IsError="@_isError" />
 
 @if (!_authChecked)

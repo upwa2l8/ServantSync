@@ -109,11 +109,13 @@ h1:focus {
     border-radius: 14px !important;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
-.glass-card:hover {
-    border-color: rgba(167,139,250,0.3) !important;
-    box-shadow: 0 8px 32px rgba(167,139,250,0.15),
-                0 2px 8px rgba(0,0,0,0.4) !important;
-    transform: translateY(-2px);
+@media (hover: hover) {
+    .glass-card:hover {
+        border-color: rgba(167,139,250,0.3) !important;
+        box-shadow: 0 8px 32px rgba(167,139,250,0.15),
+                    0 2px 8px rgba(0,0,0,0.4) !important;
+        transform: translateY(-2px);
+    }
 }
 
 /* ── Gradient top border ────────────────────────────────────────── */
@@ -177,9 +179,9 @@ h1:focus {
 
 /* ── KPI stat card ──────────────────────────────────────────────── */
 .stat-card {
-    background: rgba(19,19,43,0.6);
-    border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 12px;
+    background: rgba(19,19,43,0.6) !important;
+    border: 1px solid rgba(255,255,255,0.08) !important;
+    border-radius: 12px !important;
     padding: 1.25rem;
     transition: all 0.25s ease;
     position: relative;

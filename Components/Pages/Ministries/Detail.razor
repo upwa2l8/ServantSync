@@ -24,7 +24,10 @@ else
 {
     <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-3">
         <div>
-            <MudText Typo="Typo.h4">@_ministry.Name</MudText>
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                <MudIcon Icon="@(_ministry.Icon ?? MinistryIcons.Default)" Size="Size.Large" Color="Color.Primary" />
+                <MudText Typo="Typo.h4" Class="gradient-text">@_ministry.Name</MudText>
+            </MudStack>
             <MudText Typo="Typo.body2" Class="mud-text-secondary">@_ministry.Description</MudText>
         </div>
         <MudStack Row="true" Spacing="2">
@@ -88,7 +91,7 @@ else
        falls back to "-" when no CoordinatorPersonUserId is set; the email
        / phone come from the ministry's own columns and are visible to any
        authenticated page visitor. *@
-    <MudCard Class="mb-4">
+    <MudCard Class="mb-4 glass-card">
         <MudCardHeader>Director</MudCardHeader>
         <MudCardContent>
             <MudText><strong>@(_ministry.CoordinatorPerson?.DisplayName ?? "-")</strong></MudText>

@@ -14,7 +14,7 @@ else
 {
     <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-3 flex-wrap gap-2">
         <div>
-            <MudText Typo="Typo.h4">@_ministry.Name</MudText>
+            <MudText Typo="Typo.h4" Class="gradient-text">@_ministry.Name</MudText>
             <MudText Typo="Typo.body2" Class="mud-text-secondary">@_ministry.Organization.Name · @_ministry.Description</MudText>
         </div>
         <MudStack Row="true" Spacing="2" Wrap="Wrap.Wrap">
@@ -40,7 +40,7 @@ else
 
     <MudGrid Spacing="3">
         <MudItem xs="12" md="7">
-            <MudCard>
+            <MudCard Class="glass-card">
                 <MudCardHeader>Teams</MudCardHeader>
                 <MudCardContent>
                     @if (!_ministry.Teams.Any())
@@ -66,7 +66,7 @@ else
                 </MudCardContent>
             </MudCard>
 
-            <MudCard Class="mt-3">
+            <MudCard Class="glass-card mt-3">
                 <MudCardHeader>Upcoming games</MudCardHeader>
                 <MudCardContent>
                     @if (!_upcomingGames.Any())
@@ -94,7 +94,7 @@ else
 
             @if (_ministry.SubMinistries.Any())
             {
-                <MudCard Class="mt-3">
+                <MudCard Class="glass-card mt-3">
                     <MudCardHeader>Sub-ministries (coordinated separately)</MudCardHeader>
                     <MudCardContent>
                         <MudList T="Ministry">
@@ -116,7 +116,7 @@ else
         </MudItem>
 
         <MudItem xs="12" md="5">
-            <MudCard>
+            <MudCard Class="glass-card">
                 <MudCardHeader>Top of standings</MudCardHeader>
                 <MudCardContent>
                     @if (!_topStandings.Any())

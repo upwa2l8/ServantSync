@@ -29,6 +29,14 @@ public class Ministry
     [StringLength(40)]
     public string? CoordinatorPhone { get; set; }
 
+    /// <summary>
+    /// MudBlazor Material icon constant (e.g. "Icons.Material.Outlined.Church").
+    /// Set via the icon picker on the Ministry Edit page. Null falls back to
+    /// "Icons.Material.Outlined.Church" at render time.
+    /// </summary>
+    [StringLength(80)]
+    public string? Icon { get; set; }
+
     public ICollection<ServiceSlot> ServiceSlots { get; set; } = new List<ServiceSlot>();
 
     /// <summary>

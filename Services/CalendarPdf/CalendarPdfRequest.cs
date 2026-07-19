@@ -17,6 +17,7 @@ public class CalendarPdfRequest
     public DateTime GeneratedUtc { get; set; }
     public string? OrgJoinUrl { get; set; }
     public string? BaseUri { get; set; }
+    public string? OpenPageUrl { get; set; }
     public bool ShowVolunteerNames { get; set; }
     public List<CalendarOccurrence> Occurrences { get; set; } = new();
 }

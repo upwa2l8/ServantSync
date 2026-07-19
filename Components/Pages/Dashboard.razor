@@ -4,9 +4,7 @@
 
 <PageTitle>Organization dashboard</PageTitle>
 
-<MudBreadcrumbs Items="_crumbs" Class="mb-2 px-0" />
-
-<MudText Typo="Typo.h4" Class="mb-1">@_title</MudText>
+<MudBreadcrumbs Items="_crumbs" Class="mb-2 px-0" />                <MudText Typo="Typo.h4" Class="mb-1 gradient-text">@_title</MudText>
 <MudText Typo="Typo.body2" Class="mud-text-secondary mb-4">@_windowDescription</MudText>
 
 @if (_loading)
@@ -75,20 +73,20 @@ else
     @* ---- KPI strip (always visible) ---- *@
     <MudGrid Spacing="3" Class="mb-3">
         <MudItem xs="6" md="3">
-            <MudPaper Outlined="true" Class="pa-4">
+            <MudPaper Outlined="true" Class="stat-card neon-glow">
                 <MudText Typo="Typo.caption" Class="mud-text-secondary">Assignments</MudText>
                 <MudText Typo="Typo.h4">@_kpis.TotalAssignments</MudText>
             </MudPaper>
         </MudItem>
         <MudItem xs="6" md="3">
-            <MudPaper Outlined="true" Class="pa-4">
+            <MudPaper Outlined="true" Class="stat-card neon-glow">
                 <MudText Typo="Typo.caption" Class="mud-text-secondary">Unique volunteers</MudText>
                 <MudText Typo="Typo.h4">@_kpis.UniquePeople</MudText>
             </MudPaper>
         </MudItem>
         <MudItem xs="6" md="3">
             <MudPaper Outlined="@(_kpis.PersonOverlaps > 0)"
-                      Class="@("pa-4 " + (_kpis.PersonOverlaps > 0 ? "mud-border-error" : ""))">
+                      Class="@("stat-card neon-glow " + (_kpis.PersonOverlaps > 0 ? "mud-border-error" : ""))">
                 <MudText Typo="Typo.caption" Class="mud-text-secondary">Person overlaps</MudText>
                 <MudText Typo="Typo.h4" Color="@(_kpis.PersonOverlaps > 0 ? Color.Error : Color.Default)">
                     @_kpis.PersonOverlaps
@@ -97,7 +95,7 @@ else
         </MudItem>
         <MudItem xs="6" md="3">
             <MudPaper Outlined="@(_kpis.OutstandingTrainings > 0)"
-                      Class="@("pa-4 " + (_kpis.OutstandingTrainings > 0 ? "mud-border-warning" : ""))">
+                      Class="@("stat-card neon-glow " + (_kpis.OutstandingTrainings > 0 ? "mud-border-warning" : ""))">
                 <MudText Typo="Typo.caption" Class="mud-text-secondary">Outstanding trainings</MudText>
                 <MudText Typo="Typo.h4" Color="@(_kpis.OutstandingTrainings > 0 ? Color.Warning : Color.Default)">
                     @_kpis.OutstandingTrainings

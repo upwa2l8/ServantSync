@@ -30,7 +30,7 @@ else
 {
     <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-3">
         <div>
-            <MudText Typo="Typo.h4">@_org.Name</MudText>
+            <MudText Typo="Typo.h4" Class="gradient-text">@_org.Name</MudText>
             <MudText Typo="Typo.body2" Class="mud-text-secondary">@_org.Description</MudText>
         </div>
         <MudStack Row="true" Spacing="2">
@@ -147,7 +147,7 @@ else
                 <MudList T="Ministry">
                     @foreach (var m in _org.Ministries.OrderBy(m => m.Name))
                     {
-                        <MudListItem>
+                        <MudListItem Icon="@(m.Icon ?? MinistryIcons.Default)">
                             <MudStack Row="true" Justify="Justify.SpaceBetween">
                                 <MudLink Href="@LinkBuilder.MinistryHref(Id, m.Id)">@m.Name</MudLink>
                                 <MudChip T="string" Size="Size.Small" Color="Color.Default">@m.ServiceSlots.Count slots</MudChip>

@@ -4,9 +4,7 @@
 
 <PageTitle>Volunteers</PageTitle>
 
-<MudBreadcrumbs Items="_crumbs" Class="mb-2 px-0" />
-
-<MudText Typo="Typo.h4" Class="mb-2">Volunteers</MudText>
+<MudBreadcrumbs Items="_crumbs" Class="mb-2 px-0" />    <MudText Typo="Typo.h4" Class="mb-2 gradient-text">Volunteers</MudText>
 
 @* Privacy model: the global /People listing visibility is tier-scoped
    (single source of truth via OrgAuthService). Round-AW wires SystemAdmin
@@ -28,7 +26,7 @@
 }
 else if (!_isAdmin)
 {
-    <MudPaper Outlined="true" Class="pa-4">
+    <MudPaper Outlined="true" Class="glass-card pa-4">
         <MudStack Spacing="2">
             <MudText Typo="Typo.h6">No access</MudText>
             <MudText Typo="Typo.body2">
@@ -62,7 +60,7 @@ else
     }
     else
     {
-        <MudPaper Outlined="true">
+        <MudPaper Outlined="true" Class="glass-card">
             <MudList T="PersonRow" Dense="true">
                 @foreach (var p in Filtered)
                 {

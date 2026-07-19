@@ -662,6 +662,7 @@ async (int orgId, int minId, int slotId, HttpContext ctx,
         StartDate = startDate, GeneratedUtc = DateTime.UtcNow,
         OrgJoinUrl = orgJoinUrl,
         BaseUri = $"{ctx.Request.Scheme}://{ctx.Request.Host}{ctx.Request.PathBase}",
+        OpenPageUrl = $"{ctx.Request.Scheme}://{ctx.Request.Host}{ctx.Request.PathBase}/Open",
         ShowVolunteerNames = showNames,
         Occurrences = calendarOccs,
     };

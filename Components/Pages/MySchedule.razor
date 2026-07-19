@@ -6,7 +6,7 @@
 
 <MudBreadcrumbs Items="_crumbs" Class="mb-2 px-0" />
 
-<MudText Typo="Typo.h4" Class="mb-3">My schedule</MudText>
+<MudText Typo="Typo.h4" Class="mb-3 gradient-text">My schedule</MudText>
 
 @if (_loading)
 {
@@ -93,7 +93,7 @@ else
         }
         else
         {
-            <MudPaper Outlined="true" Class="mt-2">
+            <MudPaper Outlined="true" Class="glass-card mt-2">
                 <MudTable Items="_assignments" Hover="true" Striped="true" Dense="true" Elevation="0">
                     <HeaderContent>
                         <MudTh>When</MudTh>
@@ -123,7 +123,7 @@ else
         @if (_myTrainingSessions.Any())
         {
             <MudText Typo="Typo.h6" Class="mt-4">Upcoming training</MudText>
-            <MudPaper Outlined="true" Class="mt-2">
+            <MudPaper Outlined="true" Class="glass-card mt-2">
                 <MudTable Items="_myTrainingSessions" Hover="true" Dense="true" Elevation="0">
                     <HeaderContent>
                         <MudTh>When</MudTh>
@@ -166,7 +166,7 @@ else
             @foreach (var s in _availableSessions)
             {
                 <MudItem xs="12" md="6">
-                    <MudPaper Outlined="true" Class="pa-4 h-100 d-flex flex-column">
+                    <MudPaper Outlined="true" Class="glass-card pa-4 h-100 d-flex flex-column">
                         <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Start" Class="mb-2">
                             <MudText Typo="Typo.h6" Class="mb-0">@s.Title</MudText>
                             @if (s.IsFull)
@@ -228,7 +228,7 @@ else
     }
     else
     {
-        <MudPaper Outlined="true" Class="mt-2">
+        <MudPaper Outlined="true" Class="glass-card mt-2">
             <MudList T="OutstandingRow" Dense="true">
                 @foreach (var r in _outstanding)
                 {

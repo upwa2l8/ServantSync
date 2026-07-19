@@ -38,7 +38,7 @@ else
 {
     <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-3">
         <div>
-            <MudText Typo="Typo.h4" Class="mb-0">Parents &middot; @_team!.Name</MudText>
+            <MudText Typo="Typo.h4" Class="mb-0 gradient-text">Parents &middot; @_team!.Name</MudText>
             <MudText Typo="Typo.body2" Class="mud-text-secondary">
                 @_activePlayers.Count active player@(_activePlayers.Count == 1 ? "" : "s") on the current roster.
                 &middot; <MudLink Href="@LinkBuilder.TeamHref(TeamId)">Back to team</MudLink>
@@ -55,7 +55,7 @@ else
     }
     else
     {
-        <MudPaper Outlined="true">
+        <MudPaper Outlined="true" Class="glass-card">
             <MudTable T="Player" Items="_activePlayers" Dense="true" Hover="true">
                 <HeaderContent>
                     <MudTh>#</MudTh>

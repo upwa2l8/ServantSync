@@ -40,12 +40,11 @@
     <link rel="apple-touch-icon" sizes="180x180" href="@Assets["img/apple-touch-icon.png"]" />
     <meta name="theme-color" content="#0d0d1f" />
     <script src="js/snake.js" defer></script>
-    @* Round-CHAPEL-DRAWER-1: live resize watcher for the responsive
-       MudDrawer.  MainLayout.razor invokes window.ssWatchDrawer with
-       a DotNetObjectReference; the watcher posts OnBreakpointChanged
-       (desktop vs mobile) when the viewport crosses 600px so the
-       drawer's _drawerOpen state stays in sync on device rotation
-       or window resize. *@
+    @* Round-CHAPEL-DRAWER-1: responsive drawer toggle + resize watcher.
+       The drawer is a plain <aside> controlled by CSS class .ss-drawer-open
+       on <body>.  No Blazor interop — pure JS that works in static SSR
+       before the SignalR circuit warms up.  Resize watcher auto-syncs
+       the class when the viewport crosses 600px. *@
     <script src="js/livedrawer.js" defer></script>
     <HeadOutlet />
 </head>

@@ -4,9 +4,7 @@
 
 <PageTitle>Coordinators · @(_orgName ?? "Organization")</PageTitle>
 
-<MudBreadcrumbs Items="BreadcrumbItems" Class="mb-2 px-0" />
-
-<MudText Typo="Typo.h4" Class="mb-2">Coordinator dashboard</MudText>
+<MudBreadcrumbs Items="BreadcrumbItems" Class="mb-2 px-0" />    <MudText Typo="Typo.h4" Class="mb-2 gradient-text">Coordinator dashboard</MudText>
 <MudText Typo="Typo.body2" Class="mud-text-secondary mb-3">
     Manage who coordinates every volunteer opportunity in
     <strong>@(_orgName ?? "this organization")</strong>. Unassigned slots surface at the top so it's clear what still needs to be delegated. Permissions: Admin or Coordinator of this organization.
@@ -74,7 +72,7 @@ else
         </MudAlert>
     }
 
-    <MudPaper Outlined="true">
+    <MudPaper Outlined="true" Class="glass-card">
         <MudTable T="CoordinatorAssignmentRow" Items="FilteredRows()" Dense="true" Hover="true">
             <HeaderContent>
                 <MudTh>Slot</MudTh>

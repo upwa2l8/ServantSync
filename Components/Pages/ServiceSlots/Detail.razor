@@ -14,7 +14,7 @@ else
 {
     <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Start" Class="mb-3" Spacing="2">
         <div>
-            <MudText Typo="Typo.h4" Class="mb-0">@_slot.Name</MudText>
+            <MudText Typo="Typo.h4" Class="mb-0 gradient-text">@_slot.Name</MudText>
             <MudText Typo="Typo.body2" Class="mud-text-secondary">@_slot.Description</MudText>
             @if (!string.IsNullOrWhiteSpace(_slot.Location))
             {
@@ -90,7 +90,7 @@ else
         </MudStack>
     </MudStack>
 
-    <MudPaper Outlined="true" Class="mb-4 pa-3">
+    <MudPaper Outlined="true" Class="glass-card mb-4 pa-3">
         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="mb-2">
             <MudIcon Icon="@Icons.Material.Outlined.Badge" />
             <MudText Typo="Typo.h6">Slot coordinator</MudText>

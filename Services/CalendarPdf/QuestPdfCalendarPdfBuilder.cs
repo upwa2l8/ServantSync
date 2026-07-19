@@ -9,8 +9,8 @@ namespace ServantSync.Services.CalendarPdf;
 /// <summary>
 /// QuestPDF implementation of <see cref="ICalendarPdfBuilder"/>.
 /// Generates printable A4 calendar PDFs with cover band (text wordmark,
-/// org name, slot name, date/tz info, org-join QR), month / week / day
-/// body layouts, per-occurrence QR codes, and a footer.
+/// org name, slot name, date/tz info, org-join QR, open-slots QR),
+/// month / week / day body layouts, and a footer.
 /// </summary>
 public class QuestPdfCalendarPdfBuilder : ICalendarPdfBuilder
 {
@@ -35,20 +35,10 @@ public class QuestPdfCalendarPdfBuilder : ICalendarPdfBuilder
         if (!string.IsNullOrEmpty(request.OrgJoinUrl))
             orgJoinQrBytes = qrCodeBuilder.GeneratePng(request.OrgJoinUrl);
 
-        // Generate per-occurrence QR codes for open slots.
-        // Use BaseUri (always set by the endpoint) rather than OrgJoinUrl
-        // so QRs are generated even when the org has no registration token.
-        var occurrenceQrMap = new Dictionary<int, byte[]>();
-        foreach (var occ in request.Occurrences.Where(o => o.IsOpen))
-        {
-            var url = !string.IsNullOrEmpty(request.BaseUri)
-                ? $"{request.BaseUri}/Open?occ={occ.Id}"
-                : null;
-            if (url is null) continue;
-            var qrBytes = qrCodeBuilder.GeneratePng(url);
-            if (qrBytes is not null)
-                occurrenceQrMap[occ.Id] = qrBytes;
-        }
+        // Generate a single Open-page QR so recipients can browse open slots.
+        byte[]? openPageQrBytes = null;
+        if (!string.IsNullOrEmpty(request.OpenPageUrl))
+            openPageQrBytes = qrCodeBuilder.GeneratePng(request.OpenPageUrl);
 
         var doc = Document.Create(container =>
         {
@@ -57,8 +47,8 @@ public class QuestPdfCalendarPdfBuilder : ICalendarPdfBuilder
                 page.Size(PageSizes.A4);
                 page.Margin(15, Unit.Millimetre);
 
-                page.Header().Element(c => ComposeCoverBand(c, request, orgJoinQrBytes, tz, cultureInfo));
-                page.Content().Element(c => ComposeBody(c, request, occurrenceQrMap, tz, cultureInfo));
+                page.Header().Element(c => ComposeCoverBand(c, request, orgJoinQrBytes, openPageQrBytes, tz, cultureInfo));
+                page.Content().Element(c => ComposeBody(c, request, tz, cultureInfo));
                 page.Footer().Element(c => ComposeFooter(c, request));
             });
         });
@@ -68,15 +58,15 @@ public class QuestPdfCalendarPdfBuilder : ICalendarPdfBuilder
     }
 
     private void ComposeCoverBand(IContainer container, CalendarPdfRequest request,
-        byte[]? orgJoinQrBytes, TimeZoneInfo tz, CultureInfo culture)
+        byte[]? orgJoinQrBytes, byte[]? openPageQrBytes, TimeZoneInfo tz, CultureInfo culture)
     {
         container.Column(col =>
         {
             col.Item().Row(row =>
             {
-                row.RelativeItem(3).Column(left =>
+                // Left column: wordmark + info.
+                row.RelativeItem(2).Column(left =>
                 {
-                    // Text wordmark — "ServantSync" in brand purple.
                     left.Item().Text("ServantSync")
                         .FontSize(22).Bold().FontColor(BrandPurple);
 
@@ -92,19 +82,26 @@ public class QuestPdfCalendarPdfBuilder : ICalendarPdfBuilder
                         .FontSize(8).FontColor(Colors.Grey.Medium);
                 });
 
-                // Org-join QR in bottom-right of cover band.
+                // Right column: up to two QR codes stacked (org-join + open slots).
                 row.RelativeItem(1).AlignRight().AlignMiddle().Column(right =>
                 {
                     if (orgJoinQrBytes is not null)
                     {
-                        right.Item().Width(45, Unit.Millimetre).Image(orgJoinQrBytes);
-                        right.Item().PaddingTop(2).Text($"Scan to join {request.OrganizationName}")
+                        right.Item().Width(38, Unit.Millimetre).Image(orgJoinQrBytes);
+                        right.Item().PaddingTop(1).Text($"Scan to join {request.OrganizationName}")
                             .FontSize(6).FontColor(Colors.Grey.Medium).AlignCenter();
                     }
                     else
                     {
-                        right.Item().Text("Ask a coordinator\nfor the invite link")
+                        right.Item().PaddingBottom(4).Text("Ask a coordinator\nfor the invite link")
                             .FontSize(7).FontColor(Colors.Grey.Medium).AlignCenter();
+                    }
+
+                    if (openPageQrBytes is not null)
+                    {
+                        right.Item().PaddingTop(6).Width(38, Unit.Millimetre).Image(openPageQrBytes);
+                        right.Item().PaddingTop(1).Text("Scan to browse open slots")
+                            .FontSize(6).FontColor(Colors.Grey.Medium).AlignCenter();
                     }
                 });
             });
@@ -115,7 +112,7 @@ public class QuestPdfCalendarPdfBuilder : ICalendarPdfBuilder
     }
 
     private void ComposeBody(IContainer container, CalendarPdfRequest request,
-        Dictionary<int, byte[]> occurrenceQrMap, TimeZoneInfo tz, CultureInfo culture)
+        TimeZoneInfo tz, CultureInfo culture)
     {
         container.PaddingTop(8).Column(col =>
         {
@@ -124,13 +121,13 @@ public class QuestPdfCalendarPdfBuilder : ICalendarPdfBuilder
                 switch (request.Scope)
                 {
                     case CalendarScope.Week:
-                        ComposeWeekView(c, request, occurrenceQrMap, tz, culture);
+                        ComposeWeekView(c, request, tz, culture);
                         break;
                     case CalendarScope.Day:
-                        ComposeDayView(c, request, occurrenceQrMap, tz, culture);
+                        ComposeDayView(c, request, tz, culture);
                         break;
                     default:
-                        ComposeMonthView(c, request, occurrenceQrMap, tz, culture);
+                        ComposeMonthView(c, request, tz, culture);
                         break;
                 }
             });
@@ -145,7 +142,7 @@ public class QuestPdfCalendarPdfBuilder : ICalendarPdfBuilder
     }
 
     private void ComposeMonthView(IContainer container, CalendarPdfRequest request,
-        Dictionary<int, byte[]> occurrenceQrMap, TimeZoneInfo tz, CultureInfo culture)
+        TimeZoneInfo tz, CultureInfo culture)
     {
         var startDate = request.StartDate;
         var year = startDate.Year;
@@ -162,7 +159,6 @@ public class QuestPdfCalendarPdfBuilder : ICalendarPdfBuilder
         // Available content height on A4 ≈ 267 mm (297 – 30 mm margins).
         // Header/footer may take ~50 mm, leaving ~217 mm for content.
         // Reserve ~16 mm for the key row at the bottom → ~200 mm for the grid.
-        // Dynamic cell height: cap at 40 mm for 5-row months, shrink for 6-row months.
         int totalCells = startDow + daysInMonth;
         int numRows = (int)Math.Ceiling(totalCells / 7.0);
         float monthCellHeight = Math.Min(40f, 200f / numRows);
@@ -207,7 +203,9 @@ public class QuestPdfCalendarPdfBuilder : ICalendarPdfBuilder
                         var cellDate = new DateTime(year, month, dayNum, 0, 0, 0, DateTimeKind.Unspecified);
                         var dayOccurrences = byDate.TryGetValue(cellDate, out var list) ? list : new();
 
-                        cellTable.Cell().Height(monthCellHeight, Unit.Millimetre).Border(0.5f)
+                        // Use MaxHeight to prevent DocumentLayoutException when
+                        // many occurrences overflow the calculated cell height.
+                        cellTable.Cell().MaxHeight(monthCellHeight, Unit.Millimetre).Border(0.5f)
                             .BorderColor(Colors.Grey.Lighten2).Padding(2).Column(cellCol =>
                         {
                             cellCol.Item().Text(dayNum.ToString()).FontSize(8).SemiBold();
@@ -248,16 +246,13 @@ public class QuestPdfCalendarPdfBuilder : ICalendarPdfBuilder
     }
 
     private void ComposeWeekView(IContainer container, CalendarPdfRequest request,
-        Dictionary<int, byte[]> occurrenceQrMap, TimeZoneInfo tz, CultureInfo culture)
+        TimeZoneInfo tz, CultureInfo culture)
     {
         // Group occurrences by local date.
         var byDate = request.Occurrences
             .GroupBy(o => TimeZoneResolver.ToLocal(o.StartUtc, tz).Date)
             .ToDictionary(g => g.Key, g => g.ToList());
 
-        // Available content height on A4 ≈ 267 mm (297 – 30 mm margins).
-        // Header/footer may take ~50 mm, leaving ~217 mm for content.
-        // 16 hours × 12 mm = 192 mm fits comfortably.
         int startHour = 6, endHour = 21;
         var weekStart = request.StartDate.Date;
 
@@ -303,8 +298,10 @@ public class QuestPdfCalendarPdfBuilder : ICalendarPdfBuilder
                             ? list.Where(o => TimeZoneResolver.ToLocal(o.StartUtc, tz).Hour == h).ToList()
                             : new();
 
+                        // Use MaxHeight instead of Height to prevent
+                        // DocumentLayoutException when content overflows.
                         hourRow.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2)
-                            .Padding(1).Column(cellCol =>
+                            .MaxHeight(HourRowHeight, Unit.Millimetre).Padding(1).Column(cellCol =>
                         {
                             foreach (var occ in hourOccurrences.Take(2))
                             {
@@ -321,11 +318,8 @@ public class QuestPdfCalendarPdfBuilder : ICalendarPdfBuilder
     }
 
     private void ComposeDayView(IContainer container, CalendarPdfRequest request,
-        Dictionary<int, byte[]> occurrenceQrMap, TimeZoneInfo tz, CultureInfo culture)
+        TimeZoneInfo tz, CultureInfo culture)
     {
-        // Available content height on A4 ≈ 267 mm (297 – 30 mm margins).
-        // Header/footer may take ~50 mm, leaving ~217 mm for content.
-        // 16 hours × 12 mm = 192 mm fits comfortably.
         int startHour = 6, endHour = 21;
         var dayDate = request.StartDate.Date;
 
@@ -353,38 +347,24 @@ public class QuestPdfCalendarPdfBuilder : ICalendarPdfBuilder
                         .Border(0.5f).BorderColor(Colors.Grey.Lighten2).AlignMiddle()
                         .Text($"{h:00}:00").FontSize(7).FontColor(Colors.Grey.Medium);
 
-                    // Timeline content.
+                    // Timeline content — Column stacks occurrences vertically.
                     row.RelativeItem().Border(0.5f).BorderColor(Colors.Grey.Lighten2)
-                        .Height(HourRowHeight, Unit.Millimetre).Padding(2).Row(tlRow =>
+                        .Padding(2).Column(tlCol =>
                     {
-                        if (hourOccurrences.Count == 0)
+                        foreach (var occ in hourOccurrences.Take(2))
                         {
-                            tlRow.RelativeItem().AlignMiddle().Text("").FontSize(6);
-                        }
-                        else
-                        {
-                            foreach (var occ in hourOccurrences)
-                            {
-                                var localStart = TimeZoneResolver.ToLocal(occ.StartUtc, tz);
-                                var localEnd = TimeZoneResolver.ToLocal(occ.EndUtc, tz);
-                                var label = occ.IsOpen
-                                    ? $"{localStart:HH:mm}–{localEnd:HH:mm}  open"
-                                    : $"{localStart:HH:mm}–{localEnd:HH:mm}  filled";
-                                if (request.ShowVolunteerNames && !occ.IsOpen)
-                                    label += $" — {occ.AssignedVolunteerName}";
+                            var localStart = TimeZoneResolver.ToLocal(occ.StartUtc, tz);
+                            var localEnd = TimeZoneResolver.ToLocal(occ.EndUtc, tz);
+                            var label = occ.IsOpen
+                                ? $"{localStart:HH:mm}–{localEnd:HH:mm}  open"
+                                : $"{localStart:HH:mm}–{localEnd:HH:mm}  filled";
+                            if (request.ShowVolunteerNames && !occ.IsOpen)
+                                label += $" — {occ.AssignedVolunteerName}";
 
-                                tlRow.RelativeItem().AlignMiddle().Text(label)
-                                    .FontSize(6).FontColor(occ.IsOpen
-                                        ? Colors.Grey.Darken1
-                                        : Colors.Green.Darken1);
-
-                                // QR code for open occurrences.
-                                if (occ.IsOpen && occurrenceQrMap.TryGetValue(occ.Id, out var qrBytes))
-                                {
-                                    tlRow.ConstantItem(12, Unit.Millimetre).AlignMiddle()
-                                        .Image(qrBytes);
-                                }
-                            }
+                            tlCol.Item().Text(label)
+                                .FontSize(6).FontColor(occ.IsOpen
+                                    ? Colors.Grey.Darken1
+                                    : Colors.Green.Darken1);
                         }
                     });
                 });

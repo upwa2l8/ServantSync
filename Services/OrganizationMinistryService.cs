@@ -36,6 +36,7 @@ public interface IOrganizationMinistryService
         string? coordinatorPersonUserId,
         string? coordinatorEmail,
         string? coordinatorPhone,
+        string? icon = null,
         CancellationToken ct = default);
 }
 
@@ -64,6 +65,7 @@ public class OrganizationMinistryService : IOrganizationMinistryService
         string? coordinatorPersonUserId,
         string? coordinatorEmail,
         string? coordinatorPhone,
+        string? icon = null,
         CancellationToken ct = default)
     {
         // Input validation: empty caller or empty name → permission denied
@@ -117,6 +119,7 @@ public class OrganizationMinistryService : IOrganizationMinistryService
             existing.CoordinatorPersonUserId = coordinatorPersonUserId;
             existing.CoordinatorEmail = coordinatorEmail;
             existing.CoordinatorPhone = coordinatorPhone;
+            existing.Icon = icon;
             await db.SaveChangesAsync(ct);
             return MinistryUpsertResult.Saved;
         }
@@ -130,6 +133,7 @@ public class OrganizationMinistryService : IOrganizationMinistryService
             CoordinatorPersonUserId = coordinatorPersonUserId,
             CoordinatorEmail = coordinatorEmail,
             CoordinatorPhone = coordinatorPhone,
+            Icon = icon,
         });
         await db.SaveChangesAsync(ct);
         return MinistryUpsertResult.Saved;

@@ -18,14 +18,14 @@ else if (!_canView)
 }
 else
 {
-    <MudText Typo="Typo.h4">System administrators</MudText>
+    <MudText Typo="Typo.h4" Class="gradient-text">System administrators</MudText>
     <MudText Typo="Typo.body2" Class="mud-text-secondary">Round-BC: grant or revoke the SystemAdmin role. Every attempt is logged on the audit log below.</MudText>
 
     <StatusMessage Message="@_message" IsError="@_isError" />
 
     <MudGrid Spacing="3" Class="mb-4">
         <MudItem xs="12" md="6">
-            <MudCard Outlined="true" Class="shadow-sm">
+            <MudCard Outlined="true" Class="glass-card">
                 <MudCardHeader>
                     <MudText Typo="Typo.h6">Current SystemAdmins (@_admins.Count)</MudText>
                 </MudCardHeader>
@@ -66,7 +66,7 @@ else
             </MudCard>
         </MudItem>
         <MudItem xs="12" md="6">
-            <MudCard Outlined="true" Class="shadow-sm">
+            <MudCard Outlined="true" Class="glass-card">
                 <MudCardHeader>
                     <MudText Typo="Typo.h6">Grant SystemAdmin to a user</MudText>
                 </MudCardHeader>
