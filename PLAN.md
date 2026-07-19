@@ -1843,3 +1843,31 @@ NEW `dotnet ef migrations add AddSlotInterests` (auto-name). Purely additive: 1 
 - STATUS.md + PLAN.md ledger updates at round-ship time.
 
 
+## Cleanup tasks (UI polish, copy edits, minor UX fixes)
+
+Low-risk, incremental improvements that don't change functionality.
+Each item is a small self-contained commit.
+
+### C-1: Training catalog page — trim verbose intro paragraph ✅
+
+**Page:** `Components/Pages/Training/Manage.razor`
+
+**Current text (visible to the user).**
+> Training content you administer. Since round N this is the
+> org-admin edit surface [and more internal implementation notes]
+> ...this is the org-admin edit surface.
+
+**Target text.**
+> Training content you administer. Volunteers only see *their*
+> outstanding requirements and history on the /Training page.
+
+**Rationale.** The current paragraph exposes internal implementation
+notes (round numbers, architecture details) to end users. The
+reduced version tells a coordinator what the page is and where
+volunteers see their view — nothing more.
+
+**Files touched.**
+- `Components/Pages/Training/Index.razor` — replace the intro
+  paragraph text. No code changes, no logic changes.
+
+**Estimated effort:** 5 minutes. One-line text replacement.

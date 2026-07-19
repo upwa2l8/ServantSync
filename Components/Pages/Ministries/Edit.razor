@@ -10,6 +10,8 @@
 <MudText Typo="Typo.h4" Class="mb-2 gradient-text">@(_isNew ? "New ministry" : "Edit ministry")</MudText>
 <StatusMessage Message="@_message" IsError="@_isError" />
 
+@if (_ready)
+{
 <EditForm Model="_model" OnValidSubmit="Save" FormName="min">
     <DataAnnotationsValidator />
     <ValidationSummary />
@@ -98,6 +100,7 @@
                    Variant="Variant.Outlined">Cancel</MudButton>
     </MudStack>
 </EditForm>
+}
 
 @inject IDbContextFactory<ApplicationDbContext> DbFactory
 @inject NavigationManager Nav
@@ -124,6 +127,13 @@
     // fresh Auth call. Empty string (never null) keeps the gate from
     // misclassifying an anonymous request as "admin".
     private string _userId = "";
+    // Prerender guard: suppress the form during prerender so the DOM
+    // snapshot matches the interactive render. Without this, the prerender
+    // phase may see an unauthenticated CascadingAuthenticationState,
+    // produce an empty form + "no permission" message, and then when the
+    // interactive circuit arrives with the real auth state the DOM shift
+    // triggers a Blazor prerender-mismatch disconnect.
+    private bool _ready;
 
     // Breadcrumb items for MudBreadcrumbs. The last item is the current
     // page (no href, disabled). Built from the route params + isNew flag
@@ -193,6 +203,15 @@
         };
     }
 
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _ready = true;
+            StateHasChanged();
+        }
+    }
 
     private async Task Save()
     {
