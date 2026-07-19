@@ -144,6 +144,7 @@ else
                 <MudPaper id="@($"occ-{s.OccurrenceId}")" Outlined="true" Class="@($"glass-card pa-4 h-100 d-flex flex-column{(OccurrenceId.HasValue && s.OccurrenceId == OccurrenceId.Value ? " border-2 border-primary" : "")}")">
                     <MudText Typo="Typo.h6" Class="mb-1">@s.SlotName</MudText>
                     <MudText Typo="Typo.caption" Class="mud-text-secondary mb-2">
+                        <MudIcon Icon="@(s.MinistryIcon ?? MinistryIcons.Default)" Size="Size.Small" Class="mr-1" />
                         <MudLink Href="@LinkBuilder.OrganizationHref(s.OrganizationId)">@s.MinistryName</MudLink>
                     </MudText>
                     <MudText Class="mb-2">

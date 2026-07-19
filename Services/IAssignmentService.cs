@@ -156,6 +156,7 @@ public record OpenSlotOccurrenceView(
     string SlotName,
     int MinistryId,
     string MinistryName,
+    string? MinistryIcon,
     int OrganizationId,
     DateTime StartUtc,
     DateTime EndUtc,
