@@ -10,6 +10,8 @@
 <MudText Typo="Typo.h4" Class="mb-2 gradient-text">@(_isNew ? "New service slot" : "Edit service slot")</MudText>
 <StatusMessage Message="@_message" IsError="@_isError" />
 
+@if (_ready)
+{
 <EditForm Model="_model" OnValidSubmit="Save" FormName="slot">
     <DataAnnotationsValidator />
     <ValidationSummary />
@@ -133,6 +135,7 @@
                    Variant="Variant.Outlined">Cancel</MudButton>
     </MudStack>
 </EditForm>
+}
 
 @inject IDbContextFactory<ApplicationDbContext> DbFactory
 @inject NavigationManager Nav
@@ -184,6 +187,11 @@
     // gate the server also re-checks inside SlotManagementService.
     private bool _canSubmit => _isNew ? _canCreate : _canEdit;
     private string _userId = "";
+    // Prerender guard: suppress the form during prerender so the DOM
+    // snapshot matches the interactive render. Without this, MudBlazor
+    // components (MudSelect, MudNumericField) render as static HTML
+    // during prerender and their JS interactivity never wires up.
+    private bool _ready;
 
     // Breadcrumb items for MudBreadcrumbs. The last item is the current
     // page (no href, disabled). Built from the route params + isNew flag
@@ -277,6 +285,15 @@
         };
     }
 
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _ready = true;
+            StateHasChanged();
+        }
+    }
 
     private async Task Save()
     {
