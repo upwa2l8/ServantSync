@@ -32,11 +32,6 @@
 
 properties:
   configuration:
-    # Round-ACA-1.16: activeRevisionsMode=Single. With Azure SQL
-    # Database (no SMB-lease issues), could relax to Multiple for
-    # zero-downtime deploys. Keeping Single for now as a conservative
-    # default.
-    activeRevisionsMode: Single
     # Ingress: external (public FQDN) + listens on 8080 (the ServantSync
     # image's hardcoded ASPNETCORE_URLS=http://+:8080; nginx:alpine
     # placeholder that ran before this YAML existed listened on 80,
@@ -53,8 +48,11 @@ properties:
     # roundtrip idempotency without ever carrying the password in git.
     secrets:
       - name: smtp-password
-        # empty value: tells deploy action's PUT to preserve the live smtp-password
-        value: ""
+        # value intentionally omitted so the deploy action's full PUT
+        # doesn't overwrite the live smtp-password with an empty
+        # string. The ARM-template-less behavior ("no value" -> "don't
+        # touch the live secret value") is unambiguous across API
+        # versions and never carries the password in git.
     # Registries: must declare explicitly so the deploy action's
     # full PUT-yaml semantics don't blank the managed-identity config
     # we set up in Round-ACA-1. With this block present, ACA pulls
@@ -83,11 +81,23 @@ properties:
           - name: ASPNETCORE_FORWARDEDHEADERS_ENABLED
             value: "true"                  # ACA ingress terminates TLS, so the app must trust X-Forwarded-Proto
 
-          # --- Azure SQL Database (see HANDOFF.md for migration context) ---
-          # TODO: move to an ACA secret (az containerapp secret set) once
-          # the deploy is stable. The ! in the password breaks bash quoting.
+          # --- SQLite database (lives on the /data Azure Files share) ---
           - name: ConnectionStrings__DefaultConnection
-            value: "Server=tcp:servantsyncdb.database.windows.net,1433;Initial Catalog=servantsyncdb;Persist Security Info=False;User ID=ssdb;Password=SnowWhiteandthe7Dwarves!;MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;"
+            value: "Data Source=/data/servantsync.db"
+
+          # --- Periodic VACUUM INTO backup (SqliteBackupService) ---
+          - name: Backup__Enabled
+            value: "true"
+          - name: Backup__IntervalHours
+            value: "24"
+          - name: Backup__RetentionDays
+            value: "30"
+          - name: Backup__Directory
+            value: "/data/backups"         # MUST live on the persistent share, never wwwroot
+          - name: Backup__FilePrefix
+            value: "backup"
+          - name: Backup__MaxBackups
+            value: "100"
 
           # --- SMTP (MailKitEmailSender) ---
           # Non-secret bits are inline; the password is a secretRef so
@@ -112,7 +122,7 @@ properties:
             mountPath: /data               # matches SqliteBackupService's Backup__Directory
     scale:
       minReplicas: 0                      # required to keep idle cost at $0
-      maxReplicas: 1                      # Single replica is fine for Azure SQL (no SMB-lease issues)
+      maxReplicas: 3                      # cap on a low-traffic internal app
     volumes:
       - name: servantsync-data
         storageName: servantsync-data     # MUST match the env-level storage registration

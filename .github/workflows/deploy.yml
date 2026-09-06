@@ -19,10 +19,6 @@ on:
       - 'Program.cs'
       - 'Dockerfile'
       - '.dockerignore'
-      # Round-ACA-1.11: deploy/** is the ACA template; without it infra changes
-      # (maxReplicas, env-var list, volume mounts, secrets/registries blocks)
-      # never produced a build, so a YAML-only round landed no new revision.
-      - 'deploy/**'
       - '*.csproj'
       - '*.sln'
       - 'appsettings.json'
@@ -108,11 +104,11 @@ jobs:
           # internal app, and they add ~30s to the push.
           provenance: false
           sbom: false
-          # Disable layer caching to ensure the Dockerfile's apt-get
-          # install steps always execute. Without this, GitHub's cache
-          # backend returns a full hit for unchanged base images,
-          # skipping newly added RUN instructions.
-          no-cache: true
+          # Useful cache from the previous successful build (GitHub's
+          # built-in cache backend). First build is cold; subsequent
+          # builds re-use restored layers.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Deploy to Azure Container Apps
         # Round-ACA-1 fix #2: `az containerapp update --yaml $YAML
