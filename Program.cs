@@ -6,6 +6,7 @@ using ServantSync.Components;
 using ServantSync.Data;
 using ServantSync.Models;
 using ServantSync.Services;
+using MudBlazor.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -138,6 +139,9 @@ builder.Services.AddScoped<ISlotManagementService, SlotManagementService>();
 // row in SystemAdminGrantAudits.
 builder.Services.AddScoped<ISystemAdminManagementService, SystemAdminManagementService>();
 builder.Services.AddScoped<IMinistryInterestService, MinistryInterestService>();
+builder.Services.AddScoped<ISlotInterestService, SlotInterestService>();
+builder.Services.AddScoped<IFeatureRequestService, FeatureRequestService>();
+builder.Services.AddScoped<ITrainingDueSoonService, TrainingDueSoonService>();
 builder.Services.AddScoped<ICoordinatorAssignmentsService, CoordinatorAssignmentsService>();
 // Round-AI: self-heal handler. The Take page calls this on every
 // volunteer visit when the content is a local PDF whose TotalPageCount

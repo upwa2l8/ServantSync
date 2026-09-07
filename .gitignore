@@ -509,3 +509,5 @@ wwwroot/img/_audit*.html
 # NOT ignored — those are part of the demo data set.
 wwwroot/uploads/training/*.pdf
 wwwroot/uploads/training/*.pptx
+.freebuff/
+publish-linux/
