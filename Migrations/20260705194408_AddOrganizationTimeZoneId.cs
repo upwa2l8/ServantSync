@@ -2,19 +2,19 @@
 
 #nullable disable
 
-namespace ServantSync.Migrations
+namespace ServantSync.Data.Migrations
 {
     /// <inheritdoc />
-    public partial class AddMinistryIcon : Migration
+    public partial class AddOrganizationTimeZoneId : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.AddColumn<string>(
-                name: "Icon",
-                table: "Ministries",
-                type: "nvarchar(80)",
-                maxLength: 80,
+                name: "TimeZoneId",
+                table: "Organizations",
+                type: "TEXT",
+                maxLength: 64,
                 nullable: true);
         }
 
@@ -22,8 +22,8 @@ namespace ServantSync.Migrations
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropColumn(
-                name: "Icon",
-                table: "Ministries");
+                name: "TimeZoneId",
+                table: "Organizations");
         }
     }
 }

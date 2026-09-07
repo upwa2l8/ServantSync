@@ -2,22 +2,16 @@ using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
-using MudBlazor;
-using MudBlazor.Services;
 using ServantSync.Components;
 using ServantSync.Data;
 using ServantSync.Models;
 using ServantSync.Services;
-using ServantSync.Services.CalendarPdf;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // ---- Database ----
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
-    ?? throw new InvalidOperationException(
-        $"Connection string 'DefaultConnection' is not configured. " +
-        $"Set ConnectionStrings__DefaultConnection as an environment variable " +
-        $"(or add it to appsettings.{builder.Environment.EnvironmentName}.json) before running.");
+    ?? "Data Source=servantsync.db";
 
 // Use the factory as the single source of truth for the DbContext configuration.
 // Don't ALSO call AddDbContext<T> with its own options-builder — that registers a
@@ -25,20 +19,8 @@ var connectionString = builder.Configuration.GetConnectionString("DefaultConnect
 // factory's ones. The factory ends up asking the root provider for
 // IEnumerable<IDbContextOptionsConfiguration<T>> and trips over the scoped one,
 // throwing "Cannot resolve scoped service from root provider" at startup.
-//
-// Azure SQL Database provider (replaces SQLite, which was incompatible with
-// Azure Files SMB on Container Apps -- see HANDOFF.md for the 17-round
-// timeline). UseSqlServer wires the Microsoft.Data.SqlClient provider which
-// handles connection pooling, retry-on-transient-fault, and Azure AD auth.
-builder.Services.AddDbContextFactory<ApplicationDbContext>((sp, opts) =>
-{
-    opts.UseSqlServer(connectionString, sqlOpts =>
-    {
-        // Enable retry-on-transient-fault for Azure SQL Database.
-        // Default retry strategy: 6 retries, exponential backoff 0-30s.
-        sqlOpts.EnableRetryOnFailure();
-    });
-});
+builder.Services.AddDbContextFactory<ApplicationDbContext>(opts =>
+    opts.UseSqlite(connectionString));
 // Identity's stores (and any other consumer) still need a scoped
 // ApplicationDbContext. Resolve it from the factory so the configuration is
 // shared — the factory owns the options, the DI scope owns the context lifetime.
@@ -93,14 +75,6 @@ builder.Services.ConfigureApplicationCookie(opts =>
 // ---- Razor / Blazor ----
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
-
-// MudBlazor: register the provider services (IDialogService, ISnackbar,
-// MudBlazor's internal state, the IJsDialogService bridge) once at
-// startup. Without this call MudThemeProvider / MudDialogProvider /
-// MudSnackbarProvider / MudPopoverProvider will throw at first render
-// because the components rely on these services for state + JS interop.
-// See MudBlazor 8.x docs → "Getting started" → "Add services".
-builder.Services.AddMudServices();
 
 // DI-registered cascading authentication state. Routes.razor also wraps the
 // Router in <CascadingAuthenticationState> manually, but the markup-only
@@ -164,21 +138,6 @@ builder.Services.AddScoped<ISlotManagementService, SlotManagementService>();
 // row in SystemAdminGrantAudits.
 builder.Services.AddScoped<ISystemAdminManagementService, SystemAdminManagementService>();
 builder.Services.AddScoped<IMinistryInterestService, MinistryInterestService>();
-// Round-FR-7: per-slot volunteer interest (sibling-level preference vs
-// MinistryInterest's ministry-level). SlotInterest table mirrors the
-// MinistryInterest pattern verbatim; this service exposes the
-// Subscribe / Unsubscribe / ListSubscribed / ListForSlot surface that
-// the slot-detail Subscribe toggle, the /Open 3-way filter, and the
-// coord Subscribers(N) panel all bind to. See PLAN.md → Round-FR-7
-// for the per-method RBAC matrix.
-builder.Services.AddScoped<ISlotInterestService, SlotInterestService>();
-// Round-FR-6 (service layer): per-org training-due-soon grid. New
-// service + new count widget + new page (DueSoon.razor ships next
-// round, layered incrementally to mirror Round-FR-2's
-// service-then-Razor split). Same DI lifetime as the rest of the
-// domain services because every Razor page resolves it via a scoped
-// factory.
-builder.Services.AddScoped<ITrainingDueSoonService, TrainingDueSoonService>();
 builder.Services.AddScoped<ICoordinatorAssignmentsService, CoordinatorAssignmentsService>();
 // Round-AI: self-heal handler. The Take page calls this on every
 // volunteer visit when the content is a local PDF whose TotalPageCount
@@ -188,19 +147,15 @@ builder.Services.AddScoped<ICoordinatorAssignmentsService, CoordinatorAssignment
 builder.Services.AddScoped<IPdfPageCountHealer, PdfPageCountHealer>();
 builder.Services.AddScoped<UserTimeZoneProvider>();
 builder.Services.AddScoped<DatabaseSeeder>();
-// Round-FR-1: per-slot printable calendar PDF with QR codes.
-// ICalendarPdfBuilder is library-agnostic (QuestPDF today; swap to
-// PdfSharpCore by replacing the single implementation class).
-// IQrCodeBuilder wraps QRCoder behind a test seam.
-builder.Services.AddScoped<ICalendarPdfBuilder, QuestPdfCalendarPdfBuilder>();
-builder.Services.AddScoped<IQrCodeBuilder, QrCodeBuilder>();
-// Round-FR-4: public feature request form + SystemAdmin triage queue.
-builder.Services.AddScoped<IFeatureRequestService, FeatureRequestService>();
 
 // ---- Background / hosted services ----
-// Azure SQL Database has built-in automated backups (7-day retention on
-// Basic/Standard tiers, configurable up to 35 days). The old
-// SqliteBackupService (VACUUM INTO, file-copy snapshot) is not needed.
+// SqliteBackupService: periodic VACUUM INTO snapshot, gated on
+// Backup__Enabled=true. Production enables via appsettings.Production.json
+// or env var (DEV defaults to disabled). Defaults land under
+// <contentRoot>/backups so the working dir is NEVER exposed as a public
+// static-file path. Service-level WHY-comment in Services/SqliteBackupService.cs.
+builder.Services.Configure<BackupOptions>(builder.Configuration.GetSection("Backup"));
+builder.Services.AddHostedService<SqliteBackupService>();
 
 var app = builder.Build();
 
@@ -283,47 +238,10 @@ app.MapPost("/Account/Logout", async (SignInManager<IdentityUser> signIn) =>
 // STATUS.md round-AN for the full triage.
 app.MapPost("/Account/PerformLogin", async (
     HttpContext ctx,
-    ILogger<Program> logger,
     SignInManager<IdentityUser> signIn,
     IAntiforgery antiforgery) =>
 {
-    // FR-LOGIN-REVERT: restorning the explicit
-    // `await antiforgery.ValidateRequestAsync(ctx)` call that was
-    // removed in the v1 fix (commit 22ddd35). The v1 fix removed the
-    // explicit call expecting `app.UseAntiforgery()` middleware
-    // auto-validation, but Minimal-API endpoints (MapPost) do NOT
-    // auto-validate — that fix dropped CSRF defense on this endpoint.
-    // The v2 fix (commit b3f957e) chained `.RequireAntiforgeryToken()`
-    // (a non-existent extension on RouteHandlerBuilder in this
-    // project's framework ref) which wouldn't compile. This commit
-    // restores the pre-FR-LOGIN-FIX state — explicit validate,
-    // working build, CSRF protected.
-    //
-    // The user-reported symptom ("error UI after login, cookie is
-    // still set, manual nav works") is REAL but is NOT actually
-    // caused by anything in this endpoint. The user's prior symp
-    // existed with the explicit validate in place too (per the
-    // pre-fr-LOGIN-FIX git state on origin/main from before this
-    // session). Root cause investigation continues — the explicit
-    // call here is correct from a security standpoint and does NOT
-    // contribute to the symptom (the validate passes, PasswordSignInAsync
-    // runs, cookie is set prior to the downstream error). Run a
-    // production browser reproduction to capture the actual exception
-    // text from /Error (RequestId is in the page body) to drive
-    // the next-round fix.
-    //
-    // FR-LOGIN-SENTINEL: 4 diagnostic log points marked with the
-    // [FR-LOGIN-SENTINEL] prefix so they are easy to grep in
-    // Azure Container Apps logs (`az containerapp logs show
-    // --follow`). The sentinel sequence is validate_request_start
-    // → validate_request_passed → signin_result → redirect_about_to_return.
-    // On the next prod reproduction, the absent sentinel will
-    // localize which downstream step is throwing — e.g. if
-    // "validate_request_passed" appears but "signin_result" does
-    // not, PasswordSignInAsync is the throw site.
-    logger.LogInformation("[FR-LOGIN-SENTINEL] validate_request_start");
     await antiforgery.ValidateRequestAsync(ctx);
-    logger.LogInformation("[FR-LOGIN-SENTINEL] validate_request_passed");
     var form = await ctx.Request.ReadFormAsync();
     var email = form["email"].ToString();
     var password = form["password"].ToString();
@@ -336,44 +254,24 @@ app.MapPost("/Account/PerformLogin", async (
 
     var result = await signIn.PasswordSignInAsync(
         email, password, remember, lockoutOnFailure: false);
-    logger.LogInformation(
-        "[FR-LOGIN-SENTINEL] signin_result: Succeeded={Succeeded} IsLockedOut={IsLockedOut} IsNotAllowed={IsNotAllowed} RequiresTwoFactor={RequiresTwoFactor}",
-        result.Succeeded, result.IsLockedOut, result.IsNotAllowed, result.RequiresTwoFactor);
     if (result.Succeeded)
-    {
-        logger.LogInformation("[FR-LOGIN-SENTINEL] redirect_about_to_return: success -> {SafeTarget}", safeTarget);
         return Results.Redirect(safeTarget);
-    }
 
     // `error` = {locked, invalid} — both branches render in the
     // Login.razor switch-block.
     var errorToken = result.IsLockedOut ? "locked" : "invalid";
-    logger.LogInformation("[FR-LOGIN-SENTINEL] redirect_about_to_return: failure ({ErrorToken}) -> /Account/Login", errorToken);
     return Results.Redirect($"/Account/Login?returnUrl={Uri.EscapeDataString(safeTarget)}&error={errorToken}");
 });
 
 app.MapPost("/Account/PerformRegister", async (
     HttpContext ctx,
-    ILogger<Program> logger,
     UserManager<IdentityUser> users,
     SignInManager<IdentityUser> signIn,
     IDbContextFactory<ApplicationDbContext> dbFactory,
     IPersonService personSvc,             // Round-FR-3.3 (this): claim-token re-parent
     IAntiforgery antiforgery) =>
 {
-    // FR-LOGIN-REVERT: see the FR-LOGIN-REVERT comment block on
-    // PerformLogin above — same restore. The explicit validate here
-    // was always working; the symptom is unrelated to this endpoint.
-    //
-    // FR-LOGIN-SENTINEL: 4 diagnostic log points matched to the
-    // PerformRegister breakpoints — validate_request_start ->
-    // validate_request_passed -> signin_result (here: UserManager.CreateAsync
-    // succeeds + SignInAsync returns before the final redirect) ->
-    // redirect_about_to_return. Same grep prefix on Azure Container
-    // Apps logs as PerformLogin.
-    logger.LogInformation("[FR-LOGIN-SENTINEL] validate_request_start");
     await antiforgery.ValidateRequestAsync(ctx);
-    logger.LogInformation("[FR-LOGIN-SENTINEL] validate_request_passed");
     var form = await ctx.Request.ReadFormAsync();
     var firstName = form["firstName"].ToString().Trim();
     var lastName = form["lastName"].ToString().Trim();
@@ -491,16 +389,7 @@ app.MapPost("/Account/PerformRegister", async (
         }
     }
 
-    logger.LogInformation("[FR-LOGIN-SENTINEL] signin_result: UserCreated.Succeeded={Succeeded} ClaimProvided={ClaimProvided} NewUserId={NewUserId}", create.Succeeded, !string.IsNullOrEmpty(claim), user.Id);
-    // FR-LOGIN-SENTINEL: rename to `finalSafeTarget` because there is
-    // an existing `var safeTarget = ...` declared inside the
-    // `if (!create.Succeeded)` and the `if (outcome.Result != StubClaimResult.Succeeded)`
-    // blocks higher up in this method; declaring another
-    // `safeTarget` at the outer scope triggers CS0136 (a local named
-    // 'safeTarget' is used in an enclosing local declaration).
-    var finalSafeTarget = UrlSafety.IsLocalUrl(returnUrl) ? returnUrl : "/";
-    logger.LogInformation("[FR-LOGIN-SENTINEL] redirect_about_to_return: {SafeTarget}", finalSafeTarget);
-    return Results.Redirect(finalSafeTarget);
+    return Results.Redirect(UrlSafety.IsLocalUrl(returnUrl) ? returnUrl : "/");
 });
 
 // ICS subscribe feed for /MySchedule. Auth-gated. Returns text/calendar with
@@ -600,84 +489,7 @@ app.MapGet("/slots/{slotId:int}/documents/{docId:int}/download", async (
         fileDownloadName: doc.OriginalFileName);
 }).RequireAuthorization();
 
-// Round-FR-1: per-slot printable calendar PDF with QR codes.
-app.MapGet("/Organizations/{orgId:int}/Ministries/{minId:int}/Roles/{slotId:int}/Calendar.pdf",
-async (int orgId, int minId, int slotId, HttpContext ctx,
-    IDbContextFactory<ApplicationDbContext> dbFactory,
-    IOrgAuthService orgAuth,
-    ICalendarPdfBuilder pdfBuilder,
-    IQrCodeBuilder qrBuilder) =>
-{
-    var userId = ctx.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-    if (string.IsNullOrEmpty(userId)) return Results.Unauthorized();
-    if (!await orgAuth.CanManageSlotAsync(userId, slotId)) return Results.Forbid();
-    await using var db = await dbFactory.CreateDbContextAsync();
-    var slot = await db.ServiceSlots
-        .Include(s => s.Ministry).ThenInclude(m => m.Organization)
-        .Include(s => s.Assignments).ThenInclude(a => a.Person)
-        .FirstOrDefaultAsync(s => s.Id == slotId && s.MinistryId == minId && s.Ministry.OrganizationId == orgId);
-    if (slot is null) return Results.NotFound();
-    var scope = ctx.Request.Query["scope"].ToString();
-    if (string.IsNullOrEmpty(scope)) scope = "month";
-    var tzParam = ctx.Request.Query["tz"].ToString();
-    var orgTz = slot.Ministry.Organization.TimeZoneId;
-    var tz = ServantSync.Components.Shared.TimeZoneResolver.Resolve(tzParam, orgTz);
-    DateTime startDate;
-    if (DateTime.TryParse(ctx.Request.Query["start"], out var parsed))
-        startDate = parsed;
-    else
-        startDate = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tz);
-    var (fromUtc, toUtc) = ServantSync.Services.CalendarPdf.CalendarScope.GetRange(scope, startDate, tz);
-    var occurrences = await db.SlotOccurrences
-        .Where(o => o.ServiceSlotId == slotId && o.StartUtc >= fromUtc && o.StartUtc < toUtc)
-        .OrderBy(o => o.StartUtc).ToListAsync();
-    var assignedIds = occurrences.Select(o => o.StartUtc).ToList();
-    var assignments = await db.Assignments
-        .Include(a => a.Person)
-        .Where(a => a.ServiceSlotId == slotId && assignedIds.Contains(a.StartUtc)
-            && a.Status != AssignmentStatus.Cancelled)
-        .ToListAsync();
-    var assignDict = assignments.ToDictionary(a => a.StartUtc);
-    var calendarOccs = occurrences.Select(o =>
-    {
-        bool hasAssign = assignDict.TryGetValue(o.StartUtc, out var assign);
-        return new ServantSync.Services.CalendarPdf.CalendarOccurrence
-        {
-            Id = o.Id, StartUtc = o.StartUtc, EndUtc = o.EndUtc,
-            AssignedVolunteerName = hasAssign ? assign!.Person.DisplayName : null,
-        };
-    }).ToList();
-    var regToken = slot.Ministry.Organization.RegistrationToken;
-    string? orgJoinUrl = null;
-    if (!string.IsNullOrEmpty(regToken))
-    {
-        var baseUri = $"{ctx.Request.Scheme}://{ctx.Request.Host}{ctx.Request.PathBase}";
-        orgJoinUrl = $"{baseUri}/Account/Register?token={regToken}";
-    }        var showNames = string.Equals(ctx.Request.Query["names"].ToString(), "true", StringComparison.OrdinalIgnoreCase);
-    var request = new ServantSync.Services.CalendarPdf.CalendarPdfRequest
-    {
-        OrganizationName = slot.Ministry.Organization.Name,
-        SlotName = slot.Name, SlotLocation = slot.Location,
-        TimeZoneDisplayName = tz.DisplayName, Scope = scope,
-        StartDate = startDate, GeneratedUtc = DateTime.UtcNow,
-        OrgJoinUrl = orgJoinUrl,
-        BaseUri = $"{ctx.Request.Scheme}://{ctx.Request.Host}{ctx.Request.PathBase}",
-        OpenPageUrl = $"{ctx.Request.Scheme}://{ctx.Request.Host}{ctx.Request.PathBase}/Open",
-        ShowVolunteerNames = showNames,
-        Occurrences = calendarOccs,
-    };
-    var ms = new MemoryStream();
-    await pdfBuilder.BuildAsync(request, qrBuilder, ms);
-    ms.Position = 0;
-    var slug = System.Text.RegularExpressions.Regex.Replace(slot.Name.ToLowerInvariant(), "[^a-z0-9]+", "-").Trim('-');
-    var orgSlug = System.Text.RegularExpressions.Regex.Replace(slot.Ministry.Organization.Name.ToLowerInvariant(), "[^a-z0-9]+", "-").Trim('-');
-    return Results.File(ms.ToArray(), "application/pdf",
-        $"servantsync-calendar-{orgSlug}-{slug}-{scope}-{startDate:yyyy-MM-dd}.pdf");
-}).RequireAuthorization();
-
 // Apply pending migrations, then seed sample data if the database is empty.
-// Azure SQL Database is a managed service with its own locking and
-// connection management — no SMB-lease issues, no retry loops needed.
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();

@@ -1,11 +1,5 @@
 name: Deploy to Azure Container Apps
 
-# Trigger on every push to main that touches runtime OR workflow files.
-# Pull requests don't deploy (they build via ci.yml). Manual dispatch
-# enables a "Re-run deploy" button on the Actions tab without a code push.
-# Same trigger semantics as the old App Service workflow, with the
-# Dockerfile added to the paths filter so a Dockerfile-only change
-# also triggers a deploy.
 on:
   push:
     branches: [main]
@@ -31,23 +25,10 @@ on:
         required: false
         default: 'Manual'
 
-# OIDC: the workflow swaps the long-lived publish-profile secret for a
-# short-lived OIDC token issued by GitHub to the App Registration's
-# federated credential. Required permissions:
-#   - id-token: write  -- request an OIDC token from GitHub
-#   - contents: read   -- checkout the repo
-#   - no other scopes  -- least-privilege
 permissions:
   id-token: write
   contents: read
 
-# Concurrency lock: a rapid second push (or a manual workflow_dispatch
-# while a push-deploy is mid-flight) would otherwise race two image
-# pushes + revision updates against the same Container App,
-# last-write-wins with possible intermediate-state exposure. The
-# `cancel-in-progress` setting makes the second job preempt the first;
-# only the most recent deploy wins. Same pattern as the old App
-# Service workflow.
 concurrency:
   group: deploy-${{ github.ref }}
   cancel-in-progress: true
@@ -62,14 +43,6 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Azure login (OIDC federated)
-        # OIDC over the old publish-profile XML secret. The App
-        # Registration's federated credential must have a subject that
-        # matches `repo:<owner>/<repo>:ref:refs/heads/main` (for push
-        # triggers) and a claim that names the federated credentials
-        # in the App Registration. If you also use a `Production`
-        # protected environment for workflow_dispatch, add a second
-        # federated credential with subject
-        # `repo:<owner>/<repo>:environment:Production`.
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -77,78 +50,40 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           enable-AzPSSession: false
 
-      - name: ACR login (via OIDC token)
-        # `az acr login` uses the AAD token from the OIDC login step
-        # to authenticate to the registry -- no `AcrPull` admin user
-        # secret is needed. The App Registration's service principal
-        # needs the `AcrPush` role on the registry.
-        run: az acr login --name ${{ secrets.ACR_NAME }}
+      - name: GHCR login (PAT)
+        run: echo "${{ secrets.CR_PAT }}" | docker login ghcr.io --username upwa2L8 --password-stdin
 
       - name: Setup Docker buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build & push image to ACR
-        # Tags the image with both the immutable commit SHA and the
-        # mutable `latest` tag. The deploy step pins the SHA so a
-        # partially-pushed image can't be deployed; the `latest` tag
-        # is left in ACR for quick manual debugging.
+      - name: Build & push image to GHCR
         uses: docker/build-push-action@v5
         with:
           context: .
           file: ./Dockerfile
           push: true
           tags: |
-            ${{ secrets.ACR_NAME }}.azurecr.io/servantsync:${{ github.sha }}
-            ${{ secrets.ACR_NAME }}.azurecr.io/servantsync:latest
-          # Skip provenance + SBOM attestations -- not required for an
-          # internal app, and they add ~30s to the push.
+            ghcr.io/upwa2l8/servantsync:${{ github.sha }}
+            ghcr.io/upwa2l8/servantsync:latest
           provenance: false
           sbom: false
-          # Useful cache from the previous successful build (GitHub's
-          # built-in cache backend). First build is cold; subsequent
-          # builds re-use restored layers.
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
       - name: Deploy to Azure Container Apps
-        # Round-ACA-1 fix #2: `az containerapp update --yaml $YAML
-        # --image $IMAGE` does NOT actually override the YAML's image
-        # field on this version -- the YAML's literal `PLACEHOLDER-...`
-        # string is preserved verbatim and the API rejects it with
-        # "could not parse reference". The fix: render the YAML
-        # in-place via sed (substitute the placeholder with the runtime
-        # image tag), then `az containerapp update --yaml` on the
-        # rendered copy. The original azure/container-apps-deploy-action
-        # did this substitution internally; doing it ourselves here
-        # avoids the action's silent-drop bug while keeping deploy
-        # semantics clean. The YAML stays pristine in git; the rendered
-        # file lives only in /tmp for the duration of the step.
-        #
-        # Round-ACA-1 fix #3 (per prior reviewer): the step also waits
-        # for `provisioningState=Succeeded` (fail-fast on Failed) so the
-        # step's exit code reflects a fully-provisioned revision rather
-        # than an API-level PATCH success with provisioning still in
-        # flight. Up to ~5 min; the workflow concurrency lock cancels
-        # any pre-existing in-flight run before this one starts.
         uses: azure/cli@v2
         env:
-          IMAGE_TAG: ${{ secrets.ACR_NAME }}.azurecr.io/servantsync:${{ github.sha }}
+          IMAGE_TAG: ghcr.io/upwa2l8/servantsync:${{ github.sha }}
         with:
           azcliversion: latest
           inlineScript: |
-            # 1. Render the YAML: substitute the literal placeholder
-            #    with the runtime image tag.
             sed 's|PLACEHOLDER-OVERRIDDEN-BY-IMAGE-TO-DEPLOY-DO-NOT-RUN|'"$IMAGE_TAG"'|g' \
               deploy/aca.servantsync.yaml > /tmp/aca.rendered.yaml
-            # 2. Apply the rendered YAML. The image now lives inside the
-            #    YAML, so no --image flag is needed (and per fix #2,
-            #    passing both --yaml and --image was losing the override).
             az containerapp update \
               --name "${{ secrets.ACA_NAME }}" \
               --resource-group "${{ secrets.AZURE_RG }}" \
               --yaml /tmp/aca.rendered.yaml \
               --output none
-            # 3. Wait for provisioningState=Succeeded / fail-fast on Failed.
             for i in $(seq 1 30); do
               STATE=$(az containerapp show \
                 --name "${{ secrets.ACA_NAME }}" \
@@ -168,13 +103,6 @@ jobs:
             exit 1
 
       - name: Smoke-check (optional)
-        # If the deploy sponsor supplies a smoke URL, GET it; otherwise skip.
-        # NOTE: `${{ secrets.X }}` is rejected inside an `if:` conditional by
-        # GitHub Actions' expression parser (error: "Unrecognized named-value:
-        # 'secrets'"), and the validation failure aborts the whole job before
-        # any step is dispatched. The canonical workaround is to expose the
-        # secret as an `env:` variable and branch on its emptiness inside the
-        # `run:` script -- semantically equivalent, valid YAML.
         env:
           SMOKE_CHECK_URL: ${{ secrets.SMOKE_CHECK_URL }}
         run: |

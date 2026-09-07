@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using ServantSync.Data;
 
@@ -10,9 +11,11 @@ using ServantSync.Data;
 namespace ServantSync.Data.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260706015832_AddSystemAdminAudit")]
+    partial class AddSystemAdminAudit
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "9.0.0");
@@ -507,17 +510,10 @@ namespace ServantSync.Data.Migrations
                     b.Property<DateTime?>("DateOfBirth")
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("Email")
-                        .HasMaxLength(254)
-                        .HasColumnType("TEXT");
-
                     b.Property<string>("FirstName")
                         .IsRequired()
                         .HasMaxLength(80)
                         .HasColumnType("TEXT");
-
-                    b.Property<bool>("IsStub")
-                        .HasColumnType("INTEGER");
 
                     b.Property<string>("LastName")
                         .IsRequired()
@@ -534,49 +530,9 @@ namespace ServantSync.Data.Migrations
 
                     b.HasKey("UserId");
 
-                    b.HasIndex("Email");
-
                     b.HasIndex("LastName");
 
                     b.ToTable("People");
-                });
-
-            modelBuilder.Entity("ServantSync.Models.PersonClaimToken", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
-
-                    b.Property<DateTime?>("ClaimedUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("CreatedByUserId")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("CreatedUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("ExpiresUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("PersonUserId")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("TokenHash")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("PersonUserId");
-
-                    b.HasIndex("TokenHash")
-                        .IsUnique();
-
-                    b.ToTable("PersonClaimTokens");
                 });
 
             modelBuilder.Entity("ServantSync.Models.Player", b =>
@@ -906,21 +862,10 @@ namespace ServantSync.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
 
-                    b.Property<int>("CompletionSource")
-                        .HasColumnType("INTEGER");
-
                     b.Property<DateTime>("CompletionUtc")
                         .HasColumnType("TEXT");
 
                     b.Property<DateTime?>("ExpiresUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("ManualCompletionNotes")
-                        .HasMaxLength(1000)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("MarkedCompleteByUserId")
-                        .HasMaxLength(128)
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Notes")
@@ -1036,91 +981,6 @@ namespace ServantSync.Data.Migrations
                         {
                             t.HasCheckConstraint("CK_TrainingRequirement_OneScope", "(\"OrganizationId\" IS NOT NULL AND \"ServiceSlotId\" IS NULL) OR (\"OrganizationId\" IS NULL AND \"ServiceSlotId\" IS NOT NULL)");
                         });
-                });
-
-            modelBuilder.Entity("ServantSync.Models.TrainingSession", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("CreatedByUserId")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("CreatedUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Description")
-                        .HasMaxLength(2000)
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("EndUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Location")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("TEXT");
-
-                    b.Property<int?>("MaxAttendees")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("OrganizationId")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<DateTime>("StartUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("Status")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("Title")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("TEXT");
-
-                    b.Property<int?>("TrainingContentId")
-                        .HasColumnType("INTEGER");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("Status");
-
-                    b.HasIndex("TrainingContentId");
-
-                    b.HasIndex("OrganizationId", "StartUtc");
-
-                    b.ToTable("TrainingSessions");
-                });
-
-            modelBuilder.Entity("ServantSync.Models.TrainingSessionAttendee", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
-
-                    b.Property<bool?>("Attended")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("PersonUserId")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("SignedUpUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("TrainingSessionId")
-                        .HasColumnType("INTEGER");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("PersonUserId");
-
-                    b.HasIndex("TrainingSessionId", "PersonUserId")
-                        .IsUnique();
-
-                    b.ToTable("TrainingSessionAttendees");
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<string>", b =>
@@ -1313,17 +1173,6 @@ namespace ServantSync.Data.Migrations
                     b.Navigation("User");
                 });
 
-            modelBuilder.Entity("ServantSync.Models.PersonClaimToken", b =>
-                {
-                    b.HasOne("ServantSync.Models.Person", "Person")
-                        .WithMany()
-                        .HasForeignKey("PersonUserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Person");
-                });
-
             modelBuilder.Entity("ServantSync.Models.Player", b =>
                 {
                     b.HasOne("ServantSync.Models.Person", "PrimaryContactPerson")
@@ -1482,43 +1331,6 @@ namespace ServantSync.Data.Migrations
                     b.Navigation("TrainingContent");
                 });
 
-            modelBuilder.Entity("ServantSync.Models.TrainingSession", b =>
-                {
-                    b.HasOne("ServantSync.Models.Organization", "Organization")
-                        .WithMany()
-                        .HasForeignKey("OrganizationId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("ServantSync.Models.TrainingContent", "TrainingContent")
-                        .WithMany()
-                        .HasForeignKey("TrainingContentId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
-                    b.Navigation("Organization");
-
-                    b.Navigation("TrainingContent");
-                });
-
-            modelBuilder.Entity("ServantSync.Models.TrainingSessionAttendee", b =>
-                {
-                    b.HasOne("ServantSync.Models.Person", "Person")
-                        .WithMany()
-                        .HasForeignKey("PersonUserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("ServantSync.Models.TrainingSession", "TrainingSession")
-                        .WithMany("Attendees")
-                        .HasForeignKey("TrainingSessionId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Person");
-
-                    b.Navigation("TrainingSession");
-                });
-
             modelBuilder.Entity("ServantSync.Models.Arena", b =>
                 {
                     b.Navigation("Games");
@@ -1567,11 +1379,6 @@ namespace ServantSync.Data.Migrations
                     b.Navigation("HomeGames");
 
                     b.Navigation("Players");
-                });
-
-            modelBuilder.Entity("ServantSync.Models.TrainingSession", b =>
-                {
-                    b.Navigation("Attendees");
                 });
 #pragma warning restore 612, 618
         }
