@@ -155,6 +155,10 @@ else
                             <MudText Typo="Typo.caption" Class="mud-text-secondary ml-2">@s.Location</MudText>
                         }
                     </MudText>
+                    @if (!string.IsNullOrEmpty(s.Notes))
+                    {
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary mb-1">@s.Notes</MudText>
+                    }
                     <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-2">
                         <MudChip T="string" Size="Size.Small" Color="Color.Default">
                             @s.SignedUpCount / @s.Capacity signed up

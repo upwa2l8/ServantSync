@@ -100,6 +100,7 @@ else
                         <MudTh>Where</MudTh>
                         <MudTh>Slot</MudTh>
                         <MudTh>Status</MudTh>
+                        <MudTh></MudTh>
                     </HeaderContent>
                     <RowTemplate>
                         <MudTd DataLabel="When">
@@ -111,6 +112,16 @@ else
                             <MudChip T="string" Size="Size.Small" Color="@AssignmentStatusUi.MudColorFor(context.Status)">
                                 @context.Status
                             </MudChip>
+                        </MudTd>
+                        <MudTd>
+                            @if (context.Status == AssignmentStatus.Scheduled)
+                            {
+                                <MudButton Variant="Variant.Outlined" Color="Color.Error" Size="Size.Small"
+                                           Disabled="@(_cancellingId == context.Id)"
+                                           OnClick="@(() => CancelAssignmentAsync(context.Id))">
+                                    @(_cancellingId == context.Id ? "Cancelling…" : "Cancel")
+                                </MudButton>
+                            }
                         </MudTd>
                     </RowTemplate>
                 </MudTable>
@@ -265,6 +276,7 @@ else
     private List<TrainingSession> _myTrainingSessions = new();
     private List<AvailableTrainingSessionView> _availableSessions = new();
     private int _busySignUpSessionId;
+    private int? _cancellingId;
     private SignupFeedback? _availableMessage;
     private List<OutstandingRow> _outstanding = new();
     private List<BreadcrumbItem> _crumbs = new()
@@ -311,6 +323,23 @@ else
             ? new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1)
             : new DateTime(_fromUtc.Year, _fromUtc.Month, 1);
         await Reload();
+    }
+
+    private async Task CancelAssignmentAsync(int assignmentId)
+    {
+        if (string.IsNullOrEmpty(_userId)) return;
+        _cancellingId = assignmentId;
+        StateHasChanged();
+        try
+        {
+            var ok = await AssignmentService.CancelAssignmentAsync(assignmentId, _userId);
+            if (ok) await Reload();
+        }
+        finally
+        {
+            _cancellingId = null;
+            StateHasChanged();
+        }
     }
 
     private async Task Reload()

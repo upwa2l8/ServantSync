@@ -400,7 +400,8 @@ public class AssignmentService : IAssignmentService
                 AlreadySignedUp: false,
                 TrainingCompliant: missing.Count == 0,
                 MissingTrainings: missing,
-                OrganizationTimeZoneId: r.OrganizationTimeZoneId));
+                OrganizationTimeZoneId: r.OrganizationTimeZoneId,
+                Notes: r.Notes));
         }
         return result;
     }
@@ -578,5 +579,20 @@ public class AssignmentService : IAssignmentService
         }
 
         return new OpenShiftSeriesResult(created, skipped, firstUtc, lastUtc, capReached);
+    }
+
+    public async Task<bool> CancelAssignmentAsync(
+        int assignmentId,
+        string callerUserId,
+        CancellationToken ct = default)
+    {
+        await using var db = await _factory.CreateDbContextAsync(ct);
+        var assignment = await db.Assignments.FindAsync(new object[] { assignmentId }, ct);
+        if (assignment is null) return false;
+        if (assignment.PersonUserId != callerUserId) return false;
+        if (assignment.Status == AssignmentStatus.Cancelled) return false;
+        assignment.Status = AssignmentStatus.Cancelled;
+        await db.SaveChangesAsync(ct);
+        return true;
     }
 }

@@ -10,6 +10,9 @@ using MudBlazor.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// ---- MudBlazor ----
+builder.Services.AddMudServices();
+
 // ---- Database ----
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
     ?? "Data Source=servantsync.db";
@@ -491,6 +494,17 @@ app.MapGet("/slots/{slotId:int}/documents/{docId:int}/download", async (
         System.IO.File.OpenRead(filePath),
         contentType: doc.ContentType ?? "application/octet-stream",
         fileDownloadName: doc.OriginalFileName);
+}).RequireAuthorization();
+
+app.MapPost("/MySchedule/cancel/{assignmentId:int}", async (
+    int assignmentId,
+    HttpContext ctx,
+    IAssignmentService assignments) =>
+{
+    var userId = ctx.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+    if (string.IsNullOrEmpty(userId)) return Results.Unauthorized();
+    var ok = await assignments.CancelAssignmentAsync(assignmentId, userId);
+    return ok ? Results.Ok() : Results.Forbid();
 }).RequireAuthorization();
 
 // Apply pending migrations, then seed sample data if the database is empty.

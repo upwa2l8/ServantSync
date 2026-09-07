@@ -133,6 +133,11 @@ public interface IAssignmentService
         IReadOnlyCollection<int>? ministryIdsFilter = null,
         IReadOnlyCollection<int>? slotIdsFilter = null,
         CancellationToken ct = default);
+
+    Task<bool> CancelAssignmentAsync(
+        int assignmentId,
+        string callerUserId,
+        CancellationToken ct = default);
 }
 
 /// <summary>Outcome of a coordinator open-shift creation.</summary>
@@ -172,7 +177,8 @@ public record OpenSlotOccurrenceView(
     /// down. An invalid id present here is handled defensively by
     /// <c>LocalTime</c>'s tier-2 catch.
     /// </summary>
-    string? OrganizationTimeZoneId);
+    string? OrganizationTimeZoneId,
+    string? Notes);
 
 /// <summary>
 /// Outcome of a recurring open-shift series expansion. Parallel to
