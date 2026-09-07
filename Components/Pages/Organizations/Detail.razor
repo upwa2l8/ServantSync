@@ -121,7 +121,10 @@ else
        string Tab property in @code (no ActivePanelIndex mapping needed). *@
     <MudStack Row="true" Spacing="0" Class="mb-3">
         <MudButton Variant="@(Tab == "ministries" ? Variant.Filled : Variant.Text)" Color="Color.Primary" OnClick='() => Tab = "ministries"'>Ministries</MudButton>
-        <MudButton Variant="@(Tab == "members" ? Variant.Filled : Variant.Text)" Color="Color.Primary" OnClick='() => Tab = "members"'>Members</MudButton>
+        @if (_isOrgManager)
+        {
+            <MudButton Variant="@(Tab == "members" ? Variant.Filled : Variant.Text)" Color="Color.Primary" OnClick='() => Tab = "members"'>Members</MudButton>
+        }
         <MudButton Variant="@(Tab == "arenas" ? Variant.Filled : Variant.Text)" Color="Color.Primary" OnClick='() => Tab = "arenas"'>Arenas</MudButton>
         <MudButton Variant="@(Tab == "training" ? Variant.Filled : Variant.Text)" Color="Color.Primary" OnClick='() => Tab = "training"'>Org training</MudButton>
     </MudStack>
@@ -648,9 +651,19 @@ else
         }
         catch
         {
-            // Older browsers / non-secure contexts reject the Clipboard
-            // API. The readonly <input> remains select-and-copyable.
+            // Fallback for HTTP / older browsers: create a temp textarea,
+            // select it, and use execCommand('copy').
+            try
+            {
+                await JS.InvokeVoidAsync("eval", $"(function(){{var t=document.createElement('textarea');t.value='{Uri.EscapeDataString(_registerUrl)}';t.style.position='fixed';t.style.opacity='0';document.body.appendChild(t);t.select();document.execCommand('copy');document.body.removeChild(t);}})()");
+                _copied = true;
+            }
+            catch
+            {
+                // Last resort: user can select the readonly input manually.
+            }
         }
+        StateHasChanged();
     }
 
     // Two-stage rotate: confirm prompt → service call. On success, refresh
