@@ -60,7 +60,7 @@ properties:
     # rather than falling back to an empty `passwordSecretRef` (which
     # is the symptom we measured before this fix).
     registries:
-      - server: ghcr.io
+      - server: servantsyncacr.azurecr.io
         identity: system
   template:
     containers:

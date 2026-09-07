@@ -50,8 +50,8 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           enable-AzPSSession: false
 
-      - name: GHCR login (PAT)
-        run: echo "${{ secrets.CR_PAT }}" | docker login ghcr.io --username upwa2L8 --password-stdin
+      - name: ACR login
+        run: az acr login --name ${{ secrets.ACR_NAME }}
 
       - name: Setup Docker buildx
         uses: docker/setup-buildx-action@v3
@@ -63,8 +63,8 @@ jobs:
           file: ./Dockerfile
           push: true
           tags: |
-            ghcr.io/upwa2l8/servantsync:${{ github.sha }}
-            ghcr.io/upwa2l8/servantsync:latest
+            ${{ secrets.ACR_NAME }}.azurecr.io/servantsync:${{ github.sha }}
+            ${{ secrets.ACR_NAME }}.azurecr.io/servantsync:latest
           provenance: false
           sbom: false
           cache-from: type=gha
@@ -73,7 +73,7 @@ jobs:
       - name: Deploy to Azure Container Apps
         uses: azure/cli@v2
         env:
-          IMAGE_TAG: ghcr.io/upwa2l8/servantsync:${{ github.sha }}
+          IMAGE_TAG: ${{ secrets.ACR_NAME }}.azurecr.io/servantsync:${{ github.sha }}
         with:
           azcliversion: latest
           inlineScript: |
