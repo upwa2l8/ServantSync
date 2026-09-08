@@ -6,6 +6,10 @@ state of each item is also noted inline so this single file answers
 "was it built and where?". The working state, pending work, and
 operational quirks live in [`STATUS.md`](STATUS.md). The
 end-user-facing docs live in [`README.md`](README.md).
+Developer knowledge-base entries — Razor parser quirks, deploy
+cookbook, audit trails — live in [`docs/`](docs/) (start at
+[`docs/razor-parser-quirks.md`](docs/razor-parser-quirks.md) if
+you're editing `.razor` files).
 
 ## Product goals
 
