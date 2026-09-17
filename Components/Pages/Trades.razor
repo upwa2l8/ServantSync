@@ -1,0 +1,233 @@
+@page "/Trades"
+@attribute [Authorize]
+@rendermode InteractiveServer
+
+<PageTitle>Slot trades</PageTitle>
+
+<MudBreadcrumbs Items="_crumbs" Class="mb-2 px-0" />
+<MudText Typo="Typo.h4" Class="mb-2 gradient-text">Slot trades</MudText>
+<MudText Typo="Typo.body1" Class="mud-text-secondary mb-4">
+    Requests from volunteers to take over an already-filled shift. The volunteer
+    currently serving can approve, or a ministry director / org admin can arrange
+    it on their behalf. Approving moves the shift to the requester's schedule
+    immediately.
+</MudText>
+
+@if (_banner is not null)
+{
+    <MudAlert Severity="@_banner.Severity" Class="mb-3" CloseIcon="@Icons.Material.Filled.Close"
+              OnClose="@(() => _banner = null)">
+        @_banner.Text
+    </MudAlert>
+}
+
+@if (_loading)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    @* ---- Requests waiting on you (approve/decline) ---- *@
+    <MudText Typo="Typo.h6" Class="mt-2">Requests waiting on you</MudText>
+    @if (!_pending.Any())
+    {
+        <MudAlert Severity="Severity.Info" Class="mt-2 mb-4">
+            No trade requests are waiting on you right now. Requests on shifts you
+            serve — or in organizations you direct — will appear here.
+        </MudAlert>
+    }
+    else
+    {
+        <MudPaper Outlined="true" Class="glass-card mt-2 mb-4">
+            <MudTable Items="_pending" Hover="true" Dense="true" Elevation="0">
+                <HeaderContent>
+                    <MudTh>When</MudTh>
+                    <MudTh>Shift</MudTh>
+                    <MudTh>Requested by</MudTh>
+                    <MudTh>Currently serving</MudTh>
+                    <MudTh></MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="When">
+                        <LocalTime Utc="@context.StartUtc" Format="@(new("ddd, MMM d • h:mm tt"))" /> –
+                        <LocalTime Utc="@context.EndUtc" Format="h:mm tt" />
+                    </MudTd>
+                    <MudTd DataLabel="Shift">@context.MinistryName · @context.SlotName</MudTd>
+                    <MudTd DataLabel="Requested by">
+                        @context.RequesterName
+                        @if (!string.IsNullOrEmpty(context.Message))
+                        {
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary">"@context.Message"</MudText>
+                        }
+                    </MudTd>
+                    <MudTd DataLabel="Currently serving">@context.TargetOwnerName</MudTd>
+                    <MudTd>
+                        <MudStack Row="true" Spacing="1">
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small"
+                                       Disabled="@(_busyRequestId == context.RequestId)"
+                                       OnClick="@(() => DecideAsync(context, approve: true))">
+                                @(_busyRequestId == context.RequestId ? "…" : "Approve")
+                            </MudButton>
+                            <MudButton Variant="Variant.Outlined" Color="Color.Error" Size="Size.Small"
+                                       Disabled="@(_busyRequestId == context.RequestId)"
+                                       OnClick="@(() => DecideAsync(context, approve: false))">
+                                Decline
+                            </MudButton>
+                        </MudStack>
+                    </MudTd>
+                </RowTemplate>
+            </MudTable>
+        </MudPaper>
+    }
+
+    @* ---- Your requests ---- *@
+    <MudText Typo="Typo.h6" Class="mt-2">Your requests</MudText>
+    @if (!_mine.Any())
+    {
+        <MudAlert Severity="Severity.Info" Class="mt-2">
+            You haven't requested any trades. Filled shifts appear on
+            <MudLink Href="Open">Browse open slots</MudLink> with the
+            "Show filled shifts" toggle on — use "Request to take …'s spot" there.
+        </MudAlert>
+    }
+    else
+    {
+        <MudPaper Outlined="true" Class="glass-card mt-2">
+            <MudTable Items="_mine" Hover="true" Dense="true" Elevation="0">
+                <HeaderContent>
+                    <MudTh>When</MudTh>
+                    <MudTh>Shift</MudTh>
+                    <MudTh>Status</MudTh>
+                    <MudTh></MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="When">
+                        <LocalTime Utc="@context.StartUtc" Format="@(new("ddd, MMM d • h:mm tt"))" /> –
+                        <LocalTime Utc="@context.EndUtc" Format="h:mm tt" />
+                    </MudTd>
+                    <MudTd DataLabel="Shift">@context.MinistryName · @context.SlotName</MudTd>
+                    <MudTd DataLabel="Status">
+                        <MudChip T="string" Size="Size.Small" Color="@StatusColorFor(context.Status)">
+                            @context.Status
+                        </MudChip>
+                    </MudTd>
+                    <MudTd>
+                        @if (context.Status == SlotTradeRequestStatus.Pending)
+                        {
+                            <MudButton Variant="Variant.Outlined" Color="Color.Error" Size="Size.Small"
+                                       Disabled="@(_busyRequestId == context.RequestId)"
+                                       OnClick="@(() => CancelMineAsync(context))">
+                                Withdraw
+                            </MudButton>
+                        }
+                    </MudTd>
+                </RowTemplate>
+            </MudTable>
+        </MudPaper>
+    }
+}
+
+@inject ISlotTradeService TradeSvc
+@inject AuthenticationStateProvider Auth
+@code {
+    private bool _loading = true;
+    private string? _userId;
+    private List<SlotTradeRequestView> _pending = new();
+    private List<SlotTradeRequestView> _mine = new();
+    private int _busyRequestId;
+    private Banner? _banner;
+    private record Banner(string Text, Severity Severity);
+
+    private List<BreadcrumbItem> _crumbs = new()
+    {
+        new BreadcrumbItem("Home", href: ""),
+        new BreadcrumbItem("Slot trades", href: null, disabled: true),
+    };
+
+    protected override async Task OnInitializedAsync() => await Reload();
+
+    private async Task Reload()
+    {
+        _loading = true;
+        try
+        {
+            var state = await Auth.GetAuthenticationStateAsync();
+            _userId = state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            if (string.IsNullOrEmpty(_userId))
+            {
+                _pending = new();
+                _mine = new();
+                return;
+            }
+
+            _pending = await TradeSvc.ListPendingForApproverAsync(_userId);
+            _mine = await TradeSvc.ListMineAsync(_userId);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task DecideAsync(SlotTradeRequestView view, bool approve)
+    {
+        if (string.IsNullOrEmpty(_userId)) return;
+        _busyRequestId = view.RequestId;
+        _banner = null;
+        try
+        {
+            var decision = approve
+                ? await TradeSvc.ApproveAsync(view.RequestId, _userId)
+                : await TradeSvc.DeclineAsync(view.RequestId, _userId);
+            _banner = decision.Result switch
+            {
+                SlotTradeDecisionResult.Succeeded when approve
+                    => new($"Approved — {view.RequesterName} now has the shift. They've been notified.",
+                        Severity.Success),
+                SlotTradeDecisionResult.Succeeded
+                    => new($"Declined — {view.RequesterName} has been notified.", Severity.Info),
+                SlotTradeDecisionResult.ValidationFailed
+                    => new("Can't approve this trade yet: " + string.Join(" ", decision.Conflicts.Concat(decision.MissingTrainings)),
+                        Severity.Error),
+                SlotTradeDecisionResult.StaleOrAlreadyDecided
+                    => new("This request was already handled (or the shift changed hands). The list has been refreshed.",
+                        Severity.Warning),
+                SlotTradeDecisionResult.PermissionDenied
+                    => new("You're not allowed to decide this request.", Severity.Error),
+                _ => new("Something went wrong handling this request.", Severity.Error),
+            };
+            await Reload();
+        }
+        finally
+        {
+            _busyRequestId = 0;
+        }
+    }
+
+    private async Task CancelMineAsync(SlotTradeRequestView view)
+    {
+        if (string.IsNullOrEmpty(_userId)) return;
+        _busyRequestId = view.RequestId;
+        _banner = null;
+        try
+        {
+            var decision = await TradeSvc.CancelAsync(view.RequestId, _userId);
+            _banner = decision.Result == SlotTradeDecisionResult.Succeeded
+                ? new("Request withdrawn.", Severity.Info)
+                : new("That request was already decided.", Severity.Warning);
+            await Reload();
+        }
+        finally
+        {
+            _busyRequestId = 0;
+        }
+    }
+
+    private static Color StatusColorFor(SlotTradeRequestStatus status) => status switch
+    {
+        SlotTradeRequestStatus.Pending => Color.Warning,
+        SlotTradeRequestStatus.Approved => Color.Success,
+        SlotTradeRequestStatus.Declined => Color.Error,
+        _ => Color.Default,
+    };
+}

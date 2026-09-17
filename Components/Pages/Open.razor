@@ -10,6 +10,8 @@
     immediate — the slot becomes <strong>Scheduled</strong> on your
     <MudLink Href="MySchedule">My schedule</MudLink> right away. Missing training will block
     the sign-up button so the coordinator can route you to the right content.
+    Names on each card show who's already serving — see who you'd serve with,
+    or reach out to trade a filled shift.
 </MudText>
 
 @* Round-FR-7: the 3-way pill-segment below combines three orthogonal
@@ -54,6 +56,17 @@
                     <MudSelectItem Value="@o.Id">@o.Name</MudSelectItem>
                 }
             </MudSelect>
+            @* Round-VIS-1: include already-filled shifts so volunteers can see
+               who's serving and arrange their own trades. Default OFF — the
+               page's original purpose is finding an open spot. *@
+            <MudToolTip Text="Show shifts that are already full, including who is serving — useful for arranging a trade">
+                <MudChip T="string" Size="Size.Small" Color="@(_showFilled ? Color.Primary : Color.Default)"
+                         OnClick="@(() => ToggleShowFilledAsync())"
+                         Icon="@(_showFilled ? Icons.Material.Filled.Visibility : Icons.Material.Outlined.VisibilityOff)"
+                         title="Show filled shifts (with names) so you can arrange a trade">
+                    @(_showFilled ? "Showing filled shifts" : "Show filled shifts")
+                </MudChip>
+            </MudToolTip>
         </MudStack>
         @if (_subscribedSlotIds.Count > 0 || _joinedMinistryIds.Count > 0)
         {
@@ -163,11 +176,24 @@ else
                         <MudChip T="string" Size="Size.Small" Color="Color.Default">
                             @s.SignedUpCount / @s.Capacity signed up
                         </MudChip>
-                        @if (s.SignedUpCount + 1 >= s.Capacity)
+                        @if (s.SignedUpCount >= s.Capacity)
+                        {
+                            <MudChip T="string" Size="Size.Small" Color="Color.Error">Full</MudChip>
+                        }
+                        else if (s.SignedUpCount + 1 >= s.Capacity)
                         {
                             <MudChip T="string" Size="Size.Small" Color="Color.Warning">Last spot</MudChip>
                         }
                     </MudStack>
+                    @* Round-VIS-1: who's already serving. On open shifts this
+                       is "who you'd serve with"; on filled shifts (Show filled
+                       ON) it's "who to contact to arrange a trade". *@
+                    @if (s.SignedUpNames.Count > 0)
+                    {
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary mb-2">
+                            Serving: @string.Join(", ", s.SignedUpNames)
+                        </MudText>
+                    }
                     @if (!s.TrainingCompliant)
                     {
                         <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">
@@ -213,28 +239,56 @@ else
                         @if (!_joinedMinistryIds.Contains(s.MinistryId))
                         {
                             <MudButton Variant="Variant.Outlined" Color="Color.Primary" FullWidth="true"
-                                       Disabled="@(!s.TrainingCompliant || _busyId == s.OccurrenceId)"
+                                       Disabled="@(!s.TrainingCompliant || _busyId == s.OccurrenceId || s.SignedUpCount >= s.Capacity)"
                                        OnClick="@(() => JoinAndSignUp(s))">
                                 @(_busyId == s.OccurrenceId
                                     ? "Joining…"
-                                    : (s.TrainingCompliant ? "Join ministry and sign up" : "Update training to sign up"))
+                                    : (s.SignedUpCount >= s.Capacity ? "Shift is full"
+                                        : (s.TrainingCompliant ? "Join ministry and sign up" : "Update training to sign up")))
                             </MudButton>
                         }
                         else
                         {
                             <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true"
-                                       Disabled="@(!s.TrainingCompliant || _busyId == s.OccurrenceId)"
+                                       Disabled="@(!s.TrainingCompliant || _busyId == s.OccurrenceId || s.SignedUpCount >= s.Capacity)"
                                        OnClick="@(() => SignUp(s))">
                                 @(_busyId == s.OccurrenceId
                                     ? "Signing up…"
-                                    : (s.TrainingCompliant ? "Sign up" : "Update training to sign up"))
+                                    : (s.SignedUpCount >= s.Capacity ? "Shift is full"
+                                        : (s.TrainingCompliant ? "Sign up" : "Update training to sign up")))
                             </MudButton>
+                        }
+                        @* Round-TRADE: on a filled shift, offer to take a specific
+                           occupant's spot instead of the disabled sign-up button.
+                           Hidden when the occupant is the viewer themself. *@
+                        @if (s.SignedUpCount >= s.Capacity && s.Occupants.Any(o => o.UserId != _userId))
+                        {
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary mb-1">
+                                Full — but you can request someone's spot:
+                            </MudText>
+                            <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap" Class="mb-1">
+                                @foreach (var o in s.Occupants.Where(o => o.UserId != _userId))
+                                {
+                                    <MudButton Variant="Variant.Outlined" Color="Color.Secondary" Size="Size.Small"
+                                               Disabled="@(_busyTradeAssignmentId == o.AssignmentId)"
+                                               OnClick="@(() => RequestTradeAsync(o))">
+                                        @(_busyTradeAssignmentId == o.AssignmentId ? "Requesting…" : $"Request to take {o.Name}'s spot")
+                                    </MudButton>
+                                }
+                            </MudStack>
                         }
                         @if (_lastResult is not null && _lastResult.Id == s.OccurrenceId)
                         {
                             <MudAlert Severity="@(_lastResult.Succeeded ? Severity.Success : Severity.Error)"
                                       Dense="true" Class="mt-2 mb-0">
                                 @_lastResult.Message
+                            </MudAlert>
+                        }
+                        @if (_tradeMessage is not null && _tradeMessage.OccurrenceId == s.OccurrenceId)
+                        {
+                            <MudAlert Severity="@(_tradeMessage.Succeeded ? Severity.Success : Severity.Error)"
+                                      Dense="true" Class="mt-2 mb-0">
+                                @_tradeMessage.Message
                             </MudAlert>
                         }
                     </div>
@@ -248,6 +302,7 @@ else
 @inject IAssignmentService AssignmentService
 @inject IMinistryInterestService MinistryInterest
 @inject ISlotInterestService Slots
+@inject ISlotTradeService Trades
 @inject AuthenticationStateProvider Auth
 @inject UserTimeZoneProvider TzProvider
 @inject IJSRuntime JS
@@ -275,6 +330,60 @@ else
     // from "user-chosen mode" so subsequent Reloads (e.g., after
     // sign-up) don't snap the filter back to a different default.
     private bool _filterModeUserChosen;
+
+    // Round-VIS-1: when true, ListOpenSlotOccurrencesAsync keeps
+    // already-filled shifts in the list (with sign-up names) so volunteers
+    // can see who's serving and arrange their own trades. Default false —
+    // /Open's primary purpose is still finding an open spot.
+    private bool _showFilled;
+
+    private async Task ToggleShowFilledAsync()
+    {
+        _showFilled = !_showFilled;
+        await Reload();
+    }
+
+    // Round-TRADE: in-flight tracking + result feedback for the per-card
+    // "Request to take …'s spot" buttons. Keyed by the TARGET assignment id
+    // so only the clicked occupant's button shows a spinner.
+    private int _busyTradeAssignmentId;
+    private TradeRequestFeedback? _tradeMessage;
+    private record TradeRequestFeedback(int OccurrenceId, bool Succeeded, string Message);
+
+    private async Task RequestTradeAsync(OpenSlotOccupant occupant)
+    {
+        if (string.IsNullOrEmpty(_userId)) return;
+        _busyTradeAssignmentId = occupant.AssignmentId;
+        _tradeMessage = null;
+        try
+        {
+            var result = await Trades.RequestTradeAsync(_userId, occupant.AssignmentId);
+            _tradeMessage = result switch
+            {
+                SlotTradeRequestResult.Succeeded
+                    => new(occupant.AssignmentId, true,
+                        $"Trade requested — {occupant.Name} and the coordinators have been notified. Track it under Slot trades."),
+                SlotTradeRequestResult.DuplicatePendingRequest
+                    => new(occupant.AssignmentId, false, "You already have a pending request for this shift."),
+                SlotTradeRequestResult.TrainingNotCompliant
+                    => new(occupant.AssignmentId, false,
+                        "You need to complete the required training before requesting this trade."),
+                SlotTradeRequestResult.TargetNotTradeable
+                    => new(occupant.AssignmentId, false, "This shift can't be traded (it may have started or already changed hands)."),
+                SlotTradeRequestResult.PermissionDenied
+                    => new(occupant.AssignmentId, false, "You're not allowed to request this trade."),
+                _ => new(occupant.AssignmentId, false, "Couldn't file the trade request."),
+            };
+            if (result == SlotTradeRequestResult.Succeeded)
+            {
+                await Reload();
+            }
+        }
+        finally
+        {
+            _busyTradeAssignmentId = 0;
+        }
+    }
 
     // Cached joined-ministry ids, populated alongside the open-shifts
     // query in Reload. Drives the empty-state CTA and the pill-segment
@@ -544,7 +653,8 @@ else
                 slotFilter = new HashSet<int> { -1 };
             }
 
-            var openShifts = await AssignmentService.ListOpenSlotOccurrencesAsync(userId, fromUtc, toUtc, ministryFilter, slotFilter);
+            var openShifts = await AssignmentService.ListOpenSlotOccurrencesAsync(
+                userId, fromUtc, toUtc, ministryFilter, slotFilter, includeFullSlots: _showFilled);
 
             if (!iAmLatest()) return;
 

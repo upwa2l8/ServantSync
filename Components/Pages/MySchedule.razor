@@ -99,6 +99,7 @@ else
                         <MudTh>When</MudTh>
                         <MudTh>Where</MudTh>
                         <MudTh>Slot</MudTh>
+                        <MudTh>Serving with</MudTh>
                         <MudTh>Status</MudTh>
                         <MudTh></MudTh>
                     </HeaderContent>
@@ -108,6 +109,16 @@ else
                         </MudTd>
                         <MudTd DataLabel="Where">@(context.ServiceSlot.Location ?? context.ServiceSlot.Ministry.Name)</MudTd>
                         <MudTd DataLabel="Slot">@context.ServiceSlot.Ministry.Name · @context.ServiceSlot.Name</MudTd>
+                        <MudTd DataLabel="Serving with">
+                            @if (_coServers.TryGetValue((context.ServiceSlotId, context.StartUtc), out var coServers) && coServers.Count > 0)
+                            {
+                                @string.Join(", ", coServers)
+                            }
+                            else
+                            {
+                                <MudText Typo="Typo.caption" Class="mud-text-secondary">—</MudText>
+                            }
+                        </MudTd>
                         <MudTd DataLabel="Status">
                             <MudChip T="string" Size="Size.Small" Color="@AssignmentStatusUi.MudColorFor(context.Status)">
                                 @context.Status
@@ -272,6 +283,11 @@ else
     private DateTime _anchorDate = new(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1);
 
     private List<Assignment> _assignments = new();
+    // Round-VIS-1: display names of other volunteers signed up for the same
+    // (ServiceSlotId, StartUtc) pair, keyed per shift so the "Serving with"
+    // column can render them. Your own name is excluded. Empty list = serving
+    // solo — the column shows a dash so a solo shift is glanceable.
+    private Dictionary<(int SlotId, DateTime StartUtc), List<string>> _coServers = new();
     private List<CalendarEvent> _calendarEvents = new();
     private List<TrainingSession> _myTrainingSessions = new();
     private List<AvailableTrainingSessionView> _availableSessions = new();
@@ -355,6 +371,7 @@ else
                 _calendarEvents = new();
                 _outstanding = new();
                 _myOrgIds = new();
+                _coServers = new();
                 return;
             }
 
@@ -376,6 +393,43 @@ else
                 .OrderBy(a => a.StartUtc)
                 .AsNoTracking()
                 .ToListAsync();
+
+            // Round-VIS-1: co-server names for every shift in the loaded
+            // window. Same active-status contract as /Open (Cancelled and
+            // NoShow don't count). One trip: batch all (slotId, startUtc)
+            // pairs into the query, then group in C#. Own name excluded —
+            // it's already the row.
+            var myPairs = _assignments.Select(a => (a.ServiceSlotId, a.StartUtc)).Distinct().ToList();
+            // Scalar lists for the EF predicate (tuple Contains doesn't
+            // translate); the exact (slot, start) pair match happens in
+            // memory below — same pattern as ListOpenSlotOccurrencesAsync.
+            var mySlotIds = myPairs.Select(p => p.ServiceSlotId).Distinct().ToList();
+            var myStarts = myPairs.Select(p => p.StartUtc).Distinct().ToList();
+            var coServerRows = new List<(int ServiceSlotId, DateTime StartUtc, string Name)>();
+            if (myPairs.Count > 0)
+            {
+                var rows = await db.Assignments
+                    .Where(a => a.Status != AssignmentStatus.Cancelled
+                        && a.Status != AssignmentStatus.NoShow
+                        && a.PersonUserId != _userId
+                        && mySlotIds.Contains(a.ServiceSlotId)
+                        && myStarts.Contains(a.StartUtc))
+                    .Join(db.People,
+                        a => a.PersonUserId,
+                        p => p.UserId,
+                        (a, p) => new { a.ServiceSlotId, a.StartUtc, p.FirstName, p.LastName })
+                    .AsNoTracking()
+                    .ToListAsync();
+                coServerRows = rows
+                    .Where(r => myPairs.Contains((r.ServiceSlotId, r.StartUtc)))
+                    .Select(r => (r.ServiceSlotId, r.StartUtc, $"{r.FirstName} {r.LastName}".Trim()))
+                    .ToList();
+            }
+            _coServers = coServerRows
+                .GroupBy(c => (c.ServiceSlotId, c.StartUtc))
+                .ToDictionary(
+                    g => g.Key,
+                    g => g.Select(c => c.Name).ToList());
 
             if (_myOrgIds.Count > 0)
             {

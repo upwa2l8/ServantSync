@@ -54,6 +54,10 @@ public class ApplicationDbContext : IdentityDbContext<IdentityUser>
     public DbSet<SystemAdminGrantAudit> SystemAdminGrantAudits => Set<SystemAdminGrantAudit>();
     // Round-FR-4: public feature request triage queue.
     public DbSet<FeatureRequest> FeatureRequests => Set<FeatureRequest>();
+    // Round-TRADE: volunteer requests to take over a filled shift; approved
+    // by the serving volunteer OR coordinator-and-above. See
+    // Models/SlotTradeRequest.cs + Services/SlotTradeService.cs.
+    public DbSet<SlotTradeRequest> SlotTradeRequests => Set<SlotTradeRequest>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -509,6 +513,34 @@ public class ApplicationDbContext : IdentityDbContext<IdentityUser>
             b.HasIndex(f => f.CreatedUtc);
             b.HasIndex(f => f.Status);
             b.HasIndex(f => f.SubmitterIp);
+        });
+
+        // ---- SlotTradeRequest (Round-TRADE) ----
+        // Referential policy rationale lives on the model's doc comment:
+        // RequesterUserId + TargetAssignmentId cascade (a dead volunteer's
+        // requests are noise; an approved trade's swap already happened and
+        // a pending trade's vanished target can never be approved).
+        // TargetOwnerUserId / RequestedForUserId are deliberately plain
+        // string columns with no FK nav — denormalized audit data that must
+        // survive the referenced account being removed (same pattern as
+        // SystemAdminGrantAudit + TrainingSession.CreatedByUserId).
+        modelBuilder.Entity<SlotTradeRequest>(b =>
+        {
+            b.HasOne(r => r.Requester)
+                .WithMany()
+                .HasForeignKey(r => r.RequesterUserId)
+                .OnDelete(DeleteBehavior.Cascade);
+            b.HasOne(r => r.TargetAssignment)
+                .WithMany()
+                .HasForeignKey(r => r.TargetAssignmentId)
+                .OnDelete(DeleteBehavior.Cascade);
+            // Hot paths: "pending requests for this assignment" (duplicate
+            // check at filing + approve-time staleness) and "my requests".
+            b.HasIndex(r => new { r.TargetAssignmentId, r.Status });
+            b.HasIndex(r => r.RequesterUserId);
+            b.Property(r => r.TargetOwnerUserId).HasMaxLength(128);
+            b.Property(r => r.RequestedForUserId).HasMaxLength(128);
+            b.Property(r => r.DecidedByUserId).HasMaxLength(128);
         });
     }
 }

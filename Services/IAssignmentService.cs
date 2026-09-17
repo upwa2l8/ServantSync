@@ -132,6 +132,7 @@ public interface IAssignmentService
         DateTime toUtc,
         IReadOnlyCollection<int>? ministryIdsFilter = null,
         IReadOnlyCollection<int>? slotIdsFilter = null,
+        bool includeFullSlots = false,
         CancellationToken ct = default);
 
     Task<bool> CancelAssignmentAsync(
@@ -178,7 +179,28 @@ public record OpenSlotOccurrenceView(
     /// <c>LocalTime</c>'s tier-2 catch.
     /// </summary>
     string? OrganizationTimeZoneId,
+    /// <summary>
+    /// Round-VIS-1: display names (<c>Person.FirstName + " " + LastName</c>) of the
+    /// volunteers already signed up for this shift, ordered by assignment creation
+    /// time. Empty when the shift has no sign-ups yet. /Open renders these names
+    /// on every card so partially-filled shifts show who you'd serve WITH, and
+    /// full shifts (visible via <c>includeFullSlots</c>) show who to contact to
+    /// self-trade. No per-user suppression: this app's population is church
+    /// volunteers who already know each other; hiding names here would block
+    /// the self-trading workflow the feature exists for.
+    /// </summary>
+    IReadOnlyList<string> SignedUpNames,
+    /// <summary>
+    /// Round-TRADE: who is serving, with the assignment id each seat maps to,
+    /// so the /Open "Request trade" button can target a SPECIFIC occupant's
+    /// Assignment row (approval re-parents that exact row). Parallel to
+    /// <see cref="SignedUpNames"/> in ordering. Empty for unfilled shifts.
+    /// </summary>
+    IReadOnlyList<OpenSlotOccupant> Occupants,
     string? Notes);
+
+/// <summary>One seated volunteer on an open-slot card; pairs the display name with the Assignment row a trade would take over.</summary>
+public record OpenSlotOccupant(string UserId, string Name, int AssignmentId);
 
 /// <summary>
 /// Outcome of a recurring open-shift series expansion. Parallel to

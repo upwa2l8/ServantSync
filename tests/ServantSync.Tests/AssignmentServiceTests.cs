@@ -848,7 +848,11 @@ public class AssignmentServiceTests : SqliteTestBase
         var (slot, _, _) = await BuildSlotWithCapacityAsync(2);
         var svc = NewService();
 
-        var (firstDate, endDate, tzId, stime) = WeeklySundayBlock(new DateTime(2026, 7, 12), 28);
+        // Rolling anchor: originally hard-coded 2026-07-12, which silently
+        // expired once real time passed it (Sept 2026) and tripped the
+        // future-leaning assert below. Anchor relative to UtcNow so the
+        // generated series is always in the future.
+        var (firstDate, endDate, tzId, stime) = WeeklySundayBlock(DateTime.UtcNow.Date.AddDays(1), 28);
 
         var result = await svc.ScheduleOpenShiftSeriesAsync(
             slot.Id, DayOfWeek.Sunday, stime, 60,

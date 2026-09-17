@@ -141,8 +141,9 @@ builder.Services.AddScoped<ISlotManagementService, SlotManagementService>();
 // the SystemAdmin Identity role — every grant/revoke lands an audit
 // row in SystemAdminGrantAudits.
 builder.Services.AddScoped<ISystemAdminManagementService, SystemAdminManagementService>();
-builder.Services.AddScoped<IMinistryInterestService, MinistryInterestService>();
-builder.Services.AddScoped<ISlotInterestService, SlotInterestService>();
+builder.Services.AddScoped<IMinistryInterestService, MinistryInterestService>();    builder.Services.AddScoped<ISlotInterestService, SlotInterestService>();
+    // Round-TRADE: volunteer requests to take over a filled shift.
+    builder.Services.AddScoped<ISlotTradeService, SlotTradeService>();
 builder.Services.AddScoped<IFeatureRequestService, FeatureRequestService>();
 builder.Services.AddScoped<ITrainingDueSoonService, TrainingDueSoonService>();
 builder.Services.AddScoped<ICoordinatorAssignmentsService, CoordinatorAssignmentsService>();

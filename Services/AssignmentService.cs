@@ -244,6 +244,7 @@ public class AssignmentService : IAssignmentService
         DateTime toUtc,
         IReadOnlyCollection<int>? ministryIdsFilter = null,
         IReadOnlyCollection<int>? slotIdsFilter = null,
+        bool includeFullSlots = false,
         CancellationToken ct = default)
     {
         await using var db = await _factory.CreateDbContextAsync(ct);
@@ -325,8 +326,37 @@ public class AssignmentService : IAssignmentService
                 && a.Status != AssignmentStatus.NoShow
                 && slotIds.Contains(a.ServiceSlotId)
                 && starts.Contains(a.StartUtc))
-            .Select(a => new { a.ServiceSlotId, a.StartUtc, a.PersonUserId })
+            .Join(db.People,
+                a => a.PersonUserId,
+                p => p.UserId,
+                (a, p) => new { a.ServiceSlotId, a.StartUtc, a.PersonUserId, a.CreatedUtc, a.Id, p.FirstName, p.LastName })
+            .OrderBy(a => a.CreatedUtc)
             .AsNoTracking().ToListAsync(ct);
+
+        // Round-VIS-1: display names for the sign-ups on each (slot, start)
+        // pair. Rendered on /Open cards ("serving with …") and on full shifts
+        // (who to contact to self-trade). Person.DisplayName is a computed
+        // property, not a column, so the join materializes FirstName/LastName
+        // and the dictionary is built server-side-in-C# after the round-trip.
+        // Ordered by CreatedUtc so the roster reads in sign-up order.
+        var namesByOccurrence = signups
+            .GroupBy(s => (s.ServiceSlotId, s.StartUtc))
+            .ToDictionary(
+                g => g.Key,
+                g => (IReadOnlyList<string>)g
+                    .Select(s => $"{s.FirstName} {s.LastName}".Trim())
+                    .ToList());
+
+        // Round-TRADE: seat-level detail for the /Open "Request trade" flow —
+        // the approval re-parents a SPECIFIC Assignment row, so the UI needs
+        // (userId, name, assignmentId) per occupant, not just a name list.
+        var occupantsByOccurrence = signups
+            .GroupBy(s => (s.ServiceSlotId, s.StartUtc))
+            .ToDictionary(
+                g => g.Key,
+                g => (IReadOnlyList<OpenSlotOccupant>)g
+                    .Select(s => new OpenSlotOccupant(s.PersonUserId, $"{s.FirstName} {s.LastName}".Trim(), s.Id))
+                    .ToList());
 
         // 4) Training compliance across all candidate slots.
         var requiredContentIds = await db.TrainingRequirements
@@ -381,8 +411,11 @@ public class AssignmentService : IAssignmentService
             if (alreadySignedUp) continue;
             if (r.EndUtc <= nowUtc) continue;
 
-            // Only show open rows: count < capacity.
-            if (count >= capacity) continue;
+            // Open-only default: hide full rows. Round-VIS-1: when the caller
+            // passes includeFullSlots (the /Open "show filled" toggle), full
+            // rows are KEPT so volunteers can see who's serving and self-trade;
+            // the page disables the Sign-up button on those cards.
+            if (count >= capacity && !includeFullSlots) continue;
 
             result.Add(new OpenSlotOccurrenceView(
                 OccurrenceId: r.OccurrenceId,
@@ -401,6 +434,12 @@ public class AssignmentService : IAssignmentService
                 TrainingCompliant: missing.Count == 0,
                 MissingTrainings: missing,
                 OrganizationTimeZoneId: r.OrganizationTimeZoneId,
+                SignedUpNames: namesByOccurrence.TryGetValue((r.ServiceSlotId, r.StartUtc), out var names)
+                    ? names
+                    : Array.Empty<string>(),
+                Occupants: occupantsByOccurrence.TryGetValue((r.ServiceSlotId, r.StartUtc), out var occ)
+                    ? occ
+                    : Array.Empty<OpenSlotOccupant>(),
                 Notes: r.Notes));
         }
         return result;
