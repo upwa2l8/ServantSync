@@ -8,6 +8,14 @@
 > - `DEPLOY.md` → Azure Container Apps (the old host; we moved off it)
 > - `.github/workflows/deploy.yml` → still deploys to Azure; it will not touch the droplet
 > - `scripts/deploy.sh` / `deploy.ps1` → target Azure *Web Apps* (also the old world)
+>
+> Pushing to `main` still fires that Azure workflow ("Deploy to Azure Container Apps" on
+> github.com/actions). It cannot reach the droplet and dies at the Azure login step —
+> harmless red X, ignore it. (Disabling its push trigger is part of the codify-later step.)
+>
+> **EF migrations need no manual step**: the app calls `MigrateAsync()` at startup
+> (`Program.cs`), so any new tables (e.g. `SlotTradeRequests`) are created automatically
+> on the first boot after a deploy. Verify with the Step 6 check.
 
 ---
 
@@ -50,7 +58,8 @@ dotnet publish -c Release -r linux-x64 --self-contained true -o .\publish-linux
 One command, run on the droplet, backs up app files **and** the SQLite database:
 
 ```bash
-ssh root@157.230.223.56 "tar czf /root/servantsync-backup-\$(date +%F-%H%M).tar.gz -C /root servantsync && ls -lh /root/servantsync-backup-* | tail -3"
+# NOTE the SINGLE quotes: they stop PowerShell from trying to run `date` locally.
+ssh root@157.230.223.56 'tar czf /root/servantsync-backup-$(date +%F-%H%M).tar.gz -C /root servantsync && ls -lh /root/servantsync-backup-* | tail -3'
 ```
 
 Restore (if a deploy goes sideways):
@@ -129,6 +138,15 @@ ssh root@157.230.223.56 "docker restart <container-name>"
    `ssh root@157.230.223.56 "journalctl -u servantsync -n 50 --no-pager"` (or `docker logs --tail 50 <name>`)
 4. **A real feature works:** log in once — the login POST path is the most config-sensitive
    code in the app (antiforgery, Data Protection, DB).
+5. **Migrations applied** (only after deploys that add features): the new table should
+   exist. If `sqlite3` is installed on the droplet:
+
+   ```powershell
+   ssh root@157.230.223.56 "sqlite3 /root/servantsync/servantsync.db '.tables'" | Select-String Trade
+   ```
+
+   Expect `SlotTradeRequests` in the output. If `sqlite3` isn't installed, just exercise
+   the feature in the UI instead (Open → show filled shifts → Request to take spot).
 
 ---
 
@@ -144,7 +162,8 @@ ssh root@157.230.223.56 "docker restart <container-name>"
 
 ## Backups (beyond pre-deploy snapshots)
 
-- Quick manual: `ssh root@157.230.223.56 "sqlite3 /root/servantsync/servantsync.db '.backup /root/servantsync-$(date +%F).db'"`
+- Quick manual (single quotes so PowerShell passes `$(date …)` to the droplet):
+  `ssh root@157.230.223.56 'sqlite3 /root/servantsync/servantsync.db ".backup /root/servantsync-$(date +%F).db"'`
 - The repo also has `Services/SqliteBackupService.cs` (VACUUM INTO snapshots) — check
   whether it's registered in `Program.cs` and where it writes before relying on it.
 
